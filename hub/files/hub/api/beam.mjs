@@ -2,14 +2,14 @@
 // to the iPhone; this is its PC screen. It uses the same folders as beam/app/beam/beam.py:
 //   send list  %APPDATA%\Beam\outbox   (the iPhone pulls from here)
 //   received   Downloads\Beam
-import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { readFile, readdir, stat, link, rename, unlink, writeFile, copyFile, mkdir } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import dgram from "node:dgram";
 import { join, extname, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { spawn, execFile } from "node:child_process";
 import net from "node:net";
 
@@ -73,6 +73,12 @@ async function deviceList() {
     out.push({ id, name: n.name || d.name || KIND_NAME[d.kind] || "Phone", kind: d.kind || "", seen: (d.seen || 0) * 1000,
       nearby: now - (d.seen || 0) < 45, waiting: await files(devDir(id)) });
   }
+  // two iPhones both called "iPhone": the one seen first keeps the name, the other becomes "iPhone 2" (rename on its card)
+  const taken = {};
+  for (const d of [...out].sort((a, b) => (seen[a.id].first || a.seen) - (seen[b.id].first || b.seen) || a.id.localeCompare(b.id))) {
+    const n = (taken[d.name.toLowerCase()] = (taken[d.name.toLowerCase()] || 0) + 1);
+    if (n > 1) d.name += " " + n;
+  }
   return out.sort((a, b) => b.seen - a.seen);
 }
 // which devices a request is for: ?to=<id>,<id> (only known ones); none means any device
@@ -127,9 +133,26 @@ function prepare() {
     return existsSync(PYW);
   })().finally(() => { preparing = null; }));
 }
+// The code the engine should be running: the same sum beam_host.py writes into engine.json when it starts. When the
+// hub is updated (beam.py or beam_host.py changed), the engine still running the old code is restarted.
+const BEAM_PY = join(here, "..", "..", "beam", "app", "beam", "beam.py");
+const engineCode = () => { try { return createHash("sha256").update(readFileSync(BEAM_PY)).update(readFileSync(HOST_PY)).digest("hex"); } catch { return ""; } };
+// every running Beam engine (not one-off "send" or "add" runs from the right-click menu)
+const stopEngines = () => new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+  `Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -match 'beam_host\.py"?\s*$' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
+  { windowsHide: true, timeout: 30000 }, () => ok()));
+let managing = false, restartedFor = "";   // managing: this is the hub that looks after the engine (port 4800)
 export async function startBeam() {
-  const cfg = await config();
-  if (await portOpen(cfg.port || 8765)) return true;
+  const cfg = await config(), port = cfg.port || 8765;
+  if (await portOpen(port)) {
+    const want = managing ? engineCode() : "";
+    if (!want || restartedFor === want) return true;
+    let running = {}; try { running = JSON.parse(await readFile(join(HOME, "engine.json"), "utf8")); } catch {}
+    if (running.code === want) { restartedFor = want; return true; }
+    restartedFor = want;   // once per version, so a PC that can't write engine.json isn't restarted every minute
+    await stopEngines();
+    for (let i = 0; i < 40 && await portOpen(port); i++) await new Promise((r) => setTimeout(r, 250));
+  }
   if (!(await prepare())) return false;
   spawn(PYW, [HOST_PY], { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
   return true;
@@ -137,25 +160,34 @@ export async function startBeam() {
 export const beamEngine = { python: PYW, host: HOST_PY };
 // The iPhone must always be able to reach the PC: start the engine with the hub and bring it back if it stops.
 export function superviseBeam() {
+  managing = true;
   setTimeout(() => startBeam().then(addToExplorer).catch(() => {}), 1500);
   setInterval(() => { startBeam().catch(() => {}); addToExplorer().catch(() => {}); }, 60000);
 }
 // ---------- Explorer (any PC, this user only, no admin; on Windows 11 under "Show more options"). Selecting several
 // files runs the command once per file; beam_host.py combines them into one notice.
-// Right-click > "Send to Beam" > one of your devices, "All my devices", or "Any device". Rewritten when the device
+// Right-click > "Send to Beam" > one of your devices, or "All my devices". Rewritten when the device
 // list or names change (and at start, so it always points at this install).
-let explorerSig = "";
-async function addToExplorer() {
+// Only the hub that looks after Beam writes it (never a test copy), one write at a time. A short sum of the menu is
+// kept in the registry with it, so a menu that is out of date, or was changed by something else, is put right.
+let explorerQueue = Promise.resolve();
+const regSig = (key) => new Promise((ok) => execFile("reg.exe", ["query", key, "/v", "ShivoSig"], { windowsHide: true },
+  (e, out) => ok((String(out || "").match(/ShivoSig\s+REG_SZ\s+(\S+)/) || [])[1] || "")));
+function addToExplorer() {
+  if (!managing) return Promise.resolve();
+  return (explorerQueue = explorerQueue.then(writeExplorer, writeExplorer));
+}
+async function writeExplorer() {
   const list = await deviceList().catch(() => []);
-  const sig = JSON.stringify([PYW, HOST_PY, list.map((d) => [d.id, d.name])]);
-  if (sig === explorerSig) return;
-  explorerSig = sig;
+  const sig = createHash("sha256").update(JSON.stringify([PYW, HOST_PY, list.map((d) => [d.id, d.name])])).digest("hex").slice(0, 16);
+  if ((await regSig("HKCU\\Software\\Classes\\*\\shell\\ShivoLabsBeam")) === sig &&
+      (await regSig("HKCU\\Software\\Classes\\Directory\\shell\\ShivoLabsBeam")) === sig) return;
   const ico = join(here, "..", "shivo-labs.ico");
   const cmd = (to) => `"${PYW}" "${HOST_PY}" send ${to ? `--to ${to} ` : ""}"%1"`;
   const items = [
     ...list.map((d) => [d.name, cmd(d.id)]),
     ...(list.length > 1 ? [["All my devices", cmd(list.map((d) => d.id).join(","))]] : []),
-    [list.length ? "Any device (whichever checks first)" : "My iPhone or iPad", cmd("")],
+    ...(list.length ? [] : [["My phone or tablet", cmd("")]]),   // before any device has checked in
   ];
   for (const cls of ["*", "Directory"]) {
     const key = `HKCU\\Software\\Classes\\${cls}\\shell\\ShivoLabsBeam`;
@@ -169,6 +201,7 @@ async function addToExplorer() {
       await run("reg.exe", ["add", sub, "/v", "MultiSelectModel", "/d", "Player", "/f"]);
       await run("reg.exe", ["add", sub + "\\command", "/ve", "/d", c, "/f"]);
     }
+    await run("reg.exe", ["add", key, "/v", "ShivoSig", "/d", sig, "/f"]);   // last: only a complete menu counts as written
   }
 }
 

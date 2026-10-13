@@ -8,7 +8,7 @@ Runs beam/app/beam/beam.py from this repo unchanged. The questions the tray app 
                                    (Explorer: right-click > Send to Beam > a device)
   pythonw beam_host.py add <files>   the same without a notice (the hub's Beam page shows its own)
 """
-import json, os, sys, tempfile, threading, time, urllib.request
+import hashlib, json, os, sys, tempfile, threading, time, urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -59,6 +59,12 @@ def main():
     srv = beam.make_server()
     if srv is None:  # already running
         return
+    # which code this engine runs, so the hub can restart it after an update (hub/api/beam.mjs, engineCode)
+    try:
+        code = hashlib.sha256(b"".join(f.read_bytes() for f in (Path(beam.__file__), Path(__file__)))).hexdigest()
+        (beam.HOME / "engine.json").write_text(json.dumps({"pid": os.getpid(), "code": code}))
+    except OSError:
+        pass
     stop = threading.Event()
 
     def advertise():

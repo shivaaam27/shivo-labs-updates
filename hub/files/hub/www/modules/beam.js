@@ -29,7 +29,7 @@ const names = (list) => list.length < 3 ? list.join(' and ') : `${list.length} d
 
 export function mountBeam(root, { esc, toast, openModule }) {
   let st = null, pairMode = 'shortcut', timer = 0, sending = 0, menuFor = '';
-  // the devices files go to (several allowed); none chosen = whichever device checks first
+  // the devices files go to (several allowed); none chosen = all of them
   let picked = new Set(); try { picked = new Set(JSON.parse(localStorage.getItem('beam.picked')) || []); } catch {}
   const savePicked = () => { try { localStorage.setItem('beam.picked', JSON.stringify([...picked])); } catch {} };
   root.innerHTML = `
@@ -97,7 +97,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
   }
   let renaming = false;
   function paintDevices(devs) {
-    $('#bmDevHint').textContent = devs.length ? (picked.size ? 'Click again to unselect' : 'Click to choose, or drop files on one') : '';
+    $('#bmDevHint').textContent = devs.length ? (picked.size ? 'Click again to unselect' : devs.length > 1 ? 'None chosen: files go to all of them' : 'Drop files on it, or below') : '';
     if (!devs.length) {
       $('#bmDevs').innerHTML = `<p class="emptyt">Phones and tablets show here after they open Beam once. Set one up on the right.</p>`;
       return;
@@ -145,8 +145,12 @@ export function mountBeam(root, { esc, toast, openModule }) {
     name.onblur = () => done(true);
   }
   // who a send goes to: the chosen devices (or the ones given), else any device
-  const chosen = () => (st?.devices || []).filter((d) => picked.has(d.id));
-  const label = (ids) => { const d = (st?.devices || []).filter((x) => ids.includes(x.id)).map((x) => x.name); return d.length ? names(d) : 'your phone'; };
+  // who a send goes to: the chosen devices, or all of them when none is chosen (never "whichever asks first")
+  const chosen = () => { const all = st?.devices || [], p = all.filter((d) => picked.has(d.id)); return p.length ? p : all; };
+  const label = (ids) => {
+    const all = st?.devices || [], d = all.filter((x) => ids.includes(x.id)).map((x) => x.name);
+    return !d.length ? 'your phone' : d.length > 1 && d.length === all.length ? 'all your devices' : names(d);
+  };
   function paintPair() {
     const url = pairMode === 'shortcut' ? st.shortcut : pairMode === 'web' ? st.web : st.webIp;
     const steps = pairMode === 'shortcut'
@@ -174,8 +178,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
   }
   function busy() {
     $('#bmDrop').classList.toggle('busy', sending > 0);
-    const c = chosen().map((d) => d.name), anyDev = (st?.devices || []).length ? 'any device' : 'your phone';
-    $('#bmDropT').textContent = sending ? `Preparing ${sending} item${sending > 1 ? 's' : ''}…` : `Drop files to send to ${c.length ? names(c) : anyDev}`;
+    $('#bmDropT').textContent = sending ? `Preparing ${sending} item${sending > 1 ? 's' : ''}…` : `Drop files to send to ${label(chosen().map((d) => d.id))}`;
     $('#bmDropS').textContent = sending ? '' : 'or click to choose · or copy files and press Ctrl+V here';
   }
   const drop = $('#bmDrop');

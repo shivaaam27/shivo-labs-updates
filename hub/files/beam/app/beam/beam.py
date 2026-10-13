@@ -61,16 +61,20 @@ def devices():
     return _devices
 
 
-def note_device(did, name="", kind=""):
+def note_device(did, name="", kind="", mac=""):
     """Remember a device and when it was last seen (written now and then, not on every 4-second check)."""
     with _dev_lock:
         d = devices().setdefault(did, {})
-        changed = (name and d.get("name") != name) or (kind and d.get("kind") != kind) or "seen" not in d
+        changed = ((name and d.get("name") != name) or (kind and d.get("kind") != kind)
+                   or (mac and d.get("mac") != mac) or "seen" not in d)
         if name:
             d["name"] = name
         if kind:
             d["kind"] = kind
+        if mac:
+            d["mac"] = mac
         d["seen"] = time.time()
+        d.setdefault("first", d["seen"])
         if changed or time.time() - _dev_saved[0] > 15:
             _dev_saved[0] = time.time()
             try:
@@ -281,19 +285,26 @@ class Handler(BaseHTTPRequestHandler):
     def param(self, key):
         return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get(key, [""])[0]
 
+    def mac(self):
+        """This device's Wi-Fi address (cached a minute, like trust)."""
+        ip, now = self.client_address[0], time.time()
+        hit = _addr_cache.get(ip)
+        if not hit or now - hit[0] > 60:
+            hit = _addr_cache[ip] = (now, device_id(ip))
+        return hit[1]
+
     def device(self):
-        """Who is asking: the id the app sends, or the Wi-Fi address (cached a minute, like trust)."""
+        """Who is asking: the id the app sends; without one (the Shortcut, an older app) the Wi-Fi address, or the
+        app on that same phone if it has checked in, so one phone is one device however it asks."""
         if getattr(self, "_did", None):
             return self._did
         given = re.sub(r"[^A-Za-z0-9-]", "", self.headers.get("X-Beam-Id", "") or self.param("bid"))[:64]
         if given:
             self._did = "app:" + given
         else:
-            ip, now = self.client_address[0], time.time()
-            hit = _addr_cache.get(ip)
-            if not hit or now - hit[0] > 60:
-                hit = _addr_cache[ip] = (now, device_id(ip))
-            self._did = hit[1]
+            mac = self.mac()
+            same = [(d.get("seen", 0), k) for k, d in list(devices().items()) if k.startswith("app:") and d.get("mac") == mac]
+            self._did = max(same)[1] if same else mac
         return self._did
 
     def authed(self, path=""):
@@ -454,8 +465,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def seen(self):
         try:
-            note_device(self.device(), urllib.parse.unquote(self.headers.get("X-Beam-Name", "") or self.param("bname"))[:60].strip(),
-                        re.sub(r"[^a-z]", "", (self.headers.get("X-Beam-Kind", "") or self.param("bkind")).lower())[:12])
+            did = self.device()
+            kind = re.sub(r"[^a-z]", "", (self.headers.get("X-Beam-Kind", "") or self.param("bkind")).lower())[:12]
+            if not kind:
+                ua = self.headers.get("User-Agent", "")
+                kind = ("ipad" if "iPad" in ua else "iphone" if re.search(r"iPhone|iPod|CFNetwork|Darwin", ua)
+                        else "android" if "Android" in ua else "")
+            note_device(did, urllib.parse.unquote(self.headers.get("X-Beam-Name", "") or self.param("bname"))[:60].strip(),
+                        kind, self.mac() if did.startswith("app:") else "")
         except Exception:  # never let bookkeeping get in the way of a transfer
             pass
 
@@ -603,11 +620,22 @@ def outbox(did=None):
                   key=lambda p: p.stat().st_mtime)
 
 
+class OnlyServer(ThreadingHTTPServer):
+    """The port is this engine's alone: on Windows, address reuse would let a second engine listen on it too, and
+    phones would reach one or the other at random."""
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def make_server():
     """Returns the server, or None if Beam is already running."""
     cfg = config()
     try:
-        srv = ThreadingHTTPServer(("0.0.0.0", cfg["port"]), Handler)
+        srv = OnlyServer(("0.0.0.0", cfg["port"]), Handler)
     except OSError:
         return None
     srv.cfg, srv.batch = cfg, {"n": 0, "t": 0}
