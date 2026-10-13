@@ -66,6 +66,8 @@ export const product: DocDef = {
     { key: 'barcodes', label: 'Barcodes', type: 'table', of: 'product_barcode', info: 'Works now: scan or type a barcode in any product search (sales, bills, stock) to find the product; a fast till scan screen comes in phase 4' },
     { key: 'units', label: 'Other units', type: 'table', of: 'product_unit', help: 'E.g. Carton = 24 Pcs, so you can buy and sell by the carton.' },
     { key: 'reorder', label: 'Reorder per store', type: 'table', of: 'product_reorder', soon: 'Phase 5 (Buy): the reorder suggestions list' },
+    { key: 'expense_account', label: 'Expense account', type: 'link', to: 'account', filter: { is_group: false, root_type: 'Expense' },
+      help: 'For services you buy (rent, transport, fuel): the account their bills are booked to. Empty: Other expenses (Setup).' },
     { key: 'default_supplier', label: 'Usual supplier', type: 'link', to: 'supplier', soon: 'Phase 5 (Buy): reorder suggestions and purchase orders' },
     { key: 'batch_tracked', label: 'Track batches', type: 'check', default: false, soon: 'Phase 6 (Stock extras): batch numbers on goods arrived, sales and counts' },
     { key: 'has_expiry', label: 'Has expiry date', type: 'check', default: false, soon: 'Phase 6 (Stock extras): expiry dates and the expiring-stock list' },
@@ -74,7 +76,7 @@ export const product: DocDef = {
   ],
   sections: [
     { label: 'Product', fields: ['name', 'code', 'group', 'brand', 'stock_unit', 'vat_category', 'can_sell', 'can_buy', 'active'], columns: 2 },
-    { label: 'Stock', fields: ['is_stock', 'valuation_method', 'default_supplier', 'batch_tracked', 'has_expiry'], columns: 2 },
+    { label: 'Stock', fields: ['is_stock', 'valuation_method', 'expense_account', 'default_supplier', 'batch_tracked', 'has_expiry'], columns: 2 },
     { label: 'Barcodes', fields: ['barcodes'], columns: 1 },
     { label: 'Units', fields: ['units'], columns: 1 },
     { label: 'Reorder', fields: ['reorder'], columns: 1 },

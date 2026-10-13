@@ -36,21 +36,32 @@ function dataOf(db: DB, type: string, id: unknown): Data | null {
 const given = (v: unknown) => v !== undefined && v !== null && v !== '';
 
 /** The company's VAT rate: the first active VAT in Setup that is not waiting for TRA's confirmation (the 16 %
- *  electronic-payment rate stays unused until it is cleared, as Setup promises). */
-export function vatRate(db: DB): number {
+ *  electronic-payment rate stays unused until it is cleared, as Setup promises). null: no VAT is set up (a business
+ *  not registered for VAT sells without it). */
+export function vatRate(db: DB): number | null {
   const rows = db.prepare("SELECT data FROM docs WHERE type = 'tax' AND deleted = 0 ORDER BY rowid").all() as { data: string }[];
   for (const r of rows) {
     const d = parse(r.data);
     if (d.active !== false && d.type !== 'Withholding' && d.to_confirm !== true && Number.isFinite(Number(d.rate))) return Number(d.rate);
   }
-  return 18;
+  return null;
 }
 
-/** Payment method -> the account the engine books it to (cards are paid into the bank). */
-function accountOf(db: DB, method: unknown): MoneyAccount {
+/** Payment method -> the kind of account the engine books it to (cards are paid into the bank) and the method's own
+ *  account of the chart (store/books.ts puts the money there, so M-Pesa and Airtel Money keep separate balances). */
+function methodOf(db: DB, method: unknown): { account: MoneyAccount; ref?: string } {
   const m = record(db, 'payment_method', method, 'payment method');
   const t = String(m.data.type ?? 'Cash');
-  return t === 'Mobile money' ? 'mobile_money' : t === 'Cash' ? 'cash' : 'bank';
+  const account: MoneyAccount = t === 'Mobile money' ? 'mobile_money' : t === 'Cash' ? 'cash' : 'bank';
+  return typeof m.data.account === 'string' && m.data.account ? { account, ref: m.data.account } : { account };
+}
+
+/** One of our accounts that a document may post to directly (a leaf, active); `root` limits its main group. */
+function postable(db: DB, id: unknown, what: string, root?: string): { id: string; data: Data; title: string } {
+  const a = record(db, 'account', id, what);
+  if (a.data.is_group === true) bad(`${a.title} is a group; choose an account under it`);
+  if (root && a.data.root_type !== root) bad(`${a.title} is not an ${root.toLowerCase()} account`);
+  return a;
 }
 
 function amount(v: unknown, what: string, zeroOk = false): number {
@@ -81,6 +92,16 @@ function dateOf(v: unknown, what: string): string | undefined {
 }
 
 function moneyLines(db: DB, input: unknown, side: 'sell' | 'buy'): MoneyLine[] {
+  const lines = moneyLinesOnly(db, input, side);
+  if (side === 'buy') (input as Data[]).forEach((l, i) => {
+    const p = dataOf(db, 'product', l.item);
+    const acc = given(l.account) ? l.account : p?.is_stock === false ? p?.expense_account : undefined;
+    if (given(acc)) lines[i].account = postable(db, acc, `expense account on line ${i + 1}`, 'Expense').id;
+  });
+  return lines;
+}
+
+function moneyLinesOnly(db: DB, input: unknown, side: 'sell' | 'buy'): MoneyLine[] {
   if (!Array.isArray(input) || !input.length) bad('Add at least one product');
   if ((input as unknown[]).length > 500) bad('At most 500 lines in one document');
   return (input as Data[]).map((l, i) => {
@@ -118,9 +139,16 @@ function daysToPay(db: DB, party: Data, groupType: 'customer_group' | 'supplier_
   return g && given(g[key]) ? Math.max(0, Number(g[key]) || 0) : 0;
 }
 
-function taxOf(db: DB, input: Data): TaxSpec | undefined {
-  if (input.vat === false) return undefined;              // a sale or bill without VAT (not VAT-registered)
-  return { rate: vatRate(db), inclusive: input.prices_include_vat !== false };
+function taxOf(db: DB, input: Data, exempt = false): TaxSpec | undefined {
+  // without VAT: asked for on this document, a customer (or its group) that buys without VAT unless VAT is asked for
+  // anyway, or no VAT set up at all
+  if (input.vat === false || (exempt && input.vat !== true)) return undefined;
+  const rate = vatRate(db);
+  return rate === null ? undefined : { rate, inclusive: input.prices_include_vat !== false };
+}
+/** A customer that buys without VAT (exports, VAT relief): marked on the customer or its group. */
+function vatExempt(db: DB, customer: Data): boolean {
+  return customer.vat_exempt === true || dataOf(db, 'customer_group', customer.group)?.vat_exempt === true;
 }
 
 /** An opening balance: one line on the opening item, no VAT, no stock (Opening Invoice Creation Tool, referee M17). */
@@ -165,13 +193,13 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
     if (opening && !OPENING_ROLES.has(role)) bad('Only the owner, a manager or the accountant may enter opening balances');
     const lines = opening ? openingLines(input) : moneyLines(db, input.lines, 'sell');
     const due = dateOf(input.due_date, 'Due date') ?? addDays(date, daysToPay(db, c.data, 'customer_group', 'credit_days'));
-    const step: Step = { id, kind, date, time, customer: c.id, dueDate: due, lines, tax: opening ? undefined : taxOf(db, input) };
+    const step: Step = { id, kind, date, time, customer: c.id, dueDate: due, lines, tax: opening ? undefined : taxOf(db, input, vatExempt(db, c.data)) };
     if (opening) step.opening = true;
     else {
       if (given(input.discount_amount) && Number(input.discount_amount) > 0) step.discountAmount = amount(input.discount_amount, 'The discount');
       if (input.update_stock !== false) { step.updateStock = true; step.warehouse = record(db, 'store', input.warehouse, 'store').id; }
       if (Array.isArray(input.payments)) {
-        step.payments = (input.payments as Data[]).filter((p) => Number(p?.amount) > 0).map((p) => ({ account: accountOf(db, p.method), amount: amount(p.amount, 'Payment') }));
+        step.payments = (input.payments as Data[]).filter((p) => Number(p?.amount) > 0).map((p) => ({ ...methodOf(db, p.method), amount: amount(p.amount, 'Payment') }));
       }
       if (input.write_off === true) step.writeOff = true;
       if (input.allow_over_limit === true) {
@@ -187,11 +215,18 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
     if (opening && !OPENING_ROLES.has(role)) bad('Only the owner, a manager or the accountant may enter opening balances');
     const lines = opening ? openingLines(input) : moneyLines(db, input.lines, 'buy');
     const due = dateOf(input.due_date, 'Due date') ?? addDays(date, daysToPay(db, s.data, 'supplier_group', 'payment_days'));
+    const rate = vatRate(db);
     const step: Step = { id, kind, date, time, supplier: s.id, dueDate: due, lines,
-      tax: !opening && input.vat === true ? { rate: vatRate(db), inclusive: input.prices_include_vat === true } : undefined };
+      tax: !opening && input.vat === true && rate !== null ? { rate, inclusive: input.prices_include_vat === true } : undefined };
     if (opening) step.opening = true;
     else {
       if (given(input.discount_amount) && Number(input.discount_amount) > 0) step.discountAmount = amount(input.discount_amount, 'The discount');
+      // paid at once (a cash purchase): one payment from a method's account
+      if (Array.isArray(input.payments)) {
+        const pays = (input.payments as Data[]).filter((p) => Number(p?.amount) > 0);
+        if (pays.length > 1) bad('A bill paid at once takes one payment; record more as payments');
+        if (pays.length) step.payments = pays.map((p) => ({ ...methodOf(db, p.method), amount: amount(p.amount, 'Paid now') }));
+      }
       if (typeof input.receipt === 'string' && input.receipt) step.receipt = input.receipt;
       else if (input.update_stock === true) { step.updateStock = true; step.warehouse = record(db, 'store', input.warehouse, 'store').id; }
     }
@@ -207,7 +242,17 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
     const allocate = Array.isArray(input.allocate)
       ? (input.allocate as Data[]).filter((a) => Number(a?.amount) > 0).map((a) => ({ invoice: String(a.invoice ?? ''), amount: amount(a.amount, 'Allocated amount') }))
       : undefined;
-    const step: Step = { id, kind, date, time, direction: dir, party: p.id, account: accountOf(db, input.method), amount: amount(input.amount, 'The amount'), allocate };
+    const via = methodOf(db, input.method);
+    const step: Step = { id, kind, date, time, direction: dir, party: p.id, account: via.account, amount: amount(input.amount, 'The amount'), allocate, ...(via.ref ? { ref: via.ref } : {}) };
+    // charges taken off (bank or mobile-money charges, small differences): each on an expense (or income) account
+    if (Array.isArray(input.deductions)) {
+      const ded = (input.deductions as Data[]).filter((d) => Number(d?.amount) > 0).map((d, i) => {
+        const a = postable(db, d.account, `account of charge ${i + 1}`);
+        if (a.data.root_type !== 'Expense' && a.data.root_type !== 'Income') bad(`${a.title}: charges go to an expense or income account`);
+        return { role: journalRole(a.data), amount: amount(d.amount, `Charge ${i + 1}`), ref: a.id };
+      });
+      if (ded.length) step.deductions = ded;
+    }
     const ref = text(input.reference, 'Reference', 80);
     if (ref) step.reference = ref;
     return withNotes(step);
@@ -228,8 +273,9 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
     return withNotes(step);
   }
   if (kind === 'money_transfer') {
-    const from = accountOf(db, input.from), to = accountOf(db, input.to);
-    const step: Step = { id, kind, date, time, from, to, amount: amount(input.amount, 'The amount') };
+    const from = methodOf(db, input.from), to = methodOf(db, input.to);
+    const step: Step = { id, kind, date, time, from: from.account, to: to.account, amount: amount(input.amount, 'The amount'),
+      ...(from.ref ? { fromRef: from.ref } : {}), ...(to.ref ? { toRef: to.ref } : {}) };
     const ref = text(input.reference, 'Reference', 80);
     if (ref) step.reference = ref;
     return withNotes(step);
@@ -288,7 +334,7 @@ export function partiesOf(db: DB, steps: Step[]): { key: string; type: 'customer
 /** The price of a product for a customer or supplier on a date (03 §2.3): the price list is the party's own, else its
  *  group's, else the company's default for that side; the price row must be for the stock unit (or no unit) and valid
  *  on the date; the newest "valid from" wins. null when there is none (the screen then asks for a price). */
-export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unknown; date?: unknown }): { rate: number; price_list: string } | null {
+export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unknown; date?: unknown }): { rate: number; price_list: string | null; last?: { date: string; step: string } } | null {
   const side = q.side === 'buy' ? 'buy' : 'sell';
   const product = dataOf(db, 'product', q.item);
   if (!product) bad('That product does not exist');
@@ -307,5 +353,25 @@ export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unk
     const hit = rows.filter((p) => p.price_list === list).sort((a, b) => String(b.valid_from ?? '').localeCompare(String(a.valid_from ?? '')))[0];
     if (hit) return { rate: Number(hit.rate) || 0, price_list: list };
   }
+  // buying with no price on any list: the last price paid (ERPNext's last purchase rate)
+  if (side === 'buy') { const last = lastPurchase(db, q.item as string); if (last) return { rate: last.rate, price_list: null, last }; }
   return null;
+}
+
+/** The last price paid for a product: the newest goods arrived or supplier bill line (not undone), per stock unit. */
+export function lastPurchase(db: DB, item: string): { rate: number; date: string; step: string; supplier?: string } | null {
+  const undone = new Set((db.prepare("SELECT data FROM steps WHERE kind = 'cancel'").all() as { data: string }[]).map((r) => String(parse(r.data).target)));
+  const rows = db.prepare("SELECT id, data FROM steps WHERE kind IN ('purchase_receipt', 'purchase_invoice') ORDER BY seq DESC").all() as { id: string; data: string }[];
+  let best: { rate: number; date: string; step: string; supplier?: string } | null = null;
+  for (const r of rows) {
+    if (undone.has(r.id)) continue;
+    const d = parse(r.data);
+    if (d.opening === true) continue;
+    const l = ((d.lines as Data[]) ?? []).find((x) => x.item === item);
+    if (!l) continue;
+    const rate = l.discount ? Math.round(Number(l.rate) * (1 - Number(l.discount) / 100) * 100) / 100 : Number(l.rate);
+    const date = String(d.date ?? '');
+    if (!best || date > best.date) best = { rate, date, step: r.id, ...(d.supplier ? { supplier: String(d.supplier) } : {}) };
+  }
+  return best;
 }

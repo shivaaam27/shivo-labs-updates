@@ -3,7 +3,7 @@
 // them) and party-ledger rows (which invoice each shilling belongs to, 01 §3). Goods that an invoice moves go
 // through the stock ledger as a step with the same id; their cost is read from the stock rows at the end, so a
 // back-dated stock step also corrects the cost of goods sold on a later invoice (as for deliveries, 02 §4.4).
-import type { AccountRole, InvoiceResult, LedgerTotal, MoneyAccount, MoneyLine, MoneyStep, Scenario, Step } from '../contract.ts';
+import type { AccountRole, Entry, InvoiceResult, LedgerTotal, MoneyAccount, MoneyLine, MoneyStep, Scenario, Step } from '../contract.ts';
 import { roundMoney } from '../money.ts';
 import type { StockLedger } from '../stock/ledger.ts';
 import type { Totals } from './taxes.ts';
@@ -12,7 +12,7 @@ import { invoiceTotals, lineRate } from './taxes.ts';
 type Kind = MoneyStep['kind'];
 export const MONEY_KINDS = new Set<string>(['sales_invoice', 'purchase_invoice', 'payment', 'credit_note', 'money_transfer', 'journal']);
 
-interface Gl { role: AccountRole; debit: number; credit: number; party?: string }
+interface Gl { role: AccountRole; debit: number; credit: number; party?: string; ref?: string }   // ref: our own account id, when the document names one
 interface Ple { party: string; against: string; amount: number }   // + = owed (customer owes us / we owe the supplier)
 interface Invoice {
   step: Extract<MoneyStep, { kind: 'sales_invoice' | 'purchase_invoice' | 'credit_note' }>;
@@ -66,7 +66,7 @@ export class MoneyBook {
       case 'purchase_invoice': return this.purchaseInvoice(step);
       case 'credit_note': return this.creditNote(step);
       case 'payment': return this.payment(step);
-      case 'money_transfer': return this.keep(step, [dr(ACCOUNT_ROLE[step.to], step.amount), cr(ACCOUNT_ROLE[step.from], step.amount)], []);
+      case 'money_transfer': return this.keep(step, [at(dr(ACCOUNT_ROLE[step.to], step.amount), step.toRef), at(cr(ACCOUNT_ROLE[step.from], step.amount), step.fromRef)], []);
       case 'journal': return this.journal(step);
     }
   }
@@ -115,11 +115,11 @@ export class MoneyBook {
     const ple: Ple[] = [{ party: step.customer, against: step.id, amount: t.roundedTotal }];
     // paid at the till (01 §7.3): each payment settles the invoice; cash above the total is change
     for (const p of pays) {
-      gl.push(cr('receivable', p.amount, step.customer), dr(ACCOUNT_ROLE[p.account], p.amount));
+      gl.push(cr('receivable', p.amount, step.customer), at(dr(ACCOUNT_ROLE[p.account], p.amount), p.ref));
       ple.push({ party: step.customer, against: step.id, amount: -p.amount });
     }
     if (change) {
-      gl.push(dr('receivable', change, step.customer), cr('cash', change));
+      gl.push(dr('receivable', change, step.customer), at(cr('cash', change), pays.find((p) => p.account === 'cash')?.ref));
       ple.push({ party: step.customer, against: step.id, amount: change });
     }
     if (step.writeOff && left > 0) {
@@ -132,11 +132,14 @@ export class MoneyBook {
 
   private purchaseInvoice(step: Extract<MoneyStep, { kind: 'purchase_invoice' }>): void {
     const t = invoiceTotals(step.lines, step.tax, this.rounding, step.discountAmount);
+    const paidNow = roundMoney((step.payments ?? []).reduce((s, p) => s + p.amount, 0));
+    if (paidNow > t.roundedTotal) return this.fail(step.id, `Paid ${paidNow} is more than the bill (${t.roundedTotal})`);
     const moves = !!step.updateStock && !step.opening && !step.receipt && this.goods(step.lines).length > 0;
     if (moves) {
       // goods come in at their net cost after discounts; services on the same bill are expenses (referee M15)
       const idx = step.lines.map((_, i) => i).filter((i) => !this.services.has(step.lines[i].item));
       const goods = idx.map((i) => ({ item: step.lines[i].item, qty: step.lines[i].qty, rate: t.lines[i].net / step.lines[i].qty }));
+      this.stock.billSteps.add(step.id);
       if (!this.moveStock(step.id, step, 'in', step.warehouse, goods)) return;
     }
     // what each line is: an opening balance, a service or expense, goods coming in now (stock), or goods already
@@ -145,11 +148,17 @@ export class MoneyBook {
     step.lines.forEach((l, i) => {
       const role: AccountRole = step.opening ? 'temporary_opening' : this.services.has(l.item) ? 'expense'
         : moves ? 'stock' : 'stock_received_not_billed';
-      gl.push(dr(role, t.lines[i].net));
+      gl.push(at(dr(role, t.lines[i].net), role === 'expense' ? l.account : undefined));
     });
     if (t.vat) gl.push(dr('vat', t.vat));
+    const ple: Ple[] = [{ party: step.supplier, against: step.id, amount: t.roundedTotal }];
+    // paid at once (a cash purchase, ERPNext "Is Paid", referee M24): the bill is settled from the money account
+    for (const p of (step.payments ?? []).filter((x) => x.amount > 0)) {
+      gl.push(dr('payable', p.amount, step.supplier), at(cr(ACCOUNT_ROLE[p.account], p.amount), p.ref));
+      ple.push({ party: step.supplier, against: step.id, amount: -p.amount });
+    }
     this.invoices.set(step.id, { step, party: step.supplier, side: 'supplier', totals: t, dueDate: step.dueDate ?? step.date, stock: moves ? 'in' : null });
-    this.keep(step, balance(gl), [{ party: step.supplier, against: step.id, amount: t.roundedTotal }]);
+    this.keep(step, balance(gl), ple);
   }
 
   private creditNote(step: Extract<MoneyStep, { kind: 'credit_note' }>): void {
@@ -179,23 +188,29 @@ export class MoneyBook {
 
   private payment(step: Extract<MoneyStep, { kind: 'payment' }>): void {
     const into = step.direction === 'in';
-    const gl: Gl[] = into
-      ? [dr(ACCOUNT_ROLE[step.account], step.amount), cr('receivable', step.amount, step.party)]
-      : [dr('payable', step.amount, step.party), cr(ACCOUNT_ROLE[step.account], step.amount)];
+    // charges (ERPNext "Payment Deductions or Loss", referee M26): a deduction is always booked as a debit (a charge);
+    // money in: the customer is settled for what arrived plus the charges; money out: the supplier is settled for what
+    // left less the charges (bank charges paid on top of a bill)
+    const ded = (step.deductions ?? []).filter((d) => d.amount !== 0);
+    const dsum = ded.reduce((s, d) => s + d.amount, 0);
+    const settled = roundMoney(into ? step.amount + dsum : step.amount - dsum);
+    const money = at((into ? dr : cr)(ACCOUNT_ROLE[step.account], step.amount), step.ref);
+    const gl: Gl[] = into ? [money, cr('receivable', settled, step.party)] : [dr('payable', settled, step.party), money];
+    for (const d of ded) gl.push(at(d.amount > 0 ? dr(d.role, d.amount) : cr(d.role, -d.amount), d.ref));
     const ple: Ple[] = [];
     let used = 0;
     for (const a of step.allocate ?? []) {
       ple.push({ party: step.party, against: a.invoice, amount: -a.amount });
       used = roundMoney(used + a.amount);
     }
-    if (roundMoney(step.amount - used) > 0) ple.push({ party: step.party, against: step.id, amount: -roundMoney(step.amount - used) });
+    if (roundMoney(settled - used) > 0) ple.push({ party: step.party, against: step.id, amount: -roundMoney(settled - used) });
     this.keep(step, gl, ple);
   }
 
   private journal(step: Extract<MoneyStep, { kind: 'journal' }>): void {
     const gl: Gl[] = [], ple: Ple[] = [];
     for (const r of step.rows) {
-      gl.push({ role: r.role, debit: r.debit ?? 0, credit: r.credit ?? 0, party: r.party });
+      gl.push({ role: r.role, debit: r.debit ?? 0, credit: r.credit ?? 0, party: r.party, ref: r.account });
       if (r.party && (r.role === 'receivable' || r.role === 'payable')) {
         const amount = r.role === 'receivable' ? (r.debit ?? 0) - (r.credit ?? 0) : (r.credit ?? 0) - (r.debit ?? 0);
         ple.push({ party: r.party, against: r.invoice ?? step.id, amount: roundMoney(amount) });
@@ -259,12 +274,14 @@ export class MoneyBook {
         if (a.amount > this.outstanding(a.invoice) + 0.001) return `More than is owed on ${a.invoice} (${this.outstanding(a.invoice)})`;
         total += a.amount;
       }
-      if (roundMoney(total) > step.amount) return 'Allocated more than was paid';
+      const ded = (step.deductions ?? []).reduce((s, d) => s + d.amount, 0);
+      if (roundMoney(total) > roundMoney(step.direction === 'in' ? step.amount + ded : step.amount - ded)) return 'Allocated more than was paid';
       return null;
     }
     if (k === 'money_transfer') {
       if (!(step.amount > 0)) return 'The amount must be above 0';
-      return step.from === step.to ? 'Choose two different accounts' : null;
+      const same = step.from === step.to && (step.fromRef ?? '') === (step.toRef ?? '');
+      return same ? 'Choose two different accounts' : null;
     }
     if (k === 'journal') {
       if (step.rows.length < 2) return 'A journal needs at least two rows';
@@ -311,9 +328,35 @@ export class MoneyBook {
     if (!inv?.stock) return [];
     const change = roundMoney(this.stock.rowsOf(id).reduce((s, r) => s + r.valueChange, 0));
     if (!change) return [];
-    if (inv.step.kind === 'purchase_invoice') return []; // its stock debit is the line amounts (above)
+    if (inv.step.kind === 'purchase_invoice') {
+      // its stock debit is the goods' net amounts (above); a landed cost added later (referee M25) is booked like on
+      // goods arrived: Dr Stock by the extra value, Cr Expenses Included In Valuation, the gap to cost of goods sold
+      const rows = this.stock.rowsOf(id);
+      const landed = roundMoney(rows.reduce((s, r) => s + this.stock.landedPerUnit(r) * r.qty, 0));
+      if (!landed) return [];
+      const t = inv.totals;
+      const net = roundMoney(inv.step.lines.reduce((s, l, i) => s + (this.services.has(l.item) ? 0 : t.lines[i].net), 0));
+      const out: Gl[] = [dr('stock', change - net), cr('expenses_in_valuation', landed)];
+      const gap = roundMoney(net + landed - change);
+      if (gap) out.push(gap > 0 ? dr('cost_of_goods_sold', gap) : cr('cost_of_goods_sold', -gap));
+      return out;
+    }
     // sale: Cr stock / Dr cost of goods sold; return: Dr stock / Cr cost of goods sold (02 §6.5)
     return change < 0 ? [cr('stock', -change), dr('cost_of_goods_sold', -change)] : [dr('stock', change), cr('cost_of_goods_sold', change)];
+  }
+
+  /** Every ledger row of the live money steps (goods they moved included), with account refs and parties. */
+  entries(): Entry[] {
+    const out: Entry[] = [];
+    for (const id of this.order) {
+      const p = this.posted.get(id);
+      if (!p || p.cancelled) continue;
+      for (const g of [...p.gl, ...this.stockRows(id)]) {
+        if (!g.debit && !g.credit) continue;
+        out.push({ step: id, role: g.role, debit: g.debit, credit: g.credit, ...(g.ref ? { ref: g.ref } : {}), ...(g.party ? { party: g.party } : {}) });
+      }
+    }
+    return out;
   }
 
   invoiceResults(): InvoiceResult[] {
@@ -396,6 +439,8 @@ export class MoneyBook {
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+/** The same row, booked to one of our own accounts (when the document names one). */
+const at = (g: Gl, ref?: string): Gl => (ref ? { ...g, ref } : g);
 const dr = (role: AccountRole, amount: number, party?: string): Gl => ({ role, debit: roundMoney(amount), credit: 0, party });
 const cr = (role: AccountRole, amount: number, party?: string): Gl => ({ role, debit: 0, credit: roundMoney(amount), party });
 

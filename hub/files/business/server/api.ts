@@ -12,6 +12,9 @@ import { importCsv } from '../store/import.ts';
 import { setupBusiness } from '../store/seed.ts';
 import { addStep, computeStock, listSteps, previewMoney, stepLabel, undoStep } from '../store/steps.ts';
 import { priceFor } from '../store/money.ts';
+import { accountLedger, trialBalance } from '../store/books.ts';
+/** Who may read the books per account (trial balance, account history): like ERPNext's Accounts User. */
+const BOOK_ROLES: Role[] = ['manager', 'accountant'];
 import type { Step } from '../core/contract.ts';
 import type { User } from '../store/users.ts';
 import { activeOwners, activeUser, activeUserCount, allowedRoles, can, checkPinShape, findByPin, hasPin, newPinHash, storePin, verifyPin } from '../store/users.ts';
@@ -143,6 +146,14 @@ export function createApi(file: string) {
       const kind = String((body.step as Data | undefined)?.kind ?? '');
       needRoles(u, STEP_ROLES.kinds[kind] ?? [], `record a ${stepLabel({ kind } as Step).toLowerCase()}`);
       return previewMoney(db, body.step as Data);
+    }
+    if (is('GET', 'books', 1)) {
+      needRoles(u, BOOK_ROLES, 'see the books');
+      return trialBalance(db);
+    }
+    if (is('GET', 'books', 2)) {
+      needRoles(u, BOOK_ROLES, 'see the books');
+      return accountLedger(db, a);
     }
     if (is('GET', 'price', 1)) {
       needRoles(u, STEP_ROLES.write, 'see prices');

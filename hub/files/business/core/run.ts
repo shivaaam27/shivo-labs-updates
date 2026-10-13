@@ -47,7 +47,12 @@ export function runScenario(s: Scenario): Result {
   const ledger = s.steps.flatMap((st) => byStep.get(st.id) ?? []);
   // an invoice whose goods the stock ledger refused is reported once, by the books
   const errors = [...book.errors.filter((e) => !moneyIds.has(e.step) && !money.errors.some((m) => m.step === e.step)), ...money.errors];
-  const out: Result = { scenario: s.id, system: 'shivo', stock, ledger, balances, errors };
+  // per real account (ours): stock steps carry no account of their own (the company's defaults apply)
+  const entries = [
+    ...ledgerTotals(book, moneyIds).map((t) => ({ step: t.step, role: t.role, debit: t.debit, credit: t.credit })),
+    ...money.entries(),
+  ];
+  const out: Result = { scenario: s.id, system: 'shivo', stock, ledger, balances, errors, entries };
   if (hasMoney) { out.invoices = money.invoiceResults(); out.parties = money.partyBalances(); }
   return out;
 }

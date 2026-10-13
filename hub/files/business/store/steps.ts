@@ -9,6 +9,7 @@ import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
 import { loadSingle, nextSeries, titlesOf, writeLog } from './docs.ts';
 import { OPENING_ITEM, TILL_WRITE_OFF, cleanMoneyStep, partiesOf } from './money.ts';
+import { balanceRule } from './books.ts';
 import { MONEY_KINDS } from '../core/money/books.ts';
 import { invoiceTotals } from '../core/money/taxes.ts';
 
@@ -142,12 +143,14 @@ function cleanStep(db: DB, input: Data, id: string, role = ''): Step {
 
   if (kind === 'landed_cost') {
     const receipt = String(input.receipt ?? '');
-    const target = db.prepare('SELECT kind FROM steps WHERE id = ?').get(receipt) as { kind: string } | undefined;
-    if (!target || target.kind !== 'purchase_receipt') bad('Landed cost must be added to a "Goods arrived" movement');
+    // goods arrived, or a supplier bill that brought the goods in itself (referee M25)
+    const target = db.prepare('SELECT kind, data FROM steps WHERE id = ?').get(receipt) as { kind: string; data: string } | undefined;
+    const billIn = target?.kind === 'purchase_invoice' && parse(target.data)?.kind === 'purchase_invoice' && (parse(target.data) as Extract<Step, { kind: 'purchase_invoice' }>).updateStock === true;
+    if (!target || (target.kind !== 'purchase_receipt' && !billIn)) bad('Landed cost must be added to "Goods arrived" or to a bill that brought the goods in');
     const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) bad('The landed cost amount must be above 0');
     const distribute = input.distribute === 'qty' ? 'qty' : 'amount';
-    return { id, kind: 'landed_cost', date, time, receipt, amount, distribute };
+    return withRemarks({ id, kind: 'landed_cost', date, time, receipt, amount, distribute }, input);
   }
 
   if (!Array.isArray(input.lines) || !input.lines.length) bad('Add at least one product');
@@ -176,10 +179,21 @@ function cleanStep(db: DB, input: Data, id: string, role = ''): Step {
     const from = activeDoc(db, 'store', input.from, 'store to move from');
     const to = activeDoc(db, 'store', input.to, 'store to move to');
     if (from.id === to.id) bad('Choose two different stores');
-    return { id, kind, date, time, from: from.id, to: to.id, lines };
+    return withRemarks({ id, kind, date, time, from: from.id, to: to.id, lines }, input);
   }
   const wh = activeDoc(db, 'store', input.warehouse, 'store');
-  return { id, kind, date, time, warehouse: wh.id, lines } as Step;
+  const step = { id, kind, date, time, warehouse: wh.id, lines } as Step;
+  // opening stock: a count on the start day posts against Opening Balances, not Stock Adjustment (referee S12)
+  if (kind === 'count' && input.opening === true) (step as Extract<Step, { kind: 'count' }>).opening = true;
+  return withRemarks(step, input);
+}
+
+/** A note for people on a stock movement (the engine ignores it). */
+function withRemarks<T extends Step>(step: T, input: Data): T {
+  if (input.remarks === undefined || input.remarks === null || input.remarks === '') return step;
+  const r = String(input.remarks).trim();
+  if (r.length > 500) bad('Note: at most 500 characters');
+  return r ? { ...step, remarks: r } : step;
 }
 
 function writeStep(db: DB, step: Step, by: string | null, clientId: string | null): void {
@@ -206,6 +220,9 @@ function postIfAccepted(db: DB, step: Step, by: string | null, clientId: string 
     const { items, stores, parties } = idsIn(all);
     fail(422, plain(err.message, titlesOf(db, [...items, ...stores, ...parties, ...all.map((s) => s.id)]), step.date));
   }
+  // an account marked "Balance must be" may not end up the wrong way (ERPNext, 01 §1.1)
+  const rule = balanceRule(db, all, step.id);
+  if (rule) fail(422, rule);
   writeStep(db, step, by, clientId);
   return step;
 }

@@ -89,6 +89,8 @@ export const api = {
   run: (body = {}) => call('POST', '/run', body),
   /** Totals of a sale or bill being typed (nothing saved). */
   preview: (step) => call('POST', '/preview', { step }),
+  /** The books per account: no id = trial balance {accounts, debit, credit, unset}; an account id = its entries. */
+  books: (account) => call('GET', account ? `/books/${seg(account)}` : '/books'),
   /** The price of a product for a customer (side 'sell') or supplier ('buy') on a date: {price: {rate, price_list} | null}. */
   price: (item, party, side, date) => call('GET', `/price${qs({ item, party, side, date })}`),
 };

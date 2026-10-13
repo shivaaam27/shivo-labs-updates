@@ -492,7 +492,11 @@ input.bz-in[type=date]{min-height:2.95rem}
 .bz-lines{display:flex;flex-direction:column;gap:.35rem}
 .bz-ln{display:grid;grid-template-columns:minmax(0,2.4fr) 5rem 7rem 4.2rem 6.5rem 2.4rem;gap:.5rem;align-items:center}
 .bz-ln.j{grid-template-columns:minmax(0,1.6fr) minmax(0,1.4fr) 7rem 7rem 2.4rem}
-.bz-ln.o{grid-template-columns:minmax(0,2fr) 9rem 9.5rem 2.4rem}
+.bz-ln.o{grid-template-columns:minmax(0,2fr) 8rem 9.5rem 8rem 2.4rem}
+.bz-tr.bz-tg{display:block;font:600 .74rem var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:.9rem 1rem .3rem;border:0}
+.bz-ln.s{grid-template-columns:minmax(0,2.4fr) 6rem 7.5rem 5.5rem 2.4rem}
+.bz-ln.s.np{grid-template-columns:minmax(0,2.4fr) 6rem 5.5rem 2.4rem}
+.bz-ln .bz-lacc{grid-column:1/-1}
 .bz-jparty{min-width:0}.bz-jparty>.bz-muted{padding-left:.4rem}
 .bz-ln.r{grid-template-columns:minmax(0,2fr) 6rem 8rem}
 .bz-ln.p{grid-template-columns:minmax(0,1fr) 8rem 8rem 9rem}
@@ -515,7 +519,8 @@ input.bz-in[type=date]{min-height:2.95rem}
 @media (max-width:40rem){
   .bz-ln{grid-template-columns:minmax(0,1fr) 3.6rem 5rem 3.4rem 2.4rem}.bz-ln .bz-lamt{display:none}.bz-ln.bz-lh>span:nth-child(5){display:none}
   .bz-ln.j{grid-template-columns:minmax(0,1fr) 5rem 5rem 2.4rem}.bz-ln.j>.bz-jparty{grid-column:1/-1;order:5}.bz-ln.j.bz-lh>span:nth-child(2){display:none}
-  .bz-ln.o{grid-template-columns:minmax(0,1fr) 6rem 2.4rem}.bz-ln.o>input[type=date]{grid-column:1/-1;order:5}.bz-ln.o.bz-lh>span:nth-child(3){display:none}
+  .bz-ln.s{grid-template-columns:minmax(0,1fr) 4rem 5rem 2.4rem}.bz-ln.s.np{grid-template-columns:minmax(0,1fr) 4.5rem 2.4rem}.bz-ln.s .bz-lamt,.bz-ln.s.bz-lh>span:nth-last-child(2){display:none}
+  .bz-ln.o{grid-template-columns:minmax(0,1fr) 6rem 2.4rem}.bz-ln.o>input[type=date],.bz-ln.o>input[aria-label="Old invoice number"]{grid-column:1/-1;order:5}.bz-ln.o.bz-lh>span:nth-child(3),.bz-ln.o.bz-lh>span:nth-child(4){display:none}
   .bz-ln.p{grid-template-columns:minmax(0,1fr) 7rem}.bz-ln.p>span:nth-child(2),.bz-ln.p>span:nth-child(3){display:none}
   .bz-payrow{grid-template-columns:1fr}
 }

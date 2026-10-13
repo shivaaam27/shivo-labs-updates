@@ -2,7 +2,7 @@
 import type { DocDef, Role } from './types.ts';
 import { company, store, unit, payment_method, tax, account, user } from './setup.ts';
 import { product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price } from './products.ts';
-import { customer, customer_group, supplier, supplier_group, salesman } from './parties.ts';
+import { customer, customer_group, party_contact, supplier, supplier_group, salesman } from './parties.ts';
 
 export type { DocDef, Field, Role, Section, Naming, FieldType, Module } from './types.ts';
 export { ROLES, FIELD_TYPES } from './types.ts';
@@ -10,7 +10,7 @@ export { ROLES, FIELD_TYPES } from './types.ts';
 export const DEFS: DocDef[] = [
   company, store, unit, payment_method, tax, account, user,
   product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price,
-  customer, customer_group, salesman, supplier, supplier_group,
+  customer, customer_group, salesman, supplier, supplier_group, party_contact,
 ];
 
 const BY_TYPE = new Map(DEFS.map((d) => [d.type, d]));

@@ -28,6 +28,8 @@ export const customer: DocDef = {
     { key: 'price_list', label: 'Price list', type: 'link', to: 'price_list', filter: { type: 'Selling' }, help: 'Empty: the group\'s price list, else Retail.' },
     { key: 'credit_limit', label: 'Credit limit', type: 'money', min: 0, help: 'Most they may owe at one time. 0 or empty: the limit of their group, else no limit. A manager can allow a sale over it.' },
     { key: 'credit_days', label: 'Days to pay', type: 'number', min: 0, max: 365, integer: true, help: 'Days after the invoice before payment is due.' },
+    { key: 'vat_exempt', label: 'Buys without VAT', type: 'check', default: false, help: 'Exports, VAT relief, diplomats: their sales carry no VAT unless you switch VAT on for one sale.' },
+    { key: 'contacts', label: 'Contact people', type: 'table', of: 'party_contact', help: 'The people you deal with there: buyer, accountant, driver.', info: 'Kept for people: who to call or email there' },
     { key: 'salesman', label: 'Salesman', type: 'link', to: 'salesman', soon: 'Phase 4 (Sell): their orders and route; commission in phase 7' },
     { key: 'notes', label: 'Notes', type: 'longtext' },
     { key: 'active', label: 'Active', type: 'check', default: true },
@@ -36,7 +38,8 @@ export const customer: DocDef = {
     { label: 'Customer', fields: ['name', 'type', 'group', 'salesman', 'active'], columns: 2 },
     { label: 'Contact', fields: ['phone', 'whatsapp', 'email', 'area', 'address'], columns: 2 },
     { label: 'Tax', fields: ['tin', 'vrn'], columns: 2 },
-    { label: 'Prices and credit', fields: ['price_list', 'credit_limit', 'credit_days'], columns: 2 },
+    { label: 'Prices and credit', fields: ['price_list', 'credit_limit', 'credit_days', 'vat_exempt'], columns: 2 },
+    { label: 'Contact people', fields: ['contacts'], columns: 1 },
     { label: 'Notes', fields: ['notes'], columns: 1 },
   ],
   list: { columns: ['name', 'type', 'phone', 'area', 'group', 'salesman', 'active'], sort: 'name', filters: ['type', 'group', 'salesman', 'price_list', 'active'] },
@@ -54,11 +57,27 @@ export const customer_group: DocDef = {
     { key: 'price_list', label: 'Price list', type: 'link', to: 'price_list', filter: { type: 'Selling' }, help: 'Used for customers in this group that have no price list of their own.' },
     { key: 'credit_days', label: 'Days to pay', type: 'number', min: 0, max: 365, integer: true, help: 'For customers in this group who have none of their own.' },
     { key: 'credit_limit', label: 'Credit limit', type: 'money', min: 0, help: 'For customers in this group who have none of their own. 0 or empty: no limit.' },
+    { key: 'vat_exempt', label: 'Buy without VAT', type: 'check', default: false, help: 'E.g. a group of exporters: their sales carry no VAT.' },
   ],
-  sections: [{ label: 'Customer group', fields: ['name', 'parent', 'price_list', 'credit_days', 'credit_limit'], columns: 2 }],
+  sections: [{ label: 'Customer group', fields: ['name', 'parent', 'price_list', 'credit_days', 'credit_limit', 'vat_exempt'], columns: 2 }],
   list: { columns: ['name', 'parent', 'price_list'], sort: 'name', filters: [] },
   related: [{ type: 'customer', by: 'group', label: 'Customers' }],
   roles: { read: ALL, write: ['manager'], delete: ['manager'] },
+};
+
+export const party_contact: DocDef = {
+  type: 'party_contact', label: 'Contact person', plural: 'Contact people', module: 'customers', child: true,
+  icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+  title: 'name', naming: { by: 'series', prefix: 'PC-', digits: 6 },
+  fields: [
+    { key: 'name', label: 'Name', type: 'text', required: true, search: true },
+    { key: 'role', label: 'Role', type: 'text', help: 'Buyer, accountant, driver…' },
+    { key: 'phone', label: 'Phone', type: 'phone', search: true },
+    { key: 'email', label: 'Email', type: 'email' },
+  ],
+  sections: [{ label: 'Contact person', fields: ['name', 'role', 'phone', 'email'], columns: 2 }],
+  list: { columns: ['name', 'role', 'phone'], sort: 'name', filters: [] },
+  roles: { read: ALL, write: ALL, delete: ALL },
 };
 
 export const supplier: DocDef = {
@@ -78,6 +97,7 @@ export const supplier: DocDef = {
     { key: 'address', label: 'Address', type: 'longtext' },
     { key: 'payment_days', label: 'Days to pay', type: 'number', min: 0, max: 365, integer: true, help: 'Days after their bill before we must pay. Empty: the days of their group.' },
     { key: 'price_list', label: 'Price list', type: 'link', to: 'price_list', filter: { type: 'Buying' }, help: 'Their prices, filled in on their bills.' },
+    { key: 'contacts', label: 'Contact people', type: 'table', of: 'party_contact', help: 'The people you deal with there: sales rep, accounts, driver.', info: 'Kept for people: who to call or email there' },
     { key: 'notes', label: 'Notes', type: 'longtext' },
     { key: 'active', label: 'Active', type: 'check', default: true },
   ],
@@ -86,6 +106,7 @@ export const supplier: DocDef = {
     { label: 'Contact', fields: ['phone', 'email', 'address'], columns: 2 },
     { label: 'Tax', fields: ['tin', 'vrn'], columns: 2 },
     { label: 'Prices and payment', fields: ['price_list', 'payment_days'], columns: 2 },
+    { label: 'Contact people', fields: ['contacts'], columns: 1 },
     { label: 'Notes', fields: ['notes'], columns: 1 },
   ],
   list: { columns: ['name', 'group', 'phone', 'currency', 'active'], sort: 'name', filters: ['group', 'currency', 'active'] },

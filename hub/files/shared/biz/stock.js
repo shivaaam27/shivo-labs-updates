@@ -11,6 +11,8 @@ export const STOCK_ACTIONS = [
   { kind: 'transfer', label: 'Move stock', hint: 'Between stores and vans', icon: I.move, words: 'move transfer van store' },
   { kind: 'count', label: 'Stock count', hint: 'Set what is really on the shelf', icon: I.count, words: 'count stocktake reconcile shelf' },
   { kind: 'issue', label: 'Damaged or own use', hint: 'Stock out, not sold', icon: I.damaged, words: 'damaged broken expired own use write off issue' },
+  { kind: 'receipt', label: 'Stock in', hint: 'Found or returned stock, no supplier', icon: I.plus, words: 'stock in found extra receipt no supplier' },
+  { kind: 'landed_cost', label: 'Landed cost', hint: 'Transport, clearing, duty on goods', icon: I.arrived, words: 'landed cost transport freight clearing duty extra cost' },
 ];
 const ACT = Object.fromEntries(STOCK_ACTIONS.map((a) => [a.kind, a]));
 const UNDONE = { label: 'Undone', icon: I.undo };
@@ -21,7 +23,7 @@ const stamp = (s) => { const d = new Date(`${s.date}T00:00:00`); return isNaN(d)
 
 /** mountStock(el, kit, { action, tab, records(el) }) → leave() */
 export function mountStock(el, kit, { action = null, tab: tab0 = null, records = null } = {}) {
-  let alive = true, tab = tab0 || 'stock', steps = [], result = null, products = [], stores = [], q = '';
+  let alive = true, tab = tab0 || 'stock', steps = [], result = null, products = [], stores = [], q = '', mainStore = null;
   const rights = kit.stepRights || { read: true, write: true, undo: true };
   const canWrite = rights.kinds ? !!rights.kinds.receipt : !!rights.write, canUndo = !!rights.undo;   // stock movements: manager and storekeeper
   const pName = new Map(), sName = new Map(), names = new Map();
@@ -57,8 +59,9 @@ export function mountStock(el, kit, { action = null, tab: tab0 = null, records =
       }
       return out;
     };
-    const [p, s] = await Promise.all([all('product'), all('store')]);
-    products = p; stores = s;
+    const [p, s, co] = await Promise.all([all('product'), all('store'), kit.api.doc('company', '').then((r) => r?.doc).catch(() => null)]);
+    products = p; stores = s.filter((x) => x.active !== false);
+    mainStore = co?.default_store ?? null;   // the company's main store comes first in every movement
     products.forEach((x) => pName.set(x.id, x.title || x.name || x.id));
     stores.forEach((x) => sName.set(x.id, x.title || x.name || x.id));
   }
@@ -81,83 +84,129 @@ export function mountStock(el, kit, { action = null, tab: tab0 = null, records =
     if (alive) paint();
   }
   // ---------- dialogs
+  const today = () => new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);   // Dar es Salaam
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+  const storeSel = (id, label) => `<div class="bz-fld"><label class="bz-lbl" for="${id}">${label}</label><select id="${id}">${stores.map((s) => `<option value="${esc(s.id)}"${s.id === mainStore ? ' selected' : ''}>${esc(s.title)}${s.type && s.type !== 'Store' ? ` (${esc(s.type)})` : ''}</option>`).join('')}</select></div>`;
+  const field = (id, label, input, cls = '') => `<div class="bz-fld${cls ? ' ' + cls : ''}"><label class="bz-lbl" for="${id}">${label}</label>${input}</div>`;
+  const dateIn = () => field('bzDate', 'Date', `<input class="bz-in" type="date" id="bzDate" value="${today()}" max="${today()}">`);
+
+  /** A movement with one or more products: where, when, the lines (product, quantity, price where needed), a note. */
   function dialog(kind) {
     const a = ACT[kind];
     if (!canWrite) return kit.toast('Your role can only look at stock');
     if (!stores.length) return kit.toast('Add a store first (Setup → Stores and vans)');
+    if (kind === 'landed_cost') return landedDialog();
     if (!products.length) return kit.toast('Add a product first');
-    const needsPrice = ['purchase_receipt', 'delivery', 'count'].includes(kind);
-    const priceLabel = kind === 'delivery' ? 'Selling price' : 'Cost per unit';
-    const storeSel = (id, label) => `<div class="bz-fld"><label class="bz-lbl" for="${id}">${label}</label><select id="${id}">${stores.map((s) => `<option value="${esc(s.id)}">${esc(s.title)}${s.type && s.type !== 'Store' ? ` (${esc(s.type)})` : ''}</option>`).join('')}</select></div>`;
+    const needsPrice = ['purchase_receipt', 'delivery', 'count', 'receipt'].includes(kind);
+    const priceLabel = kind === 'delivery' ? 'Selling price' : kind === 'count' ? 'Cost' : 'Cost per unit';
     const body = document.createElement('form');
-    body.className = 'bz-grid c2';
+    body.className = 'bz-grid c2 bz-money';
     body.noValidate = true;
-    body.innerHTML = kind === 'transfer' ? `${storeSel('bzFrom', 'From')}${storeSel('bzTo', 'To')}`
-      : storeSel('bzWh', kind === 'delivery' ? 'Sold from' : kind === 'count' ? 'Counted in' : kind === 'issue' ? 'Taken from' : 'Into');
-    const prod = makeField({ key: 'item', label: 'Product', type: 'link', to: 'product', required: true, filter: { is_stock: true } }, null, {
-      api: kit.api, defs: kit.defs, titleOf: kit.titleOf, onPick: () => fill(),
-    });
-    prod.el.classList.add('wide');
-    body.append(prod.el);
-    body.insertAdjacentHTML('beforeend', `<div class="bz-fld"><label class="bz-lbl" for="bzQty">${kind === 'count' ? 'Counted quantity' : 'Quantity'}</label><input class="bz-in n" id="bzQty" inputmode="decimal" placeholder="0" autocomplete="off"><small class="bz-ferr" role="alert"></small></div>
-      ${needsPrice ? `<div class="bz-fld"><label class="bz-lbl" for="bzRate">${priceLabel}</label><div class="bz-inw adorned"><span class="bz-adorn">TZS</span><input class="bz-in n" id="bzRate" inputmode="decimal" autocomplete="off"></div><small class="bz-ferr" role="alert"></small></div>` : ''}
-      <p class="bz-note wide" id="bzNote"></p><button type="submit" hidden></button>`);
-    const m = modal({ title: a.label, sub: a.hint, icon: a.icon, body, actions: [{ label: 'Cancel', value: false }, { label: 'Save', pri: true, id: 'bzStepOk', onClick: (_, btn) => save(btn) }] });
+    body.innerHTML = `${kind === 'transfer' ? `${storeSel('bzFrom', 'From')}${storeSel('bzTo', 'To')}`
+      : storeSel('bzWh', kind === 'delivery' ? 'Sold from' : kind === 'count' ? 'Counted in' : kind === 'issue' ? 'Taken from' : 'Into')}
+      ${dateIn()}
+      ${kind === 'count' ? `<div class="bz-chk wide"><span class="bz-lbl">Opening stock (the first count when you start: booked to Opening balances, not to profit)</span><button type="button" class="sw" role="switch" id="bzOpen" aria-checked="false"></button></div>` : ''}
+      <div class="bz-lines wide" id="bzLines" role="table"><div class="bz-ln s${needsPrice ? '' : ' np'} bz-lh" role="row"><span>Product</span><span class="n">${kind === 'count' ? 'Counted' : 'Qty'}</span>${needsPrice ? `<span class="n">${priceLabel}</span>` : ''}<span class="n">Has now</span><span></span></div></div>
+      <button type="button" class="tbtn wide bz-addln" id="bzAddLn">${svg(I.plus)}Add a product</button>
+      ${field('bzRemarks', 'Note', `<input class="bz-in" id="bzRemarks" autocomplete="off" placeholder="${kind === 'issue' ? 'Why: damaged, expired, own use' : 'Optional'}">`, 'wide')}
+      <div class="bz-formerr wide" role="alert" hidden></div>`;
+    const m = modal({ title: a.label, sub: a.hint, icon: a.icon, wide: true, body, actions: [{ label: 'Cancel', value: false }, { label: 'Save', pri: true, id: 'bzStepOk', onClick: (_, btn) => save(btn) }] });
     const $d = (s) => m.box.querySelector(s);
-    if (kind === 'transfer' && stores[1]) $d('#bzTo').value = stores[1].id;
+    if (kind === 'transfer') { const other = stores.find((x) => x.id !== $d('#bzFrom').value); if (other) $d('#bzTo').value = other.id; }
     enhanceSelects(body);
-    body.querySelectorAll('select').forEach((s) => s.addEventListener('change', fill));
-    body.onsubmit = (e) => { e.preventDefault(); save($d('#bzStepOk')); };
-    requestAnimationFrame(() => prod.focus());
-    let priceSeq = 0;
+    const open = $d('#bzOpen');
+    if (open) open.onclick = () => { const on = open.getAttribute('aria-checked') !== 'true'; open.classList.toggle('on', on); open.setAttribute('aria-checked', String(on)); };
+    const wh = () => $d('#bzWh')?.value || $d('#bzFrom').value;
+    const lines = [];
+    function addLine() {
+      const row = document.createElement('div');
+      row.className = `bz-ln s${needsPrice ? '' : ' np'}`; row.setAttribute('role', 'row');
+      const ln = { row, seq: 0 };
+      ln.prod = makeField({ key: 'item', label: 'Product', type: 'link', to: 'product', required: true, filter: { is_stock: true, active: true } }, null, {
+        api: kit.api, defs: kit.defs, titleOf: kit.titleOf, compact: true, onPick: () => fillLine(ln) });
+      row.append(ln.prod.el);
+      row.insertAdjacentHTML('beforeend', `<input class="bz-in n" aria-label="Quantity" inputmode="decimal" placeholder="0">${needsPrice ? '<input class="bz-in n" aria-label="Price" inputmode="decimal">' : ''}<span class="n bz-lamt"></span><button type="button" class="ibtn" aria-label="Remove">${svg(I.trash)}</button>`);
+      [ln.qi, ln.ri] = row.querySelectorAll('input.bz-in.n');
+      row.querySelector('.ibtn').onclick = () => { lines.splice(lines.indexOf(ln), 1); row.remove(); };
+      $d('#bzLines').append(row);
+      lines.push(ln);
+      return ln;
+    }
+    // what the store has now, and a starting price: the average cost for stock in and counts, else the price rules
+    async function fillLine(ln) {
+      const item = ln.prod.get();
+      const b = item ? result?.balances?.find((x) => x.item === item && x.warehouse === wh()) : null;
+      ln.row.querySelector('.bz-lamt').textContent = item ? qty(b?.qty || 0) : '';
+      if (!item || !ln.ri) return;
+      if (kind !== 'delivery' && b?.valuationRate) { ln.ri.value = fmt(b.valuationRate); return; }
+      const my = ++ln.seq;
+      const p = await kit.api.price(item, undefined, kind === 'delivery' ? 'sell' : 'buy', $d('#bzDate').value).catch(() => null);
+      if (my === ln.seq && p?.price && m.el.isConnected) ln.ri.value = fmt(p.price.rate);
+    }
+    body.querySelectorAll('select').forEach((x) => x.addEventListener('change', () => lines.forEach(fillLine)));
+    $d('#bzAddLn').onclick = () => addLine().prod.focus();
+    addLine();
+    requestAnimationFrame(() => lines[0].prod.focus());
     // one id per dialog: if a save times out but did reach the server, pressing Save again returns that
     // movement instead of recording it twice (the server keeps each id once)
-    const clientId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
-    async function fill() {
-      const item = prod.get();
-      const wh = $d('#bzWh')?.value || $d('#bzFrom').value;
-      if (!item) { $d('#bzNote').textContent = ''; return; }
-      const b = result?.balances?.find((x) => x.item === item && x.warehouse === wh);
-      $d('#bzNote').textContent = `${storeTitle(wh)} has ${qty(b?.qty || 0)} now${b?.qty ? ` · average cost ${tzs(b.valuationRate)}` : ''}`;
-      if (!$d('#bzRate')) return;
-      if (kind !== 'delivery' && b?.valuationRate) { $d('#bzRate').value = fmt(b.valuationRate); return; }
-      const my = ++priceSeq;
-      const p = await priceOf(item, kind === 'delivery' ? 'Selling' : 'Buying').catch(() => null);
-      if (my === priceSeq && p !== null && m.el.isConnected) $d('#bzRate').value = fmt(p);
-      else if (my === priceSeq && kind !== 'delivery') $d('#bzRate').value = '';
-    }
+    const clientId = uid();
     async function save(btn) {
-      const item = prod.get();
-      const qv = num($d('#bzQty').value), rv = needsPrice ? num($d('#bzRate').value) : null;
-      const errQ = $d('#bzQty').parentElement.querySelector('.bz-ferr'), errR = $d('#bzRate')?.closest('.bz-fld').querySelector('.bz-ferr');
-      prod.error(''); errQ.textContent = ''; if (errR) errR.textContent = '';
-      if (!item) { prod.error('Choose a product'); return prod.focus(); }
-      if (!(qv > 0) && !(kind === 'count' && qv === 0)) { errQ.textContent = 'Enter a quantity'; return $d('#bzQty').focus(); }
-      if (needsPrice && !(rv > 0)) { errR.textContent = 'Enter a price'; return $d('#bzRate').focus(); }
-      const line = { item, qty: qv, ...(needsPrice ? { rate: rv } : {}) };
+      const err = (t) => { const e = $d('.bz-formerr'); e.hidden = !t; e.textContent = t || ''; };
+      err('');
+      const out = [];
+      for (const [i, ln] of lines.entries()) {
+        const item = ln.prod.get(), qv = num(ln.qi.value), rv = ln.ri ? num(ln.ri.value) : null;
+        if (!item && !ln.qi.value) continue;
+        if (!item) return err(`Line ${i + 1}: choose a product`);
+        if (!(qv > 0) && !(kind === 'count' && ln.qi.value.trim() !== '' && qv === 0)) return err(`Line ${i + 1}: enter a quantity`);
+        if (needsPrice && !(rv >= 0 && ln.ri.value.trim() !== '')) return err(`Line ${i + 1}: enter the ${priceLabel.toLowerCase()}`);
+        out.push({ item, qty: qv, ...(needsPrice ? { rate: rv } : {}) });
+      }
+      if (!out.length) return err('Add at least one product');
+      const base = { kind, date: $d('#bzDate').value, lines: out, remarks: $d('#bzRemarks').value.trim() || undefined, client_id: clientId };
       let step;
       if (kind === 'transfer') {
-        if ($d('#bzFrom').value === $d('#bzTo').value) return kit.toast('Choose two different places');
-        step = { kind, from: $d('#bzFrom').value, to: $d('#bzTo').value, lines: [line], client_id: clientId };
-      } else step = { kind, warehouse: $d('#bzWh').value, lines: [line], client_id: clientId };
+        if ($d('#bzFrom').value === $d('#bzTo').value) return err('Choose two different places');
+        step = { ...base, from: $d('#bzFrom').value, to: $d('#bzTo').value };
+      } else step = { ...base, warehouse: $d('#bzWh').value, ...(open?.getAttribute('aria-checked') === 'true' ? { opening: true } : {}) };
       await busy(btn, async () => {
-        const ok = await add(step);
+        const ok = await add(step, err);
         if (ok) m.close(true);
       });
     }
   }
-  /** Price of a product from the price lists of a kind (Selling/Buying): the stock-unit price, else none. */
-  async function priceOf(item, kind) {
-    const [rows, lists] = await Promise.all([
-      kit.api.list('item_price', { filters: { product: item }, limit: 50 }).then((r) => r?.rows || []),
-      kit.api.options('price_list', '', { type: kind }).then((r) => new Set((Array.isArray(r) ? r : []).map((x) => x.id))),
-    ]);
-    const hit = rows.find((r) => lists.has(r.price_list) && !r.unit) || rows.find((r) => lists.has(r.price_list));
-    return hit ? Number(hit.rate) : null;
+
+  /** Landed cost: an extra cost (transport, clearing, duty) spread over goods that arrived, or over a bill that brought them. */
+  function landedDialog() {
+    const live = (s) => !s.undone && !steps.some((x) => x.kind === 'cancel' && x.target === s.id);
+    const targets = steps.filter((s) => live(s) && (s.kind === 'purchase_receipt' || (s.kind === 'purchase_invoice' && s.updateStock)));
+    if (!targets.length) return kit.toast('First record goods arriving (Goods arrived, or a bill that brings goods in)');
+    const body = document.createElement('form');
+    body.className = 'bz-grid c2 bz-money'; body.noValidate = true;
+    body.innerHTML = `${field('bzLcT', 'On which goods?', `<select id="bzLcT">${targets.map((t) => `<option value="${esc(t.id)}">${esc(t.id)} · ${t.kind === 'purchase_receipt' ? 'Goods arrived' : 'Bill'} · ${esc(stamp(t))} · ${esc((t.lines || []).map((l) => itemTitle(l.item)).join(', ').slice(0, 60))}</option>`).join('')}</select>`, 'wide')}
+      ${field('bzLcA', 'Extra cost (TZS)', '<input class="bz-in n" id="bzLcA" inputmode="decimal">')}
+      ${field('bzLcD', 'Spread by', '<select id="bzLcD"><option value="amount">Value of each line</option><option value="qty">Quantity of each line</option></select>')}
+      ${dateIn()}${field('bzRemarks', 'Note', '<input class="bz-in" id="bzRemarks" autocomplete="off" placeholder="e.g. transport, clearing">')}
+      <p class="bz-note wide">The cost goes into the value of those goods; what was already sold gets its share in cost of goods sold.</p>
+      <div class="bz-formerr wide" role="alert" hidden></div>`;
+    const m = modal({ title: 'Landed cost', sub: 'Transport, clearing or duty on goods that arrived', icon: I.arrived, body, actions: [{ label: 'Cancel', value: false }, { label: 'Save', pri: true, onClick: (_, btn) => go(btn) }] });
+    const $d = (s) => m.box.querySelector(s);
+    enhanceSelects(body);
+    const clientId = uid();
+    async function go(btn) {
+      const err = (t) => { const e = $d('.bz-formerr'); e.hidden = !t; e.textContent = t || ''; };
+      const amount = num($d('#bzLcA').value);
+      if (!(amount > 0)) return err('Enter the extra cost');
+      await busy(btn, async () => {
+        const ok = await add({ kind: 'landed_cost', receipt: $d('#bzLcT').value, amount, distribute: $d('#bzLcD').value, date: $d('#bzDate').value,
+          remarks: $d('#bzRemarks').value.trim() || undefined, client_id: clientId }, err);
+        if (ok) m.close(true);
+      });
+    }
   }
 
   /** Send a step; a refused one is explained in plain words. Returns true when it was kept. */
-  async function add(step) {
+  async function add(step, showErr) {
     try {
       await kit.api.addStep(step);
       kit.toast(`${ACT[step.kind]?.label || 'Done'} ✓`);
@@ -165,7 +214,7 @@ export function mountStock(el, kit, { action = null, tab: tab0 = null, records =
       if (alive) paint();
       return true;
     } catch (e) {
-      kit.toast(plain(errText(e)));
+      if (showErr) showErr(plain(errText(e))); else kit.toast(plain(errText(e)));
       return false;
     }
   }
@@ -261,7 +310,7 @@ export function mountStock(el, kit, { action = null, tab: tab0 = null, records =
       <section class="card bz-sec"><h3>Accounts the engine wrote</h3>
         <div class="bz-books"><div class="bz-br bz-bh"><span>Account</span><span>Debit</span><span>Credit</span><span>Balance</span></div>
         ${roles.map((r) => { const d = led.filter((l) => l.role === r).reduce((s, l) => s + l.debit, 0), c = led.filter((l) => l.role === r).reduce((s, l) => s + l.credit, 0); return `<div class="bz-br"><span>${ROLE_NAMES[r]}</span><span data-l="Debit">${fmt(d)}</span><span data-l="Credit">${fmt(c)}</span><span data-l="Balance"><b>${fmt(d - c)}</b></span></div>`; }).join('')}</div>
-        <p class="bz-note">Debits equal credits for every movement. Sales money, customers owing and VAT come with the Money module (phase 3).</p></section>`;
+        <p class="bz-note">Debits equal credits for every movement. The books per account (cash, M-Pesa, sales, VAT) are in Money, Accounts.</p></section>`;
   }
 
   refresh().then(() => { if (alive && action && ACT[action]) dialog(action); });

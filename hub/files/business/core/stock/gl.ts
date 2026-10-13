@@ -7,7 +7,7 @@ import { roundMoney } from '../money.ts';
 import type { StockLedger } from './ledger.ts';
 
 const ROLE_ORDER: AccountRole[] = [
-  'stock', 'stock_adjustment', 'stock_received_not_billed', 'cost_of_goods_sold', 'expenses_in_valuation', 'other',
+  'stock', 'stock_adjustment', 'stock_received_not_billed', 'cost_of_goods_sold', 'expenses_in_valuation', 'temporary_opening', 'other',
 ];
 
 /** `skip`: steps whose ledger rows another part writes (invoices that move goods: money/books.ts). */
@@ -42,9 +42,10 @@ function stepAmounts(book: StockLedger, id: string): Map<AccountRole, number> {
     case 'receipt':
     case 'issue':
     case 'count':
-      // Dr/Cr Stock by the value change; the other side is Stock Adjustment (02 §6.1, §6.3; R6, R20).
+      // Dr/Cr Stock by the value change; the other side is Stock Adjustment (02 §6.1, §6.3; R6, R20), or Temporary
+      // Opening for opening stock (ERPNext Stock Reconciliation purpose "Opening Stock", referee S12).
       add('stock', stockChange);
-      add('stock_adjustment', -stockChange);
+      add(step.kind === 'count' && step.opening ? 'temporary_opening' : 'stock_adjustment', -stockChange);
       break;
     case 'delivery':
       // Dr Cost of Goods Sold / Cr Stock (02 §6.5).
