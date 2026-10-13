@@ -21,7 +21,8 @@ export type Step =
   | { id: string; kind: 'delivery'; date: string; time: string; warehouse: string; lines: Required<Line>[] }     // goods delivered to the scenario customer (rate = selling price)
   | { id: string; kind: 'landed_cost'; date: string; time: string; receipt: string; amount: number; distribute: 'qty' | 'amount' } // extra cost on an earlier purchase_receipt step, or a purchase_invoice that brought the goods in
   | { id: string; kind: 'cancel'; date: string; time: string; target: string }                                  // cancel an earlier step by id
-  | MoneyStep;
+  | MoneyStep
+  | SellStep;
 // Every stock movement may also carry `remarks` (why goods were damaged, who took them): kept for people, the engine
 // ignores it (MoneyNotes has the same for money documents).
 
@@ -34,14 +35,19 @@ export type MoneyAccount = 'cash' | 'bank' | 'mobile_money';
 export interface TaxSpec { rate: number; inclusive: boolean }
 
 /** A line of an invoice. `vatRate` overrides the document's VAT rate for this item (e.g. 0 for exempt goods). */
-export interface MoneyLine { item: string; qty: number; rate: number; vatRate?: number; discount?: number; account?: string }
+export interface MoneyLine { item: string; qty: number; rate: number; vatRate?: number; discount?: number; account?: string; from?: LineRef }
+/** Where a line came from: the step (quotation, sales order, delivery note) and the line's position in it (from 0). */
+export interface LineRef { step: string; line: number }
 // `account`: the account a service or expense line is booked to (ours; the referee ignores it: it compares roles)
 // `discount`: % off `rate` (the price-list price); the line is charged rate x (1 - discount/100), rounded to the cent.
 
 /** Extra on sales and purchase invoices: `discountAmount` = a discount on the whole invoice (on the grand total,
  *  spread over the lines by their net, VAT worked out again); `opening` = an opening balance brought in from the old
  *  books (no VAT, no stock: the lines go to Temporary Opening instead of sales or expenses). */
-export interface InvoiceExtra { discountAmount?: number; opening?: boolean }
+export interface InvoiceExtra { discountAmount?: number; opening?: boolean; schedule?: Instalment[] }
+/** Payment terms in parts (03 §5.3): each instalment's due date and its share of the invoice in %. The invoice is due on
+ *  the last date, but Overdue as soon as what was paid is less than the instalments already due. */
+export interface Instalment { dueDate: string; portion: number }
 
 /** Words kept with a money document for people (the engine ignores them): remarks, a payment's reference (M-Pesa code,
  *  cheque number), a supplier's own bill number and date. */
@@ -69,8 +75,35 @@ export type MoneyStep = (
   // move money between own accounts (cash to bank deposit)
   | { id: string; kind: 'money_transfer'; date: string; time: string; from: MoneyAccount; to: MoneyAccount; amount: number; fromRef?: string; toRef?: string }
   // a journal: rows must balance (total debit = total credit), else refused
-  | { id: string; kind: 'journal'; date: string; time: string; rows: { role: AccountRole; account?: string; debit?: number; credit?: number; party?: string; invoice?: string }[] }
+  | { id: string; kind: 'journal'; date: string; time: string; rows: { role: AccountRole; account?: string; debit?: number; credit?: number; party?: string; invoice?: string }[];
+      creditOk?: boolean }   // creditOk: a manager allowed debiting a customer over their credit limit
+  // match credit to invoices later (ERPNext Payment Reconciliation, 01 §3.4): money a party has as credit (a payment,
+  // a return, a journal with no invoice) is allocated to their open invoices; nothing is booked again, only who owes
+  // what on which invoice changes. Undoing it (cancel) unlinks again (ERPNext Unreconcile Payment).
+  | { id: string; kind: 'reconcile'; date: string; time: string; party: string; allocations: { from: string; invoice: string; amount: number }[] }
 ) & MoneyNotes;
+
+// ---- selling documents (phase 4; pos/blueprint/03-selling.md §3-§5) ---------------------------------------------
+// A quotation and a sales order book nothing; a delivery note moves goods out (Dr cost of goods sold, Cr stock) to a
+// customer; a sales invoice line may bill an order line or a delivery note line (`from`). Counters (ordered,
+// delivered, billed) are always re-summed from the live documents, never added onto (03 §3.2).
+export type SellStep =
+  | { id: string; kind: 'quotation'; date: string; time: string; customer: string; validTill?: string; lines: MoneyLine[]; tax?: TaxSpec; discountAmount?: number }
+  | { id: string; kind: 'sales_order'; date: string; time: string; customer: string; deliveryDate?: string; warehouse: string; lines: MoneyLine[];
+      tax?: TaxSpec; creditOk?: boolean; discountAmount?: number }
+  | { id: string; kind: 'delivery_note'; date: string; time: string; customer: string; warehouse: string; lines: MoneyLine[]; tax?: TaxSpec; creditOk?: boolean;
+      discountAmount?: number }
+  // a user action on a quotation (Lost, Open) or a sales order / delivery note (Closed, On Hold, Open = reopen)
+  | { id: string; kind: 'set_status'; date: string; time: string; target: string; status: 'Closed' | 'On Hold' | 'Open' | 'Lost' };
+
+/** Status and progress of a selling document (ERPNext: status, per_ordered, per_delivered, per_billed). */
+export interface DocResult {
+  step: string; kind: string; status: string; perOrdered?: number; perDelivered?: number; perBilled?: number;
+  /** Ours only (not compared): per line, how much was ordered / delivered (quantities) and billed (amount). */
+  lines?: { ordered?: number; delivered?: number; billed?: number }[];
+  /** Ours only (not compared): the document's totals (net, VAT, after the discount on the whole). */
+  totals?: { netTotal: number; vat: number; grandTotal: number; roundedTotal: number; discount: number };
+}
 
 /** Any step may carry `negativeOk: true`: it was recorded while negative stock was allowed, so its own rows may
  *  go below zero even if the scenario no longer allows it (the setting was switched off later). */
@@ -82,9 +115,14 @@ export interface Scenario {
   items: { key: string; valuation: ValuationMethod; stock?: boolean }[]; // stock: false = a service (never moves stock)
   warehouses: string[];  // scenario keys, e.g. ["Stores", "Van"]
   allowNegativeStock?: boolean; // default false
-  parties?: { key: string; type: 'customer' | 'supplier'; creditLimit?: number }[]; // money: customers and suppliers (creditLimit 0/absent = none)
+  // money: customers and suppliers (creditLimit 0/absent = none; creditAtInvoice: ERPNext's "bypass credit limit check at
+  // sales order": orders are not checked and not counted, deliveries and invoices are checked in full, 03 §5.2)
+  parties?: { key: string; type: 'customer' | 'supplier'; creditLimit?: number; creditAtInvoice?: boolean }[];
   rounding?: boolean;    // money: round grand totals to whole shillings (default true, ERPNext's default)
   oursDiffers?: { why: string; diffs: string[] }; // a deliberate difference from ERPNext: the exact difference lines expected
+  overDelivery?: number; // % a delivery may go over the ordered quantity (ERPNext Stock Settings over_delivery_receipt_allowance, default 0)
+  overBilling?: number;  // % billing may go over the ordered or delivered amount (Accounts Settings over_billing_allowance, default 0)
+  noSaleBelowCost?: boolean; // refuse selling below the last purchase rate or the valuation rate (Selling Settings validate_selling_price, default off)
   steps: Step[];
 }
 
@@ -119,9 +157,16 @@ export interface Result {
   invoices?: InvoiceResult[];
   /** Money scenarios: balance per party (customer: what they owe us; supplier: what we owe them; negative = credit). */
   parties?: { party: string; balance: number }[];
+  /** Selling documents: status and % ordered / delivered / billed. */
+  documents?: DocResult[];
+  /** Stock held for open sales orders per item + store (ERPNext Bin reserved qty). */
+  reserved?: { item: string; warehouse: string; qty: number }[];
   /** Ours only (the referee does not compare it): every ledger row of every live step, with the account the document
    *  named (`ref`) and the party, so the books can be shown per real account. */
   entries?: Entry[];
+  /** Ours only (not compared): per customer, what counts against the credit limit (owed + open orders and
+   *  deliveries not billed, 03 §5.1). */
+  credit?: { customer: string; owed: number }[];
 }
 
 export interface Entry { step: string; role: AccountRole; ref?: string; party?: string; debit: number; credit: number }

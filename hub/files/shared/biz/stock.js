@@ -265,9 +265,11 @@ export function mountStock(el, kit, { action = null, tab: tab0 = null, records =
     return `<div class="bz-sgrid">${list.map((it, i) => {
       const b = bal.filter((x) => x.item === it.id);
       const qn = b.reduce((s, x) => s + x.qty, 0), vn = b.reduce((s, x) => s + x.value, 0);
+      const held = (result?.reserved || []).filter((x) => x.item === it.id).reduce((s, x) => s + x.qty, 0);
       return `<button class="card bz-sitem" style="--i:${Math.min(i, 14)}" data-prod="${esc(it.id)}"><span class="bz-sih"><span class="bz-ic sm bz-let">${esc((it.title[0] || '?').toUpperCase())}</span></span>
         <b class="bz-sname">${esc(it.title)}</b>
         <span class="bz-sq${qn <= 0 ? ' out' : ''}">${qty(qn)} <small>in stock</small></span>
+        ${held ? `<span class="bz-swh"><span>Held for orders <b>${qty(held)}</b></span><span>Free <b>${qty(qn - held)}</b></span></span>` : ''}
         <span class="bz-swh">${b.filter((x) => x.qty !== 0 || b.length === 1).map((x) => `<span>${esc(storeTitle(x.warehouse))} <b>${qty(x.qty)}</b></span>`).join('')}</span>
         <span class="bz-siv"><span>Value ${tzs(vn)}</span><span>${qn ? 'Avg ' + tzs(vn / qn) : ''}</span></span></button>`;
     }).join('')}</div>${without && !q ? `<p class="bz-note">${qty(without)} other product${without === 1 ? ' has' : 's have'} no stock movements yet.</p>` : ''}`;

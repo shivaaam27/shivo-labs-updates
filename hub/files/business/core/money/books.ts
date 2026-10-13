@@ -8,9 +8,10 @@ import { roundMoney } from '../money.ts';
 import type { StockLedger } from '../stock/ledger.ts';
 import type { Totals } from './taxes.ts';
 import { invoiceTotals, lineRate } from './taxes.ts';
+import type { InvoiceView, SalesBook } from '../sell/orders.ts';
 
 type Kind = MoneyStep['kind'];
-export const MONEY_KINDS = new Set<string>(['sales_invoice', 'purchase_invoice', 'payment', 'credit_note', 'money_transfer', 'journal']);
+export const MONEY_KINDS = new Set<string>(['sales_invoice', 'purchase_invoice', 'payment', 'credit_note', 'money_transfer', 'journal', 'reconcile']);
 
 interface Gl { role: AccountRole; debit: number; credit: number; party?: string; ref?: string }   // ref: our own account id, when the document names one
 interface Ple { party: string; against: string; amount: number }   // + = owed (customer owes us / we owe the supplier)
@@ -38,7 +39,10 @@ export class MoneyBook {
   private items: Set<string>;
   private services: Set<string>;               // items that never move stock (delivery charge, transport, rent)
   private limits = new Map<string, number>();  // customer -> credit limit (none if absent or 0)
+  private atInvoice = new Set<string>();       // customers checked at delivery and invoice, not at order (03 §5.2 bypass)
   posted = new Map<string, Posted>();
+  /** The selling side (orders, delivery notes), set by run.ts: invoice lines may bill their lines. */
+  sales: SalesBook | null = null;
   order: string[] = [];
   invoices = new Map<string, Invoice>();
   errors: { step: string; message: string }[] = [];
@@ -50,6 +54,7 @@ export class MoneyBook {
     for (const p of scenario.parties ?? []) {
       this.parties.set(p.key, p.type);
       if (p.creditLimit && p.creditLimit > 0) this.limits.set(p.key, p.creditLimit);
+      if (p.creditAtInvoice) this.atInvoice.add(p.key);
     }
     this.items = new Set(scenario.items.map((i) => i.key));
     this.services = new Set(scenario.items.filter((i) => i.stock === false).map((i) => i.key));
@@ -68,6 +73,8 @@ export class MoneyBook {
       case 'payment': return this.payment(step);
       case 'money_transfer': return this.keep(step, [at(dr(ACCOUNT_ROLE[step.to], step.amount), step.toRef), at(cr(ACCOUNT_ROLE[step.from], step.amount), step.fromRef)], []);
       case 'journal': return this.journal(step);
+      case 'reconcile': return this.keep(step, [], step.allocations.flatMap((a) => [
+        { party: step.party, against: a.invoice, amount: -a.amount }, { party: step.party, against: a.from, amount: a.amount }]));
     }
   }
 
@@ -100,12 +107,15 @@ export class MoneyBook {
     const left = roundMoney(t.roundedTotal - paid + change);
     // credit limit (03 §5.1-5.2, referee M18): refused when what the customer owes would go above the limit. Ours only
     // checks a sale that adds to what is owed (ERPNext also blocks a fully paid sale of a customer already over it).
-    const limit = this.limits.get(step.customer);
-    const adds = step.writeOff ? 0 : left;
-    if (limit && adds > 0 && !step.creditOk) {
-      const owed = roundMoney(this.balanceOf(step.customer) + adds);
-      if (owed > limit) return this.fail(step.id, `Credit limit crossed for ${step.customer}: they would owe ${money(owed)}, the limit is ${money(limit)}`);
+    // an invoice made wholly from orders or delivery notes was checked there (03 §5.2), unless the customer is checked
+    // at the invoice (bypass at the order). What the invoice bills no longer counts as open orders or deliveries.
+    const adds = step.writeOff || (!this.atInvoice.has(step.customer) && step.lines.every((l) => l.from)) ? 0 : left;
+    if (adds > 0 && !step.creditOk) {
+      const msg = this.creditFor(step.customer, adds, { id: step.id, customer: step.customer, lines: step.lines, updateStock: !!step.updateStock, date: step.date });
+      if (msg) return this.fail(step.id, msg);
     }
+    const low = this.belowCost(step.lines, step.tax, step.discountAmount, step.updateStock ? step.warehouse : undefined, step.date, step.time);
+    if (low) return this.fail(step.id, low);
     const goods = this.goods(step.lines);
     const moves = !!step.updateStock && !step.opening && goods.length > 0;
     if (moves && !this.moveStock(step.id, step, 'out', step.warehouse, goods)) return;
@@ -126,7 +136,7 @@ export class MoneyBook {
       gl.push(cr('receivable', left, step.customer), dr('write_off', left));
       ple.push({ party: step.customer, against: step.id, amount: -left });
     }
-    this.invoices.set(step.id, { step, party: step.customer, side: 'customer', totals: t, dueDate: step.dueDate ?? step.date, stock: moves ? 'out' : null });
+    this.invoices.set(step.id, { step, party: step.customer, side: 'customer', totals: t, dueDate: lastDue(step), stock: moves ? 'out' : null });
     this.keep(step, balance(gl), ple);
   }
 
@@ -157,7 +167,7 @@ export class MoneyBook {
       gl.push(dr('payable', p.amount, step.supplier), at(cr(ACCOUNT_ROLE[p.account], p.amount), p.ref));
       ple.push({ party: step.supplier, against: step.id, amount: -p.amount });
     }
-    this.invoices.set(step.id, { step, party: step.supplier, side: 'supplier', totals: t, dueDate: step.dueDate ?? step.date, stock: moves ? 'in' : null });
+    this.invoices.set(step.id, { step, party: step.supplier, side: 'supplier', totals: t, dueDate: lastDue(step), stock: moves ? 'in' : null });
     this.keep(step, balance(gl), ple);
   }
 
@@ -208,6 +218,15 @@ export class MoneyBook {
   }
 
   private journal(step: Extract<MoneyStep, { kind: 'journal' }>): void {
+    // debiting a customer is checked against their credit limit, like a sale (03 §5.2)
+    if (!step.creditOk) {
+      const net = new Map<string, number>();
+      for (const r of step.rows) if (r.party && r.role === 'receivable' && this.parties.get(r.party) === 'customer') net.set(r.party, (net.get(r.party) ?? 0) + (r.debit ?? 0) - (r.credit ?? 0));
+      for (const [c, n] of net) {
+        const msg = n > 0 ? this.creditFor(c, roundMoney(n)) : null;
+        if (msg) return this.fail(step.id, msg);
+      }
+    }
     const gl: Gl[] = [], ple: Ple[] = [];
     for (const r of step.rows) {
       gl.push({ role: r.role, debit: r.debit ?? 0, credit: r.credit ?? 0, party: r.party, ref: r.account });
@@ -234,8 +253,21 @@ export class MoneyBook {
       return null;
     };
     const k: Kind = step.kind;
+    if ((k === 'sales_invoice' || k === 'purchase_invoice') && step.schedule?.length) {
+      const sum = Math.round(step.schedule.reduce((s, x) => s + x.portion, 0) * 1e6) / 1e6;
+      if (sum !== 100) return `Payment terms must add up to 100 % (they add up to ${sum} %)`;
+      if (step.schedule.some((x) => !(x.portion > 0) || x.dueDate < step.date)) return 'Each instalment needs a share above 0 and a due date on or after the invoice date';
+      const dates = step.schedule.map((x) => x.dueDate);
+      if (new Set(dates).size !== dates.length) return 'Two instalments have the same due date';
+    }
     if (k === 'sales_invoice') {
       if (step.updateStock && !this.scenario.warehouses.includes(step.warehouse ?? '')) return 'Choose the warehouse the goods leave from';
+      for (const [i, l] of step.lines.entries()) {
+        if (!l.from) continue;
+        if (!this.sales) return `Line ${i + 1}: no orders or delivery notes to bill`;
+        const bad = this.sales.checkInvoiceLine(step.customer, l, i, !!step.updateStock, (ref) => this.sales!.billedFor(ref));
+        if (bad) return bad;
+      }
       if ((step.payments ?? []).some((p) => !(p.amount >= 0))) return 'A payment cannot be negative';
       return party(step.customer, 'customer') ?? lines(step.lines);
     }
@@ -283,6 +315,25 @@ export class MoneyBook {
       const same = step.from === step.to && (step.fromRef ?? '') === (step.toRef ?? '');
       return same ? 'Choose two different accounts' : null;
     }
+    if (k === 'reconcile') {
+      if (!this.parties.has(step.party)) return `Unknown party ${step.party}`;
+      if (!step.allocations.length) return 'Nothing to match';
+      const used = new Map<string, number>(), owed = new Map<string, number>();
+      for (const a of step.allocations) {
+        if (!(a.amount > 0)) return 'A matched amount must be above 0';
+        const inv = this.invoices.get(a.invoice);
+        if (!inv || inv.party !== step.party || this.posted.get(a.invoice)?.cancelled || inv.returnOf) return `${a.invoice} is not an open invoice of ${step.party}`;
+        const src = this.posted.get(a.from);
+        if (!src || src.cancelled) return `${a.from} is not live`;
+        // what the source still has as credit for this party: its own party rows (negative = credit)
+        const credit = -roundMoney(this.rowsAgainst(a.from, step.party));
+        used.set(a.from, roundMoney((used.get(a.from) ?? 0) + a.amount));
+        if (used.get(a.from)! > credit + 0.001) return `${a.from} has only ${credit} left to match`;
+        owed.set(a.invoice, roundMoney((owed.get(a.invoice) ?? 0) + a.amount));
+        if (owed.get(a.invoice)! > this.outstanding(a.invoice) + 0.001) return `More than is owed on ${a.invoice} (${this.outstanding(a.invoice)})`;
+      }
+      return null;
+    }
     if (k === 'journal') {
       if (step.rows.length < 2) return 'A journal needs at least two rows';
       const d = roundMoney(step.rows.reduce((s, r) => s + (r.debit ?? 0), 0));
@@ -294,6 +345,13 @@ export class MoneyBook {
   }
 
   // ---- results -------------------------------------------------------------------------------------------------
+
+  /** The live party rows of one party against one step (its own credit when negative). */
+  private rowsAgainst(id: string, party: string): number {
+    let o = 0;
+    for (const p of this.posted.values()) if (!p.cancelled) for (const r of p.ple) if (r.against === id && r.party === party) o += r.amount;
+    return o;
+  }
 
   /** What is still owed on an invoice: its live party rows (01 §3.2). */
   outstanding(id: string): number {
@@ -376,11 +434,20 @@ export class MoneyBook {
     return out;
   }
 
+  /** Late (03 §3.3): without a schedule, past the due date; with one, paid less than the instalments due before today. */
+  private late(inv: Invoice, o: number, now: string): boolean {
+    const sched = (inv.step as { schedule?: { dueDate: string; portion: number }[] }).schedule;
+    if (!sched?.length) return inv.dueDate < now;
+    const total = inv.totals.roundedTotal;
+    const due = sched.filter((x) => x.dueDate < now).reduce((s, x) => s + roundMoney((total * x.portion) / 100), 0);
+    return roundMoney(total - o) < roundMoney(due);
+  }
+
   private status(inv: Invoice, o: number, cancelled: boolean, now: string): string {
     if (cancelled) return 'Cancelled';
     if (inv.returnOf) return 'Return';
     const returned = [...this.invoices.values()].some((x) => x.returnOf === inv.step.id && !this.posted.get(x.step.id)?.cancelled);
-    if (o > 0 && inv.dueDate < now) return 'Overdue';
+    if (o > 0 && this.late(inv, o, now)) return 'Overdue';
     if (o > 0 && o < inv.totals.roundedTotal) return 'Partly Paid';
     if (o > 0) return 'Unpaid';
     if (returned) return inv.side === 'customer' ? 'Credit Note Issued' : 'Debit Note Issued';
@@ -411,6 +478,73 @@ export class MoneyBook {
     return roundMoney((d * back) / orig.totals.total);
   }
 
+  /** Credit check (03 §5.1): what the customer owes, plus open orders (not for a customer checked at the invoice) and
+   *  delivery notes not billed yet, plus this document, against their limit. `billing`: the invoice being checked, so
+   *  what it bills is not counted twice. null when it fits (or there is no limit). */
+  creditFor(customer: string, adds: number, billing?: InvoiceView): string | null {
+    const limit = this.limits.get(customer);
+    if (!limit) return null;
+    const owed = roundMoney(this.balanceOf(customer) + (this.sales?.unbilled(customer, !this.atInvoice.has(customer), billing) ?? 0) + adds);
+    return owed > limit ? `Credit limit crossed for ${customer}: they would owe ${money(owed)}, the limit is ${money(limit)}` : null;
+  }
+
+  /** Per customer, what counts against the credit limit now (owed, plus open orders unless checked at the invoice,
+   *  plus deliveries not billed). */
+  creditPositions(): { customer: string; owed: number }[] {
+    return [...this.parties].filter(([, t]) => t === 'customer').map(([c]) => ({
+      customer: c, owed: roundMoney(this.balanceOf(c) + (this.sales?.unbilled(c, !this.atInvoice.has(c)) ?? 0)),
+    }));
+  }
+
+  /** Checked at the delivery and invoice instead of at the order (ERPNext's bypass credit limit check at sales order). */
+  checksAtInvoice(customer: string): boolean { return this.atInvoice.has(customer); }
+
+  /** No sale below cost (03 §2, Selling Settings validate_selling_price): each stock line's net rate (after discounts,
+   *  without VAT) may not be below the product's last purchase rate, nor its valuation rate in the store the goods
+   *  leave from. Off unless the scenario asks for it. */
+  belowCost(lines: MoneyLine[], tax: Parameters<typeof invoiceTotals>[1], discount: number | undefined, warehouse: string | undefined, date: string, time: string): string | null {
+    if (!this.scenario.noSaleBelowCost) return null;
+    const t = invoiceTotals(lines, tax, this.rounding, discount);
+    for (const [i, l] of lines.entries()) {
+      if (this.services.has(l.item) || !l.qty) continue;
+      const net = roundMoney(t.lines[i].net / l.qty);
+      const last = this.lastPurchaseRate(l.item);
+      if (last !== null && net < last) return `Line ${i + 1}: the rate ${money(net)} of ${l.item} is below its last purchase rate ${money(last)}`;
+      const row = warehouse ? this.stock.lastActive(l.item, warehouse, `${date} ${time}`) : undefined;
+      if (row && row.valuationRate > 0 && net < roundMoney(row.valuationRate)) return `Line ${i + 1}: the rate ${money(net)} of ${l.item} is below its valuation rate ${money(roundMoney(row.valuationRate))}`;
+    }
+    return null;
+  }
+
+  /** The newest live purchase of a product (goods arrived or supplier bill), per stock unit, without VAT. */
+  private lastPurchaseRate(item: string): number | null {
+    let best: { at: string; rate: number } | null = null;
+    const take = (at: string, rate: number) => { if (!best || at >= best.at) best = { at, rate }; };
+    for (const id of this.stock.order) {
+      const p = this.stock.posted.get(id);
+      if (!p || p.cancelled || p.step.kind !== 'purchase_receipt') continue;
+      for (const l of p.step.lines) if (l.item === item) take(`${p.step.date} ${p.step.time}`, l.rate);
+    }
+    for (const id of this.order) {
+      const p = this.posted.get(id);
+      if (!p || p.cancelled || p.step.kind !== 'purchase_invoice' || p.step.opening) continue;
+      const t = invoiceTotals(p.step.lines, p.step.tax, this.rounding, p.step.discountAmount);
+      p.step.lines.forEach((l, i) => { if (l.item === item && l.qty) take(`${p.step.date} ${p.step.time}`, roundMoney(t.lines[i].net / l.qty)); });
+    }
+    return best === null ? null : (best as { rate: number }).rate;
+  }
+
+  /** Live sales invoices as the selling side sees them (for ordered / delivered / billed counters). */
+  invoiceViews(): InvoiceView[] {
+    const out: InvoiceView[] = [];
+    for (const id of this.order) {
+      const p = this.posted.get(id);
+      if (!p || p.cancelled || p.step.kind !== 'sales_invoice') continue;
+      out.push({ id, customer: p.step.customer, lines: p.step.lines, updateStock: !!p.step.updateStock, date: p.step.date });
+    }
+    return out;
+  }
+
   /** What a party owes now (customer) or is owed (supplier): its live party rows. */
   private balanceOf(party: string): number {
     let b = 0;
@@ -439,6 +573,10 @@ export class MoneyBook {
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+/** An invoice is due on its last instalment, else its due date, else its date. */
+const lastDue = (s: { date: string; dueDate?: string; schedule?: { dueDate: string }[] }) =>
+  s.schedule?.length ? s.schedule.map((x) => x.dueDate).sort().at(-1)! : s.dueDate ?? s.date;
+
 /** The same row, booked to one of our own accounts (when the document names one). */
 const at = (g: Gl, ref?: string): Gl => (ref ? { ...g, ref } : g);
 const dr = (role: AccountRole, amount: number, party?: string): Gl => ({ role, debit: roundMoney(amount), credit: 0, party });

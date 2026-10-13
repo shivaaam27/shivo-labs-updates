@@ -66,6 +66,7 @@ export const product: DocDef = {
     { key: 'barcodes', label: 'Barcodes', type: 'table', of: 'product_barcode', info: 'Works now: scan or type a barcode in any product search (sales, bills, stock) to find the product; a fast till scan screen comes in phase 4' },
     { key: 'units', label: 'Other units', type: 'table', of: 'product_unit', help: 'E.g. Carton = 24 Pcs, so you can buy and sell by the carton.' },
     { key: 'reorder', label: 'Reorder per store', type: 'table', of: 'product_reorder', soon: 'Phase 5 (Buy): the reorder suggestions list' },
+    { key: 'max_discount', label: 'Max discount %', type: 'percent', min: 0, max: 100, help: 'A bigger discount on this product is refused. Empty: no limit of its own.' },
     { key: 'expense_account', label: 'Expense account', type: 'link', to: 'account', filter: { is_group: false, root_type: 'Expense' },
       help: 'For services you buy (rent, transport, fuel): the account their bills are booked to. Empty: Other expenses (Setup).' },
     { key: 'default_supplier', label: 'Usual supplier', type: 'link', to: 'supplier', soon: 'Phase 5 (Buy): reorder suggestions and purchase orders' },
@@ -76,7 +77,7 @@ export const product: DocDef = {
   ],
   sections: [
     { label: 'Product', fields: ['name', 'code', 'group', 'brand', 'stock_unit', 'vat_category', 'can_sell', 'can_buy', 'active'], columns: 2 },
-    { label: 'Stock', fields: ['is_stock', 'valuation_method', 'expense_account', 'default_supplier', 'batch_tracked', 'has_expiry'], columns: 2 },
+    { label: 'Stock', fields: ['is_stock', 'valuation_method', 'max_discount', 'expense_account', 'default_supplier', 'batch_tracked', 'has_expiry'], columns: 2 },
     { label: 'Barcodes', fields: ['barcodes'], columns: 1 },
     { label: 'Units', fields: ['units'], columns: 1 },
     { label: 'Reorder', fields: ['reorder'], columns: 1 },
@@ -132,6 +133,44 @@ export const price_list: DocDef = {
   roles: { read: ALL, write: ['manager'], delete: ['manager'] },
 };
 
+/** Pricing rules (03 §2.4, ERPNext Pricing Rule, core kinds): for a product, a product group or a brand, for any
+ *  customer, one customer or a customer group, from a quantity up: a fixed price, a discount % or a discount amount. */
+export const price_rule: DocDef = {
+  type: 'price_rule', label: 'Pricing rule', plural: 'Pricing rules', module: 'products',
+  icon: '<path d="M7 7h.01M3 3h8l10 10-8 8L3 11z"/>',
+  title: 'name', subtitle: 'action',
+  description: 'Quantity prices and discounts for customers or groups, e.g. 5 % off 10 cartons and more.',
+  naming: { by: 'field', field: 'name' },
+  fields: [
+    { key: 'name', label: 'Name', type: 'text', required: true, unique: true, search: true },
+    { key: 'applies_to', label: 'Applies to', type: 'select', options: ['Product', 'Product group', 'Brand'], required: true, default: 'Product' },
+    { key: 'product', label: 'Product', type: 'link', to: 'product', help: 'When it applies to a product.' },
+    { key: 'product_group', label: 'Product group', type: 'link', to: 'product_group', help: 'When it applies to a group (and the groups under it).' },
+    { key: 'brand', label: 'Brand', type: 'link', to: 'brand', help: 'When it applies to a brand.' },
+    { key: 'for', label: 'For', type: 'select', options: ['Any customer', 'Customer', 'Customer group'], required: true, default: 'Any customer' },
+    { key: 'customer', label: 'Customer', type: 'link', to: 'customer' },
+    { key: 'customer_group', label: 'Customer group', type: 'link', to: 'customer_group', help: 'The group and the groups under it.' },
+    { key: 'price_list', label: 'Only on price list', type: 'link', to: 'price_list', filter: { type: 'Selling' }, help: 'Empty: any price list.' },
+    { key: 'min_qty', label: 'From quantity', type: 'number', min: 0, default: 0, help: 'In stock units, on one line.' },
+    { key: 'max_qty', label: 'Up to quantity', type: 'number', min: 0, help: 'Empty: no upper limit.' },
+    { key: 'action', label: 'Gives', type: 'select', options: ['Fixed price', 'Discount %', 'Discount amount'], required: true, default: 'Discount %' },
+    { key: 'value', label: 'Price, % or amount', type: 'number', required: true, min: 0 },
+    { key: 'valid_from', label: 'Valid from', type: 'date' },
+    { key: 'valid_to', label: 'Valid until', type: 'date' },
+    { key: 'priority', label: 'Priority', type: 'number', min: 0, max: 20, integer: true, default: 0, help: 'When two rules fit, the higher one wins; two at the same priority are refused at the sale.' },
+    { key: 'active', label: 'Active', type: 'check', default: true },
+  ],
+  sections: [
+    { label: 'Pricing rule', fields: ['name', 'active', 'priority'], columns: 3 },
+    { label: 'What', fields: ['applies_to', 'product', 'product_group', 'brand'], columns: 2 },
+    { label: 'Who', fields: ['for', 'customer', 'customer_group', 'price_list'], columns: 2 },
+    { label: 'When', fields: ['min_qty', 'max_qty', 'valid_from', 'valid_to'], columns: 2 },
+    { label: 'Gives', fields: ['action', 'value'], columns: 2 },
+  ],
+  list: { columns: ['name', 'applies_to', 'for', 'min_qty', 'action', 'value', 'active'], sort: 'name', filters: ['applies_to', 'for', 'action', 'active'] },
+  roles: { read: ALL, write: ['manager'], delete: ['manager'] },
+};
+
 export const item_price: DocDef = {
   type: 'item_price', label: 'Price', plural: 'Prices', module: 'products',
   icon: '<path d="M12 3v18M16 7H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
@@ -142,11 +181,12 @@ export const item_price: DocDef = {
     { key: 'product', label: 'Product', type: 'link', to: 'product', required: true },
     { key: 'price_list', label: 'Price list', type: 'link', to: 'price_list', required: true },
     { key: 'unit', label: 'Unit', type: 'link', to: 'unit', help: 'Empty: the product\'s stock unit.' },
+    { key: 'customer', label: 'Only for customer', type: 'link', to: 'customer', help: 'A price for this customer only; others get the list price.' },
     { key: 'rate', label: 'Price', type: 'money', required: true, min: 0 },
     { key: 'valid_from', label: 'Valid from', type: 'date' },
     { key: 'valid_to', label: 'Valid until', type: 'date', help: 'Empty: no end date.' },
   ],
-  sections: [{ label: 'Price', fields: ['product', 'price_list', 'unit', 'rate', 'valid_from', 'valid_to'], columns: 2 }],
+  sections: [{ label: 'Price', fields: ['product', 'price_list', 'unit', 'customer', 'rate', 'valid_from', 'valid_to'], columns: 2 }],
   list: { columns: ['product', 'price_list', 'unit', 'rate', 'valid_from', 'valid_to'], sort: 'modified', dir: 'desc', filters: ['product', 'price_list'] },
   roles: { read: ALL, write: ['manager'], delete: ['manager'] },
 };

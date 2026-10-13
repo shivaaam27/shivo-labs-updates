@@ -7,6 +7,7 @@ import type { AccountRole, MoneyAccount, MoneyLine, Step, TaxSpec } from '../cor
 import type { DB } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
+import { lineSources } from './sell.ts';
 
 const bad = (message: string): never => fail(422, message);
 const parse = (s: string): Data => { try { return JSON.parse(s) ?? {}; } catch { return {}; } };
@@ -20,7 +21,7 @@ const OPENING_ROLES = new Set(['owner', 'manager', 'accountant']);
 /** What anyone at the till may write off (small change); managers any amount. */
 export const TILL_WRITE_OFF = 1000;
 
-function record(db: DB, type: string, id: unknown, what: string): { id: string; data: Data; title: string } {
+export function record(db: DB, type: string, id: unknown, what: string): { id: string; data: Data; title: string } {
   if (typeof id !== 'string' || !id) bad(`Choose the ${what}`);
   const r = db.prepare('SELECT data, title FROM docs WHERE type = ? AND id = ? AND deleted = 0').get(type, id as string) as { data: string; title: string } | undefined;
   if (!r) bad(`That ${what} does not exist (it may have been deleted)`);
@@ -71,7 +72,7 @@ function amount(v: unknown, what: string, zeroOk = false): number {
   return Math.round(n * 100) / 100;
 }
 
-function text(v: unknown, what: string, max = 500): string | undefined {
+export function text(v: unknown, what: string, max = 500): string | undefined {
   if (!given(v)) return undefined;
   const s = String(v).trim();
   if (s.length > max) bad(`${what}: at most ${max} characters`);
@@ -84,7 +85,7 @@ function realDate(s: string): boolean {
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
   return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
 }
-function dateOf(v: unknown, what: string): string | undefined {
+export function dateOf(v: unknown, what: string): string | undefined {
   if (!given(v)) return undefined;
   const s = String(v);
   if (!realDate(s)) bad(`${what} must be a real date like 2026-10-13`);
@@ -132,6 +133,48 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Payment terms → instalments with dates (03 §5.3): days after the invoice date, days after the end of the invoice
+ *  month, or months after the end of the invoice month (to the last day of that month). The party's own terms, else
+ *  its group's, else none; an invoice may name terms of its own. */
+function scheduleOf(db: DB, input: Data, party: Data, groupType: 'customer_group' | 'supplier_group', date: string): { dueDate: string; portion: number }[] | undefined {
+  // the document's, else the party's own, else its group's, else the company's (04 §1: party → group → company)
+  const id = [input.payment_terms, party.payment_terms, dataOf(db, groupType, party.group)?.payment_terms, companyData(db).payment_terms].find(given);
+  if (!given(id)) return undefined;
+  const t = record(db, 'payment_terms', id, 'payment terms');
+  const rows = (t.data.rows as Data[] | undefined) ?? [];
+  if (!rows.length) bad(`${t.title} has no instalments`);
+  const endOfMonth = (d: Date, plus = 0) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1 + plus, 0));
+  const base = new Date(`${date}T00:00:00Z`);
+  return rows.map((r) => {
+    const n = Math.max(0, Number(r.days) || 0);
+    let d: Date;
+    if (r.basis === 'Months after the end of the invoice month') d = endOfMonth(base, n);
+    else if (r.basis === 'Days after the end of the invoice month') { d = endOfMonth(base); d.setUTCDate(d.getUTCDate() + n); }
+    else { d = new Date(base); d.setUTCDate(d.getUTCDate() + n); }
+    return { dueDate: d.toISOString().slice(0, 10), portion: Number(r.portion) };
+  });
+}
+
+function companyData(db: DB): Data {
+  const r = db.prepare("SELECT data FROM docs WHERE type = 'company' AND deleted = 0 LIMIT 1").get() as { data: string } | undefined;
+  return r ? parse(r.data) : {};
+}
+
+/** Keep the price through the sale (Selling Settings maintain_same_sales_rate, action Stop): when the company asks for
+ *  it, a line made from an earlier document keeps that line's price after discount; the owner or a manager may change
+ *  it (ERPNext's role allowed to override). ERPNext checks order ← quotation, delivery ← order, invoice ← order or
+ *  delivery (probed 14 Oct). */
+export function checkSameRate(db: DB, lines: MoneyLine[], role: string): void {
+  if (companyData(db).keep_same_rate !== true || MANAGERS.has(role)) return;
+  const eff = (l: { rate: number; discount?: number }) => Math.round((l.discount ? l.rate * (1 - l.discount / 100) : l.rate) * 100) / 100;
+  lines.forEach((l, i) => {
+    if (!l.from) return;
+    const r = db.prepare('SELECT data FROM steps WHERE id = ?').get(l.from.step) as { data: string } | undefined;
+    const src = r ? ((parse(r.data).lines as MoneyLine[] | undefined) ?? [])[l.from.line] : undefined;
+    if (src && Math.abs(eff(l) - eff(src)) > 0.005) bad(`Line ${i + 1}: the price must stay ${eff(src).toLocaleString('en-US')} as on ${l.from.step}; only a manager may change it`);
+  });
+}
+
 /** Days to pay: the party's own, else its group's (03 §1.2), else 0. */
 function daysToPay(db: DB, party: Data, groupType: 'customer_group' | 'supplier_group', key: 'credit_days' | 'payment_days'): number {
   if (given(party[key])) return Math.max(0, Number(party[key]) || 0);
@@ -146,6 +189,34 @@ function taxOf(db: DB, input: Data, exempt = false): TaxSpec | undefined {
   const rate = vatRate(db);
   return rate === null ? undefined : { rate, inclusive: input.prices_include_vat !== false };
 }
+/** Selling lines checked against the records (quotations, orders, delivery notes use the sale's rules). */
+export const cleanSellLines = (db: DB, input: unknown): MoneyLine[] => moneyLines(db, input, 'sell');
+/** VAT for a selling document of this customer (exempt customers and groups, no VAT set up). */
+export const customerTax = (db: DB, input: Data, customer: Data): TaxSpec | undefined => taxOf(db, input, vatExempt(db, customer));
+export const textInput = text;
+
+/** The discount on the whole document: as typed, or, for a document made from discounted ones, their share of it by
+ *  the amount of the lines taken (ERPNext copies the whole discount onto every part; ours gives each part its share,
+ *  referee P06). */
+export function wholeDiscount(db: DB, input: Data, lines: MoneyLine[]): number | undefined {
+  if (given(input.discount_amount)) { const d = amount(input.discount_amount, 'The discount', true); return d > 0 ? d : undefined; }
+  let share = 0;
+  const bySource = new Map<string, MoneyLine[]>();
+  for (const l of lines) if (l.from) bySource.set(l.from.step, [...(bySource.get(l.from.step) ?? []), l]);
+  for (const [src, mine] of bySource) {
+    const r = db.prepare('SELECT data FROM steps WHERE id = ?').get(src) as { data: string } | undefined;
+    const d = r ? parse(r.data) : {};
+    const disc = Number(d.discountAmount) || 0;
+    if (!disc) continue;
+    const gross = ((d.lines as MoneyLine[]) ?? []).reduce((s, l) => s + Math.round((l.discount ? l.rate * (1 - l.discount / 100) : l.rate) * l.qty * 100) / 100, 0);
+    const taken = mine.reduce((s, l) => s + Math.round((l.discount ? l.rate * (1 - l.discount / 100) : l.rate) * l.qty * 100) / 100, 0);
+    if (gross > 0) share += (disc * taken) / gross;
+  }
+  return share > 0 ? Math.round(share * 100) / 100 : undefined;
+}
+export const checkSellDiscounts = (db: DB, lines: MoneyLine[], role: string): void => checkDiscounts(db, lines, role);
+export const dateInput = dateOf;
+
 /** A customer that buys without VAT (exports, VAT relief): marked on the customer or its group. */
 function vatExempt(db: DB, customer: Data): boolean {
   return customer.vat_exempt === true || dataOf(db, 'customer_group', customer.group)?.vat_exempt === true;
@@ -196,8 +267,18 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
     const step: Step = { id, kind, date, time, customer: c.id, dueDate: due, lines, tax: opening ? undefined : taxOf(db, input, vatExempt(db, c.data)) };
     if (opening) step.opening = true;
     else {
-      if (given(input.discount_amount) && Number(input.discount_amount) > 0) step.discountAmount = amount(input.discount_amount, 'The discount');
-      if (input.update_stock !== false) { step.updateStock = true; step.warehouse = record(db, 'store', input.warehouse, 'store').id; }
+      // paid in full at the till: no instalments (ERPNext skips the schedule for till sales)
+      const paidNow = Array.isArray(input.payments) && (input.payments as Data[]).some((p) => Number(p?.amount) > 0);
+      const sched = paidNow ? undefined : scheduleOf(db, input, c.data, 'customer_group', date);
+      if (sched) step.schedule = sched;
+      lineSources(db, 'sales_invoice', input.lines, lines);
+      checkSameRate(db, lines, role);
+      const fromDelivery = lines.some((l) => l.from && (db.prepare('SELECT kind FROM steps WHERE id = ?').get(l.from.step) as { kind: string } | undefined)?.kind === 'delivery_note');
+      const disc = wholeDiscount(db, input, lines);
+      if (disc) step.discountAmount = disc;
+      const gross = lines.reduce((s2, l) => s2 + l.rate * l.qty, 0);
+      checkDiscounts(db, lines, role, gross > 0 ? ((step.discountAmount ?? 0) / gross) * 100 : 0);
+      if (input.update_stock !== false && !fromDelivery) { step.updateStock = true; step.warehouse = record(db, 'store', input.warehouse, 'store').id; }
       if (Array.isArray(input.payments)) {
         step.payments = (input.payments as Data[]).filter((p) => Number(p?.amount) > 0).map((p) => ({ ...methodOf(db, p.method), amount: amount(p.amount, 'Payment') }));
       }
@@ -220,6 +301,8 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
       tax: !opening && input.vat === true && rate !== null ? { rate, inclusive: input.prices_include_vat === true } : undefined };
     if (opening) step.opening = true;
     else {
+      const sched = Array.isArray(input.payments) && (input.payments as Data[]).some((p) => Number(p?.amount) > 0) ? undefined : scheduleOf(db, input, s.data, 'supplier_group', date);
+      if (sched) step.schedule = sched;
       if (given(input.discount_amount) && Number(input.discount_amount) > 0) step.discountAmount = amount(input.discount_amount, 'The discount');
       // paid at once (a cash purchase): one payment from a method's account
       if (Array.isArray(input.payments)) {
@@ -280,6 +363,21 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
     if (ref) step.reference = ref;
     return withNotes(step);
   }
+  if (kind === 'reconcile') {
+    // match a customer's or supplier's credit (payment, return, journal) to their open invoices
+    const t = db.prepare("SELECT type FROM docs WHERE id = ? AND type IN ('customer', 'supplier') AND deleted = 0").get(String(input.party ?? '')) as { type: string } | undefined;
+    if (!t) bad('Choose the customer or supplier');
+    const p = record(db, t!.type, input.party, t!.type);
+    if (!Array.isArray(input.allocations) || !input.allocations.length) bad('Choose what to match');
+    if ((input.allocations as unknown[]).length > 200) bad('At most 200 matches at once');
+    const allocations = (input.allocations as Data[]).map((a, i) => {
+      const from = String(a?.from ?? ''), invoice = String(a?.invoice ?? '');
+      if (!db.prepare('SELECT 1 FROM steps WHERE id = ?').get(from)) bad(`Match ${i + 1}: ${from} does not exist`);
+      if (!db.prepare("SELECT 1 FROM steps WHERE id = ? AND kind IN ('sales_invoice', 'purchase_invoice')").get(invoice)) bad(`Match ${i + 1}: ${invoice} is not an invoice or bill`);
+      return { from, invoice, amount: amount(a.amount, `Match ${i + 1}: amount`) };
+    });
+    return withNotes({ id, kind, date, time, party: p.id, allocations });
+  }
   if (kind === 'journal') {
     if (!['owner', 'manager', 'accountant'].includes(role)) bad('Only the owner, a manager or the accountant may enter journals');
     if (!Array.isArray(input.rows) || input.rows.length < 2) bad('A journal needs at least two rows');
@@ -294,10 +392,20 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
       if (debit) row.debit = debit; else row.credit = credit;
       if (roleOf === 'receivable' || roleOf === 'payable') {
         row.party = record(db, roleOf === 'receivable' ? 'customer' : 'supplier', r.party, roleOf === 'receivable' ? `customer on row ${i + 1}` : `supplier on row ${i + 1}`).id;
+        // the invoice this row settles (e.g. a bad debt written off); else it stays as the party's credit or debt
+        if (given(r.invoice)) {
+          const inv = db.prepare("SELECT kind FROM steps WHERE id = ?").get(String(r.invoice)) as { kind: string } | undefined;
+          if (!inv || !['sales_invoice', 'purchase_invoice'].includes(inv.kind)) bad(`Row ${i + 1}: ${String(r.invoice)} is not an invoice or bill`);
+          (row as { invoice?: string }).invoice = String(r.invoice);
+        }
       }
       return row;
     });
     const step: Step = { id, kind, date, time, rows };
+    if (input.allow_over_limit === true) {
+      if (!MANAGERS.has(role)) bad('Only the owner or a manager may go over a customer\'s credit limit');
+      step.creditOk = true;
+    }
     const ref = text(input.reference, 'Reference', 80);
     if (ref) step.reference = ref;
     return withNotes(step);
@@ -306,25 +414,29 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
 }
 
 /** The customers and suppliers named by these steps, for the engine's scenario, with each customer's credit limit
- *  (its own, else its group's; 0 or empty = no limit, as in ERPNext). */
-export function partiesOf(db: DB, steps: Step[]): { key: string; type: 'customer' | 'supplier'; creditLimit?: number }[] {
+ *  (its own, else its group's, else the company's; 0 or empty = no limit, as in ERPNext, 03 §5.1) and whether it is
+ *  checked at the invoice instead of at the order. */
+export function partiesOf(db: DB, steps: Step[]): { key: string; type: 'customer' | 'supplier'; creditLimit?: number; creditAtInvoice?: boolean }[] {
   const ids = new Set<string>();
   for (const s of steps) {
     if (s.kind === 'sales_invoice') ids.add(s.customer);
     if (s.kind === 'purchase_invoice') ids.add(s.supplier);
     if (s.kind === 'payment') ids.add(s.party);
     if (s.kind === 'journal') for (const r of s.rows) if (r.party) ids.add(r.party);
+    if (s.kind === 'quotation' || s.kind === 'sales_order' || s.kind === 'delivery_note') ids.add(s.customer);
+    if (s.kind === 'reconcile') ids.add(s.party);
   }
-  const out: { key: string; type: 'customer' | 'supplier'; creditLimit?: number }[] = [];
+  const out: { key: string; type: 'customer' | 'supplier'; creditLimit?: number; creditAtInvoice?: boolean }[] = [];
+  const companyLimit = Number(companyData(db).credit_limit) || 0;
   for (const id of ids) {
     const r = db.prepare("SELECT type, data FROM docs WHERE id = ? AND type IN ('customer', 'supplier')").get(id) as { type: 'customer' | 'supplier'; data: string } | undefined;
     if (!r) continue;
-    const p: { key: string; type: 'customer' | 'supplier'; creditLimit?: number } = { key: id, type: r.type };
+    const p: { key: string; type: 'customer' | 'supplier'; creditLimit?: number; creditAtInvoice?: boolean } = { key: id, type: r.type };
     if (r.type === 'customer') {
       const d = parse(r.data);
-      const own = Number(d.credit_limit) || 0;
-      const group = own ? 0 : Number(dataOf(db, 'customer_group', d.group)?.credit_limit) || 0;
-      if (own || group) p.creditLimit = own || group;
+      const limit = Number(d.credit_limit) || Number(dataOf(db, 'customer_group', d.group)?.credit_limit) || companyLimit;
+      if (limit) p.creditLimit = limit;
+      if (d.credit_at_invoice === true) p.creditAtInvoice = true;
     }
     out.push(p);
   }
@@ -346,16 +458,72 @@ export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unk
   const lists = [party?.price_list, group?.price_list, side === 'sell' ? c.selling_price_list : c.buying_price_list].filter((x): x is string => typeof x === 'string' && !!x);
   const rows = (db.prepare("SELECT data FROM docs WHERE type = 'item_price' AND deleted = 0").all() as { data: string }[]).map((r) => parse(r.data))
     .filter((p) => p.product === q.item && (!given(p.unit) || p.unit === product!.stock_unit)
-      && (!given(p.valid_from) || String(p.valid_from) <= date) && (!given(p.valid_to) || String(p.valid_to) >= date));
+      && (!given(p.valid_from) || String(p.valid_from) <= date) && (!given(p.valid_to) || String(p.valid_to) >= date)
+      && (!given(p.customer) || (side === 'sell' && p.customer === q.party)));
   for (const list of lists) {
     const pl = dataOf(db, 'price_list', list);
     if (!pl || pl.active === false) continue;
-    const hit = rows.filter((p) => p.price_list === list).sort((a, b) => String(b.valid_from ?? '').localeCompare(String(a.valid_from ?? '')))[0];
-    if (hit) return { rate: Number(hit.rate) || 0, price_list: list };
+    // a price for this customer first, then the list price (03 §2.3 step 3); newest valid-from wins
+    const inList = rows.filter((p) => p.price_list === list).sort((a, b) => Number(!!b.customer) - Number(!!a.customer) || String(b.valid_from ?? '').localeCompare(String(a.valid_from ?? '')));
+    const hit = inList[0];
+    if (hit) return { rate: Number(hit.rate) || 0, price_list: list, ...(hit.customer ? { customer: true } : {}) };
   }
   // buying with no price on any list: the last price paid (ERPNext's last purchase rate)
   if (side === 'buy') { const last = lastPurchase(db, q.item as string); if (last) return { rate: last.rate, price_list: null, last }; }
   return null;
+}
+
+/** The pricing rule for a sale line (03 §2.4): rules for the product first, then its group (and the groups above),
+ *  then its brand; the first level with a fitting rule decides; among those the highest priority wins, and two at the
+ *  same top priority are refused ("Multiple Price Rules exists"). null when none fits. */
+export function ruleFor(db: DB, q: { item: unknown; party?: unknown; qty?: unknown; date?: unknown; price_list?: unknown }):
+  { action: string; value: number; rule: string; title: string } | { error: string } | null {
+  const product = dataOf(db, 'product', q.item);
+  if (!product) return null;
+  const date = typeof q.date === 'string' && realDate(q.date) ? q.date : new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
+  const qty = Number(q.qty) || 0;
+  const cust = dataOf(db, 'customer', q.party);
+  const groupsUp = (type: string, id: unknown): string[] => {
+    const out: string[] = [];
+    for (let g = typeof id === 'string' ? id : null, n = 0; g && n < 20; n++) { out.push(g); g = (dataOf(db, type, g)?.parent as string | undefined) ?? null; }
+    return out;
+  };
+  const productGroups = groupsUp('product_group', product.group), customerGroups = groupsUp('customer_group', cust?.group);
+  const rules = (db.prepare("SELECT id, title, data FROM docs WHERE type = 'price_rule' AND deleted = 0").all() as { id: string; title: string; data: string }[])
+    .map((r) => ({ id: r.id, title: r.title, d: parse(r.data) }))
+    .filter(({ d }) => d.active !== false && (!given(d.valid_from) || String(d.valid_from) <= date) && (!given(d.valid_to) || String(d.valid_to) >= date)
+      && (!given(d.price_list) || d.price_list === q.price_list) && qty >= (Number(d.min_qty) || 0) && (!given(d.max_qty) || Number(d.max_qty) === 0 || qty <= Number(d.max_qty))
+      && (d.for === 'Customer' ? d.customer === q.party : d.for === 'Customer group' ? customerGroups.includes(String(d.customer_group)) : true));
+  const levels = [
+    rules.filter(({ d }) => d.applies_to === 'Product' && d.product === q.item),
+    rules.filter(({ d }) => d.applies_to === 'Product group' && productGroups.includes(String(d.product_group))),
+    rules.filter(({ d }) => d.applies_to === 'Brand' && given(product.brand) && d.brand === product.brand),
+  ];
+  for (const level of levels) {
+    if (!level.length) continue;
+    const top = Math.max(...level.map(({ d }) => Number(d.priority) || 0));
+    const best = level.filter(({ d }) => (Number(d.priority) || 0) === top);
+    if (best.length > 1) return { error: `More than one pricing rule fits: ${best.map((b) => b.title).join(', ')}. Give one a higher priority.` };
+    const r = best[0];
+    return { action: String(r.d.action), value: Number(r.d.value) || 0, rule: r.id, title: r.title };
+  }
+  return null;
+}
+
+/** Discount limits: a product's own maximum (ERPNext Item max discount) for everyone, and the company's "needs a
+ *  manager above" for cashiers and salesmen (ERPNext Authorization Rule, the simple kind). */
+function checkDiscounts(db: DB, lines: MoneyLine[], role: string, wholeShare = 0): void {
+  const co = db.prepare("SELECT data FROM docs WHERE type = 'company' AND deleted = 0 LIMIT 1").get() as { data: string } | undefined;
+  const limit = co ? Number(parse(co.data).discount_needs_manager) : NaN;
+  const manager = MANAGERS.has(role);
+  for (const l of lines) {
+    const p = dataOf(db, 'product', l.item);
+    const max = Number(p?.max_discount);
+    const d = l.discount ?? 0;
+    if (given(p?.max_discount) && max >= 0 && d > max) bad(`The most discount on ${String(p?.name ?? l.item)} is ${max} %`);
+    if (!manager && Number.isFinite(limit) && limit >= 0 && co && given(parse(co.data).discount_needs_manager) && d > limit) bad(`A discount above ${limit} % needs a manager`);
+  }
+  if (!manager && Number.isFinite(limit) && co && given(parse(co.data).discount_needs_manager) && wholeShare > limit) bad(`A discount above ${limit} % needs a manager`);
 }
 
 /** The last price paid for a product: the newest goods arrived or supplier bill line (not undone), per stock unit. */

@@ -26,9 +26,12 @@ export const customer: DocDef = {
     { key: 'address', label: 'Address', type: 'longtext', help: 'Street, landmark, how to find the shop.' },
     { key: 'group', label: 'Group', type: 'link', to: 'customer_group', required: true, default: 'All Customers' },
     { key: 'price_list', label: 'Price list', type: 'link', to: 'price_list', filter: { type: 'Selling' }, help: 'Empty: the group\'s price list, else Retail.' },
-    { key: 'credit_limit', label: 'Credit limit', type: 'money', min: 0, help: 'Most they may owe at one time. 0 or empty: the limit of their group, else no limit. A manager can allow a sale over it.' },
+    { key: 'credit_limit', label: 'Credit limit', type: 'money', min: 0, help: 'Most they may owe at one time. 0 or empty: the limit of their group, else the company\u2019s, else no limit. A manager can allow a sale over it.' },
+    { key: 'credit_at_invoice', label: 'Check credit at the invoice, not the order', type: 'check', default: false,
+      help: 'Their orders are taken whatever they owe and do not count; deliveries and invoices are checked in full.' },
     { key: 'credit_days', label: 'Days to pay', type: 'number', min: 0, max: 365, integer: true, help: 'Days after the invoice before payment is due.' },
     { key: 'vat_exempt', label: 'Buys without VAT', type: 'check', default: false, help: 'Exports, VAT relief, diplomats: their sales carry no VAT unless you switch VAT on for one sale.' },
+    { key: 'payment_terms', label: 'Payment terms', type: 'link', to: 'payment_terms', help: 'Paying in parts. Empty: the group\u2019s terms, else the company\u2019s, else days to pay.' },
     { key: 'contacts', label: 'Contact people', type: 'table', of: 'party_contact', help: 'The people you deal with there: buyer, accountant, driver.', info: 'Kept for people: who to call or email there' },
     { key: 'salesman', label: 'Salesman', type: 'link', to: 'salesman', soon: 'Phase 4 (Sell): their orders and route; commission in phase 7' },
     { key: 'notes', label: 'Notes', type: 'longtext' },
@@ -38,7 +41,7 @@ export const customer: DocDef = {
     { label: 'Customer', fields: ['name', 'type', 'group', 'salesman', 'active'], columns: 2 },
     { label: 'Contact', fields: ['phone', 'whatsapp', 'email', 'area', 'address'], columns: 2 },
     { label: 'Tax', fields: ['tin', 'vrn'], columns: 2 },
-    { label: 'Prices and credit', fields: ['price_list', 'credit_limit', 'credit_days', 'vat_exempt'], columns: 2 },
+    { label: 'Prices and credit', fields: ['price_list', 'credit_limit', 'credit_at_invoice', 'credit_days', 'payment_terms', 'vat_exempt'], columns: 2 },
     { label: 'Contact people', fields: ['contacts'], columns: 1 },
     { label: 'Notes', fields: ['notes'], columns: 1 },
   ],
@@ -58,11 +61,45 @@ export const customer_group: DocDef = {
     { key: 'credit_days', label: 'Days to pay', type: 'number', min: 0, max: 365, integer: true, help: 'For customers in this group who have none of their own.' },
     { key: 'credit_limit', label: 'Credit limit', type: 'money', min: 0, help: 'For customers in this group who have none of their own. 0 or empty: no limit.' },
     { key: 'vat_exempt', label: 'Buy without VAT', type: 'check', default: false, help: 'E.g. a group of exporters: their sales carry no VAT.' },
+    { key: 'payment_terms', label: 'Payment terms', type: 'link', to: 'payment_terms', help: 'For customers in this group who have none of their own.' },
   ],
-  sections: [{ label: 'Customer group', fields: ['name', 'parent', 'price_list', 'credit_days', 'credit_limit', 'vat_exempt'], columns: 2 }],
+  sections: [{ label: 'Customer group', fields: ['name', 'parent', 'price_list', 'credit_days', 'credit_limit', 'payment_terms', 'vat_exempt'], columns: 2 }],
   list: { columns: ['name', 'parent', 'price_list'], sort: 'name', filters: [] },
   related: [{ type: 'customer', by: 'group', label: 'Customers' }],
   roles: { read: ALL, write: ['manager'], delete: ['manager'] },
+};
+
+/** Payment terms in parts (ERPNext Payment Terms Template, 03 §5.3): e.g. 50 % in 7 days, 50 % in 30 days. */
+export const payment_term_row: DocDef = {
+  type: 'payment_term_row', label: 'Instalment', plural: 'Instalments', module: 'customers', child: true,
+  icon: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+  title: 'portion', naming: { by: 'series', prefix: 'PTR-', digits: 6 },
+  fields: [
+    { key: 'portion', label: 'Share %', type: 'percent', required: true, min: 0.01, max: 100 },
+    { key: 'basis', label: 'Due', type: 'select', options: ['Days after the invoice date', 'Days after the end of the invoice month', 'Months after the end of the invoice month'],
+      required: true, default: 'Days after the invoice date' },
+    { key: 'days', label: 'Days or months', type: 'number', min: 0, max: 730, integer: true, default: 0 },
+  ],
+  sections: [{ label: 'Instalment', fields: ['portion', 'basis', 'days'], columns: 3 }],
+  list: { columns: ['portion', 'basis', 'days'], sort: 'portion', filters: [] },
+  roles: { read: ALL, write: ['manager', 'accountant'], delete: ['manager', 'accountant'] },
+};
+
+export const payment_terms: DocDef = {
+  type: 'payment_terms', label: 'Payment terms', plural: 'Payment terms', module: 'customers',
+  icon: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4M8 14h4"/>',
+  title: 'name',
+  description: 'Paying in parts, e.g. 50 % in 7 days and 50 % in 30 days. Used on invoices and bills of customers and suppliers who have them.',
+  naming: { by: 'field', field: 'name' },
+  fields: [
+    { key: 'name', label: 'Name', type: 'text', required: true, unique: true, search: true },
+    { key: 'rows', label: 'Instalments', type: 'table', of: 'payment_term_row', help: 'The shares must add up to 100 %; two instalments may not fall on the same day.' },
+    { key: 'active', label: 'Active', type: 'check', default: true },
+  ],
+  sections: [{ label: 'Payment terms', fields: ['name', 'active'], columns: 2 }, { label: 'Instalments', fields: ['rows'], columns: 1 }],
+  list: { columns: ['name', 'active'], sort: 'name', filters: ['active'] },
+  related: [{ type: 'customer', by: 'payment_terms', label: 'Customers' }, { type: 'supplier', by: 'payment_terms', label: 'Suppliers' }],
+  roles: { read: ALL, write: ['manager', 'accountant'], delete: ['manager'] },
 };
 
 export const party_contact: DocDef = {
@@ -97,6 +134,7 @@ export const supplier: DocDef = {
     { key: 'address', label: 'Address', type: 'longtext' },
     { key: 'payment_days', label: 'Days to pay', type: 'number', min: 0, max: 365, integer: true, help: 'Days after their bill before we must pay. Empty: the days of their group.' },
     { key: 'price_list', label: 'Price list', type: 'link', to: 'price_list', filter: { type: 'Buying' }, help: 'Their prices, filled in on their bills.' },
+    { key: 'payment_terms', label: 'Payment terms', type: 'link', to: 'payment_terms', help: 'Paying them in parts. Empty: the group\u2019s terms, else the company\u2019s, else days to pay.' },
     { key: 'contacts', label: 'Contact people', type: 'table', of: 'party_contact', help: 'The people you deal with there: sales rep, accounts, driver.', info: 'Kept for people: who to call or email there' },
     { key: 'notes', label: 'Notes', type: 'longtext' },
     { key: 'active', label: 'Active', type: 'check', default: true },
@@ -105,7 +143,7 @@ export const supplier: DocDef = {
     { label: 'Supplier', fields: ['name', 'group', 'currency', 'active'], columns: 2 },
     { label: 'Contact', fields: ['phone', 'email', 'address'], columns: 2 },
     { label: 'Tax', fields: ['tin', 'vrn'], columns: 2 },
-    { label: 'Prices and payment', fields: ['price_list', 'payment_days'], columns: 2 },
+    { label: 'Prices and payment', fields: ['price_list', 'payment_days', 'payment_terms'], columns: 2 },
     { label: 'Contact people', fields: ['contacts'], columns: 1 },
     { label: 'Notes', fields: ['notes'], columns: 1 },
   ],
@@ -122,8 +160,9 @@ export const supplier_group: DocDef = {
   fields: [
     { key: 'name', label: 'Name', type: 'text', required: true, unique: true, search: true },
     { key: 'payment_days', label: 'Days to pay', type: 'number', min: 0, max: 365, integer: true },
+    { key: 'payment_terms', label: 'Payment terms', type: 'link', to: 'payment_terms', help: 'For suppliers in this group who have none of their own.' },
   ],
-  sections: [{ label: 'Supplier group', fields: ['name', 'payment_days'], columns: 2 }],
+  sections: [{ label: 'Supplier group', fields: ['name', 'payment_days', 'payment_terms'], columns: 2 }],
   list: { columns: ['name', 'payment_days'], sort: 'name', filters: [] },
   related: [{ type: 'supplier', by: 'group', label: 'Suppliers' }],
   roles: { read: BUYERS, write: ['manager'], delete: ['manager'] },

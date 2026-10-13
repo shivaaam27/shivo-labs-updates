@@ -3,6 +3,7 @@ import type { DocDef } from '../core/meta/index.ts';
 import type { DB } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data, DocRow, Errors, Existing } from './docs.ts';
+import { owedBy } from './steps.ts';
 
 const parse = (s: string): Data => { try { return JSON.parse(s) ?? {}; } catch { return {}; } };
 const dataOf = (db: DB, type: string, id: unknown): Data | null => {
@@ -17,6 +18,11 @@ const titleOf = (db: DB, id: unknown): string => {
 
 /** Runs after the field checks; may fill derived values and add or clear errors. */
 export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | null, errors: Errors): void {
+  // a credit limit may not be set below what the customer already owes (03 §5.2, CU:350)
+  if (def.type === 'customer' && prev && Number(data.credit_limit) > 0 && Number(data.credit_limit) !== Number(prev.data.credit_limit)) {
+    const owed = owedBy(db, prev.id);
+    if (owed > Number(data.credit_limit)) errors.credit_limit = `They already owe ${owed.toLocaleString('en-US')} (open orders and deliveries included): the limit cannot be lower`;
+  }
   if (def.type === 'account') {
     // the main group comes from the group above (01 §1.1: root type inherited from the parent)
     const parent = dataOf(db, 'account', data.parent);
@@ -46,7 +52,7 @@ export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | nul
       const units = Array.isArray(product.units) ? (product.units as Data[]) : [];
       if (!units.some((u) => u.unit === data.unit)) errors.unit = `${titleOf(db, data.product)} has no unit ${titleOf(db, data.unit)}; add it under its other units first`;
     }
-    // one price per product, list and unit for any day
+    // one price per product, list, unit and customer (a price only for one customer sits next to the list price) for any day
     if (!errors.product && !errors.price_list && !errors.valid_to) {
       const others = db.prepare(`SELECT name, data FROM docs WHERE type = 'item_price' AND deleted = 0 AND id <> ?
           AND json_extract(data, '$.product') = ? AND json_extract(data, '$.price_list') = ?`).all(prev?.id ?? '', String(data.product ?? ''), String(data.price_list ?? '')) as { name: string; data: string }[];
@@ -54,7 +60,7 @@ export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | nul
       const unitOf = (d: Data): unknown => d.unit ?? product?.stock_unit ?? null;
       for (const o of others) {
         const d = parse(o.data);
-        if (unitOf(d) !== unitOf(data)) continue;
+        if (unitOf(d) !== unitOf(data) || (d.customer ?? null) !== (data.customer ?? null)) continue;
         const of = String(d.valid_from ?? '0000-00-00'), ot = String(d.valid_to ?? '9999-12-31');
         if (of <= to && from <= ot) { errors.rate = `There is already a price for these dates (${o.name}); end it first or change its dates`; break; }
       }

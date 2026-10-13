@@ -11,7 +11,7 @@ import { defOrFail, deleteDoc, getDoc, history, listDocs, loadSingle, optionsFor
 import { importCsv } from '../store/import.ts';
 import { setupBusiness } from '../store/seed.ts';
 import { addStep, computeStock, listSteps, previewMoney, stepLabel, undoStep } from '../store/steps.ts';
-import { priceFor } from '../store/money.ts';
+import { priceFor, ruleFor } from '../store/money.ts';
 import { accountLedger, trialBalance } from '../store/books.ts';
 /** Who may read the books per account (trial balance, account history): like ERPNext's Accounts User. */
 const BOOK_ROLES: Role[] = ['manager', 'accountant'];
@@ -157,7 +157,10 @@ export function createApi(file: string) {
     }
     if (is('GET', 'price', 1)) {
       needRoles(u, STEP_ROLES.write, 'see prices');
-      return { price: priceFor(db, { item: q.item, party: q.party, side: q.side, date: q.date }) };
+      const price = priceFor(db, { item: q.item, party: q.party, side: q.side, date: q.date });
+      // selling: the pricing rule that fits this line (quantity, customer, group, brand), for the screen to apply
+      const rule = q.side === 'buy' ? null : ruleFor(db, { item: q.item, party: q.party, qty: q.qty, date: q.date, price_list: price?.price_list });
+      return { price, rule };
     }
     if (is('POST', 'steps', 2) && a === 'undo') {
       needRoles(u, STEP_ROLES.undo, 'undo stock movements');

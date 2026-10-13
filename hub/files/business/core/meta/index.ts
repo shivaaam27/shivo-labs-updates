@@ -1,16 +1,16 @@
 // All definitions (business/FRAME.md). A new master is a new definition here; nothing else is hand-built.
 import type { DocDef, Role } from './types.ts';
 import { company, store, unit, payment_method, tax, account, user } from './setup.ts';
-import { product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price } from './products.ts';
-import { customer, customer_group, party_contact, supplier, supplier_group, salesman } from './parties.ts';
+import { product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price, price_rule } from './products.ts';
+import { customer, customer_group, party_contact, payment_term_row, payment_terms, supplier, supplier_group, salesman } from './parties.ts';
 
 export type { DocDef, Field, Role, Section, Naming, FieldType, Module } from './types.ts';
 export { ROLES, FIELD_TYPES } from './types.ts';
 
 export const DEFS: DocDef[] = [
   company, store, unit, payment_method, tax, account, user,
-  product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price,
-  customer, customer_group, salesman, supplier, supplier_group, party_contact,
+  product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price, price_rule,
+  customer, customer_group, salesman, supplier, supplier_group, party_contact, payment_terms, payment_term_row,
 ];
 
 const BY_TYPE = new Map(DEFS.map((d) => [d.type, d]));
@@ -32,5 +32,10 @@ export const STEP_ROLES: { read: Role[]; write: Role[]; undo: Role[]; kinds: Rec
     payment: ['manager', 'accountant', 'cashier'],
     money_transfer: ['manager', 'accountant'],
     journal: ['manager', 'accountant'],
+    quotation: ['manager', 'cashier', 'salesman'],
+    sales_order: ['manager', 'cashier', 'salesman'],
+    delivery_note: ['manager', 'storekeeper'],
+    set_status: ['manager', 'salesman'],
+    reconcile: ['manager', 'accountant'],
   },
 };

@@ -11,16 +11,19 @@ import { loadSingle, nextSeries, titlesOf, writeLog } from './docs.ts';
 import { OPENING_ITEM, TILL_WRITE_OFF, cleanMoneyStep, partiesOf } from './money.ts';
 import { balanceRule } from './books.ts';
 import { MONEY_KINDS } from '../core/money/books.ts';
+import { SELL_KINDS } from '../core/sell/orders.ts';
+import { cleanSellStep } from './sell.ts';
 import { invoiceTotals } from '../core/money/taxes.ts';
 
 interface StepRow { seq: number; id: string; kind: string; data: string; created: string; by: string | null }
 const MOVING = ['receipt', 'issue', 'transfer', 'count', 'purchase_receipt', 'delivery'] as const;
 const NEEDS_RATE = new Set(['receipt', 'purchase_receipt', 'count', 'delivery']);
-const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS]);
+const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS, ...SELL_KINDS]);
 export const STEP_LABELS: Record<string, string> = {
   receipt: 'Stock in', issue: 'Damaged or own use', transfer: 'Move stock', count: 'Stock count',
   purchase_receipt: 'Goods arrived', delivery: 'Delivered to customer', landed_cost: 'Landed cost', cancel: 'Undo',
   sales_invoice: 'Sale', purchase_invoice: 'Supplier bill', payment: 'Payment', credit_note: 'Return', money_transfer: 'Money moved', journal: 'Journal',
+  quotation: 'Quotation', sales_order: 'Sales order', delivery_note: 'Delivery note', set_status: 'Status change', reconcile: 'Credit matched',
 };
 /** A step's label for people (an opening balance is a sale or bill underneath). */
 export const stepLabel = (s: Step): string => ('opening' in s && s.opening ? 'Opening balance' : STEP_LABELS[s.kind] ?? s.kind);
@@ -46,6 +49,8 @@ function idsIn(steps: Step[]): { items: Set<string>; stores: Set<string>; partie
     if (s.kind === 'purchase_invoice') parties.add(s.supplier);
     if (s.kind === 'payment') parties.add(s.party);
     if (s.kind === 'journal') for (const r of s.rows) if (r.party) parties.add(r.party);
+    if (s.kind === 'quotation' || s.kind === 'sales_order' || s.kind === 'delivery_note') parties.add(s.customer);
+    if (s.kind === 'reconcile') parties.add(s.party);
   }
   items.delete(OPENING_ITEM);
   return { items, stores, parties };
@@ -59,8 +64,13 @@ export function scenarioOf(db: DB, steps: Step[], allowNegativeOverride?: boolea
   let allowNegative = false;
   try { allowNegative = company ? JSON.parse(company.data).allow_negative_stock === true : false; } catch { /* damaged row: keep the safe rule */ }
   if (allowNegativeOverride !== undefined) allowNegative = allowNegativeOverride;
+  let co: Data = {};
+  try { co = company ? JSON.parse(company.data) : {}; } catch { /* damaged row */ }
   return {
     id: 'business', title: 'Stored stock movements',
+    ...(Number(co.over_delivery) > 0 ? { overDelivery: Number(co.over_delivery) } : {}),
+    ...(Number(co.over_billing) > 0 ? { overBilling: Number(co.over_billing) } : {}),
+    ...(co.no_sale_below_cost === true ? { noSaleBelowCost: true } : {}),
     items: [
       ...[...items].map((key) => {
         const r = db.prepare('SELECT data FROM docs WHERE id = ?').get(key) as { data: string } | undefined;
@@ -84,6 +94,11 @@ export function computeStock(db: DB): Result & { titles: Record<string, string> 
   const { items, stores, parties } = idsIn(steps);
   const titles = titlesOf(db, [...items, ...stores, ...parties]);
   return { ...result, errors: result.errors.map((e) => ({ ...e, message: plain(e.message, titles, null) })), titles };
+}
+
+/** What counts against a customer's credit limit now (owed, open orders, deliveries not billed). */
+export function owedBy(db: DB, customer: string): number {
+  return computeStock(db).credit?.find((c) => c.customer === customer)?.owed ?? 0;
 }
 
 /** Engine messages name ids; people need names. */
@@ -130,6 +145,7 @@ function cleanStep(db: DB, input: Data, id: string, role = ''): Step {
   if (!realDate(date)) bad('Date must be a real date like 2026-10-13');
   if (!/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(time)) bad('Time must be like 14:30:00');
 
+  if (SELL_KINDS.has(kind)) return cleanSellStep(db, input, kind, id, date, time, role);
   if (MONEY_KINDS.has(kind)) {
     const step = cleanMoneyStep(db, input, kind, id, date, time, role);
     // the till may write off small change; more needs the owner or a manager (ERPNext: POS Profile write-off limit)

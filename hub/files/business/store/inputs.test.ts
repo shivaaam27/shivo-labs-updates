@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { STEP_INPUTS } from './inputs.ts';
 import { MONEY_KINDS } from '../core/money/books.ts';
+import { SELL_KINDS } from '../core/sell/orders.ts';
 
-const CODE = ['steps.ts', 'money.ts'].map((f) => readFileSync(new URL(`./${f}`, import.meta.url), 'utf8')).join('\n');
+const CODE = ['steps.ts', 'money.ts', 'sell.ts'].map((f) => readFileSync(new URL(`./${f}`, import.meta.url), 'utf8')).join('\n');
 
 test('every listed input is read by the store', () => {
   const unread: string[] = [];
@@ -18,5 +19,5 @@ test('every listed input is read by the store', () => {
 });
 
 test('every kind of step is listed', () => {
-  for (const k of [...MONEY_KINDS, 'receipt', 'issue', 'transfer', 'count', 'purchase_receipt', 'delivery', 'landed_cost']) assert.ok(STEP_INPUTS[k], k);
+  for (const k of [...MONEY_KINDS, ...SELL_KINDS, 'receipt', 'issue', 'transfer', 'count', 'purchase_receipt', 'delivery', 'landed_cost']) assert.ok(STEP_INPUTS[k], k);
 });
