@@ -170,6 +170,31 @@ def toast(title, body, open_path=None):
                      env={**os.environ, "BEAM_TOAST": xml}, creationflags=NOWIN)
 
 
+# One notice per batch, not one per file: a phone sending 59 photos used to start 59 notices (each its own
+# PowerShell), which kept popping up long after everything had arrived. Each file restarts a short timer; when
+# the phone has been quiet for 2.5 s, one notice says how many came in.
+_notice_lock = threading.Lock()
+
+
+def received_notice(batch, name):
+    with _notice_lock:
+        batch["n"] = batch.get("n", 0) + 1
+        batch["last"] = name
+        if batch.get("timer"):
+            batch["timer"].cancel()
+
+        def show():
+            with _notice_lock:
+                n, last = batch.get("n", 0), batch.get("last", "")
+                batch["n"], batch["timer"] = 0, None
+            if n:
+                toast("Received from iPhone" if n == 1 else f"Received {n} files from iPhone",
+                      last if n == 1 else f"Saved in Downloads, Beam folder. Last: {last}", INBOX)
+        batch["timer"] = threading.Timer(2.5, show)
+        batch["timer"].daemon = True
+        batch["timer"].start()
+
+
 def set_clipboard(text):
     subprocess.run(["clip"], input=text.encode("utf-16le"), creationflags=NOWIN)
 
@@ -589,12 +614,7 @@ class Handler(BaseHTTPRequestHandler):
                     f.write(b)
             part.replace(dest)
 
-        now = time.time()
-        batch = self.server.batch
-        batch["n"] = batch["n"] + 1 if now - batch["t"] < 4 else 1
-        batch["t"] = now
-        toast("Received from iPhone" if batch["n"] == 1 else f"Received {batch['n']} files from iPhone",
-              dest.name, INBOX)
+        received_notice(self.server.batch, dest.name)
         if on_received:
             on_received(dest)
 

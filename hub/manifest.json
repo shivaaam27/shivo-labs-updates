@@ -1,14 +1,14 @@
 {
- "version": "1.0.113",
- "build": 113,
- "built": "2026-10-13T22:03:33.979Z",
+ "version": "1.0.114",
+ "build": 114,
+ "built": "2026-10-13T22:04:31.498Z",
  "notes": [
+  "Beam PC: one 'Received N files' notice per batch, not one per file",
   "X Tools: Renew uses a newer file of the same app found on the PC",
   "Merge remote-tracking branch 'origin/main' into claude/strange-poitras-51c08e",
   "Business phase 4c: the till on our own engine, shifts and the cash count",
   "Beam: \"Open in Shivo Labs\" from the Share menu (no extra signed piece); Send-to-PC piece switched off",
-  "Send to PC: one published value per line (Swift rule)",
-  "Beam: \"Send to PC\" in the iPhone's Share menu, our own screen instead of the Shortcut"
+  "Send to PC: one published value per line (Swift rule)"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11150,7 +11150,7 @@
   "beam/app/beam/assets/fonts/Sora-Light.ttf": "6db01b5e1c003287352417d26f068f0cafbde8f6b763e7717654fb0c051f9777",
   "beam/app/beam/assets/fonts/Sora-SemiBold.ttf": "614cc019d57fb8756d4862e666c7cbbd7ba20dbf98cc48a559184da666bd2a9a",
   "beam/app/beam/assets/logo.png": "b4ab600ad5e55dc13fd29b041afefcf82f844a2a9341cf3d4df8d1909693f958",
-  "beam/app/beam/beam.py": "c5bbde645208799f3a5abb90594d1d8665d8369732099a77995d97fcecf5baab",
+  "beam/app/beam/beam.py": "e4c725c35a0a9cfce20a388390eafa44dff43637d59ea593facb95f3da43d1bf",
   "beam/app/beam/phone.html": "e1ce2581f60a8b27ba79890b983cc8a9cb9d0f3b5fd847adf681a069c74fd4b1",
   "business/CLAUDE.md": "5e8d648f34e0eaa1239496237d685a7d8119958bde228aac72887e6659f1320d",
   "business/DONE.md": "f08fabca47b38614f2f48859fcdcd1f3a2cf8ec74a98ea38c96d359625a514b2",
