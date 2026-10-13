@@ -121,7 +121,11 @@ test('permissions follow the definitions; the owner may do everything', async ()
     assert.ok(!types.includes('account') && !types.includes('user') && types.includes('product') && types.includes('product_unit'));
     assert.equal(meta.defs.find((d: any) => d.type === 'customer').can.write, true);
     assert.equal(meta.defs.find((d: any) => d.type === 'product').can.write, false);
-    assert.equal(meta.steps.write, false);
+    // a cashier records sales, returns and payments, never stock movements, bills or journals
+    assert.deepEqual([meta.steps.kinds.sales_invoice, meta.steps.kinds.payment, meta.steps.kinds.receipt, meta.steps.kinds.purchase_invoice, meta.steps.kinds.journal], [true, true, false, false, false]);
+    const noMove = await k.post('steps', { step: { kind: 'receipt', warehouse: 'x', lines: [] } });
+    assert.equal(noMove.status, 403);
+    assert.match(noMove.body.error, /cashier.*stock in/);
     // search only shows what the role may read
     assert.ok(!(await k.get('search', { q: 'cash' })).body.some((x: any) => x.type === 'account'));
 

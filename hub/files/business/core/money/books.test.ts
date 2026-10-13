@@ -88,9 +88,14 @@ test('R13: goods arrived, billed from the receipt, then paid', () => {
   assert.deepEqual([inv(r, 'pi').outstanding, inv(r, 'pi').status], [0, 'Paid']);
 });
 
-test('R14: an expense bill with input VAT', () => {
-  const r = runScenario(base([{ id: 'pi', kind: 'purchase_invoice', ...at(1), dueDate: '2099-01-01', supplier: 'sup', lines: [{ item: 'B', qty: 1, rate: 100000 }], tax: { rate: 18, inclusive: false } }]));
+test('R14: an expense bill with input VAT; goods billed before they arrive wait in stock received not billed (M23)', () => {
+  const items = [{ key: 'A', valuation: 'Moving Average' as const }, { key: 'RENT', valuation: 'Moving Average' as const, stock: false }];
+  const r = runScenario(base([
+    { id: 'pi', kind: 'purchase_invoice', ...at(1), dueDate: '2099-01-01', supplier: 'sup', lines: [{ item: 'RENT', qty: 1, rate: 100000 }], tax: { rate: 18, inclusive: false } },
+    { id: 'pg', kind: 'purchase_invoice', ...at(1), dueDate: '2099-01-01', supplier: 'sup', lines: [{ item: 'A', qty: 10, rate: 1000 }] },
+  ], { items }));
   assert.deepEqual(L(r, 'pi'), { payable: [0, 118000], expense: [100000, 0], vat: [18000, 0] });
+  assert.deepEqual(L(r, 'pg'), { payable: [0, 10000], stock_received_not_billed: [10000, 0] });
 });
 
 test('R15 + R20: journals must balance; moving cash to the bank', () => {

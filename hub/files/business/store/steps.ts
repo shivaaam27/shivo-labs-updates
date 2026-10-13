@@ -8,7 +8,7 @@ import { now, tx } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
 import { loadSingle, nextSeries, titlesOf, writeLog } from './docs.ts';
-import { cleanMoneyStep, partiesOf } from './money.ts';
+import { OPENING_ITEM, TILL_WRITE_OFF, cleanMoneyStep, partiesOf } from './money.ts';
 import { MONEY_KINDS } from '../core/money/books.ts';
 import { invoiceTotals } from '../core/money/taxes.ts';
 
@@ -21,6 +21,8 @@ export const STEP_LABELS: Record<string, string> = {
   purchase_receipt: 'Goods arrived', delivery: 'Delivered to customer', landed_cost: 'Landed cost', cancel: 'Undo',
   sales_invoice: 'Sale', purchase_invoice: 'Supplier bill', payment: 'Payment', credit_note: 'Return', money_transfer: 'Money moved', journal: 'Journal',
 };
+/** A step's label for people (an opening balance is a sale or bill underneath). */
+export const stepLabel = (s: Step): string => ('opening' in s && s.opening ? 'Opening balance' : STEP_LABELS[s.kind] ?? s.kind);
 
 const parse = (s: string): Step | null => { try { return JSON.parse(s) as Step; } catch { return null; } };
 const docData = (db: DB, type: string, id: string): Data | null => {
@@ -42,11 +44,14 @@ function idsIn(steps: Step[]): { items: Set<string>; stores: Set<string>; partie
     if (s.kind === 'sales_invoice') parties.add(s.customer);
     if (s.kind === 'purchase_invoice') parties.add(s.supplier);
     if (s.kind === 'payment') parties.add(s.party);
+    if (s.kind === 'journal') for (const r of s.rows) if (r.party) parties.add(r.party);
   }
+  items.delete(OPENING_ITEM);
   return { items, stores, parties };
 }
 
-/** The engine's scenario for these steps: each product with its own valuation method; the company's negative-stock rule. */
+/** The engine's scenario for these steps: each product with its own valuation method (services never move stock);
+ *  the company's negative-stock rule. */
 export function scenarioOf(db: DB, steps: Step[], allowNegativeOverride?: boolean): Scenario {
   const { items, stores } = idsIn(steps);
   const company = loadSingle(db, 'company');
@@ -55,12 +60,15 @@ export function scenarioOf(db: DB, steps: Step[], allowNegativeOverride?: boolea
   if (allowNegativeOverride !== undefined) allowNegative = allowNegativeOverride;
   return {
     id: 'business', title: 'Stored stock movements',
-    items: [...items].map((key) => {
-      const r = db.prepare('SELECT data FROM docs WHERE id = ?').get(key) as { data: string } | undefined;
-      let valuation: ValuationMethod = 'Moving Average';
-      try { if (r && JSON.parse(r.data).valuation_method === 'FIFO') valuation = 'FIFO'; } catch { /* default */ }
-      return { key, valuation };
-    }),
+    items: [
+      ...[...items].map((key) => {
+        const r = db.prepare('SELECT data FROM docs WHERE id = ?').get(key) as { data: string } | undefined;
+        let valuation: ValuationMethod = 'Moving Average', stock = true;
+        try { const d = r ? JSON.parse(r.data) : {}; if (d.valuation_method === 'FIFO') valuation = 'FIFO'; if (d.is_stock === false) stock = false; } catch { /* default */ }
+        return stock ? { key, valuation } : { key, valuation, stock: false };
+      }),
+      { key: OPENING_ITEM, valuation: 'Moving Average' as ValuationMethod, stock: false },
+    ],
     warehouses: [...stores],
     allowNegativeStock: allowNegative,
     parties: partiesOf(db, steps),
@@ -111,7 +119,7 @@ function activeDoc(db: DB, type: 'product' | 'store', id: unknown, what: string)
 }
 
 /** Check a step sent by a screen and give it its final shape (ids, date, time, clean lines). */
-function cleanStep(db: DB, input: Data, id: string): Step {
+function cleanStep(db: DB, input: Data, id: string, role = ''): Step {
   if (!input || typeof input !== 'object') bad('Send the movement as {step: {...}}');
   const kind = String(input.kind ?? '');
   if (!KINDS.has(kind)) bad(`Unknown kind of stock movement "${kind}"`);
@@ -121,7 +129,16 @@ function cleanStep(db: DB, input: Data, id: string): Step {
   if (!realDate(date)) bad('Date must be a real date like 2026-10-13');
   if (!/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(time)) bad('Time must be like 14:30:00');
 
-  if (MONEY_KINDS.has(kind)) return cleanMoneyStep(db, input, kind, id, date, time);
+  if (MONEY_KINDS.has(kind)) {
+    const step = cleanMoneyStep(db, input, kind, id, date, time, role);
+    // the till may write off small change; more needs the owner or a manager (ERPNext: POS Profile write-off limit)
+    if (step.kind === 'sales_invoice' && step.writeOff && role !== 'owner' && role !== 'manager') {
+      const t = invoiceTotals(step.lines, step.tax, scenarioOf(db, []).rounding !== false, step.discountAmount);
+      const paid = (step.payments ?? []).reduce((a, p) => a + p.amount, 0);
+      if (t.roundedTotal - paid > TILL_WRITE_OFF) bad(`Only up to ${TILL_WRITE_OFF.toLocaleString('en-US')} can be written off at the till; ask a manager`);
+    }
+    return step;
+  }
 
   if (kind === 'landed_cost') {
     const receipt = String(input.receipt ?? '');
@@ -211,15 +228,24 @@ export function previewMoney(db: DB, input: Data) {
   const kind = String(input?.kind ?? '');
   if (kind !== 'sales_invoice' && kind !== 'purchase_invoice') bad('Only sales and bills have a preview');
   const { date, time } = darNow();
-  const step = cleanMoneyStep(db, input, kind, 'preview', date, time) as Extract<Step, { kind: 'sales_invoice' | 'purchase_invoice' }>;
-  const t = invoiceTotals(step.lines, step.tax, scenarioOf(db, []).rounding !== false);
-  return { netTotal: t.netTotal, vat: t.vat, grandTotal: t.grandTotal, roundedTotal: t.roundedTotal, roundingAdjustment: t.roundingAdjustment,
-    lines: t.lines.map((l) => ({ item: l.item, amount: l.amount, net: l.net, vatRate: l.vatRate, vat: l.vat })) };
+  const step = cleanMoneyStep(db, { ...input, bill_no: undefined }, kind, 'preview', date, time, 'owner') as Extract<Step, { kind: 'sales_invoice' | 'purchase_invoice' }>;
+  const t = invoiceTotals(step.lines, step.tax, scenarioOf(db, []).rounding !== false, step.discountAmount);
+  const out: Record<string, unknown> = { netTotal: t.netTotal, vat: t.vat, grandTotal: t.grandTotal, roundedTotal: t.roundedTotal, roundingAdjustment: t.roundingAdjustment,
+    discount: t.discount, lines: t.lines.map((l) => ({ item: l.item, rate: l.rate, amount: l.amount, net: l.net, vatRate: l.vatRate, vat: l.vat })) };
+  // what this customer owes now and their credit limit, so the screen can warn before saving
+  if (step.kind === 'sales_invoice') {
+    const steps = loadSteps(db);
+    const sc = scenarioOf(db, [...steps, step]);
+    const limit = sc.parties?.find((p) => p.key === step.customer)?.creditLimit ?? 0;
+    const owed = runScenario(scenarioOf(db, steps)).parties?.find((p) => p.party === step.customer)?.balance ?? 0;
+    out.credit = { owed, limit };
+  }
+  return out;
 }
 
-export function addStep(db: DB, input: Data, by: string | null): Step {
+export function addStep(db: DB, input: Data, by: string | null, role = ''): Step {
   const clientId = clientIdOf(input?.client_id);
-  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, cleanStep(db, input, nextSeries(db, 'ST-', 5)), by, clientId));
+  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, cleanStep(db, input, nextSeries(db, 'ST-', 5), role), by, clientId));
 }
 
 export function undoStep(db: DB, target: unknown, by: string | null, client?: unknown): Step {
@@ -249,7 +275,7 @@ export function listSteps(db: DB, limit: unknown, offset: unknown) {
     total,
     titles,
     steps: steps.map(({ step, row }) => ({
-      ...step, label: STEP_LABELS[step!.kind] ?? step!.kind, created: row.created, by: row.by,
+      ...step, label: stepLabel(step!), created: row.created, by: row.by,
       undone: undoneBy.has(row.id), undoneBy: undoneBy.get(row.id) ?? null,
     })),
   };

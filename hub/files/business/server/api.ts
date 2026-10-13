@@ -10,7 +10,9 @@ import type { Data } from '../store/docs.ts';
 import { defOrFail, deleteDoc, getDoc, history, listDocs, loadSingle, optionsFor, saveDoc, searchAll } from '../store/docs.ts';
 import { importCsv } from '../store/import.ts';
 import { setupBusiness } from '../store/seed.ts';
-import { addStep, computeStock, listSteps, previewMoney, undoStep } from '../store/steps.ts';
+import { addStep, computeStock, listSteps, previewMoney, stepLabel, undoStep } from '../store/steps.ts';
+import { priceFor } from '../store/money.ts';
+import type { Step } from '../core/contract.ts';
 import type { User } from '../store/users.ts';
 import { activeOwners, activeUser, activeUserCount, allowedRoles, can, checkPinShape, findByPin, hasPin, newPinHash, storePin, verifyPin } from '../store/users.ts';
 
@@ -133,12 +135,18 @@ export function createApi(file: string) {
       return listSteps(db, q.limit, q.offset);
     }
     if (is('POST', 'steps', 1)) {
-      needRoles(u, STEP_ROLES.write, 'record stock movements');
-      return { step: addStep(db, body.step as Data, u.id) };
+      const kind = String((body.step as Data | undefined)?.kind ?? '');
+      needRoles(u, STEP_ROLES.kinds[kind] ?? STEP_ROLES.kinds.receipt, `record a ${stepLabel({ kind } as Step).toLowerCase()}`);
+      return { step: addStep(db, body.step as Data, u.id, u.role) };
     }
     if (is('POST', 'preview', 1)) {
-      needRoles(u, STEP_ROLES.write, 'record sales and bills');
+      const kind = String((body.step as Data | undefined)?.kind ?? '');
+      needRoles(u, STEP_ROLES.kinds[kind] ?? [], `record a ${stepLabel({ kind } as Step).toLowerCase()}`);
       return previewMoney(db, body.step as Data);
+    }
+    if (is('GET', 'price', 1)) {
+      needRoles(u, STEP_ROLES.write, 'see prices');
+      return { price: priceFor(db, { item: q.item, party: q.party, side: q.side, date: q.date }) };
     }
     if (is('POST', 'steps', 2) && a === 'undo') {
       needRoles(u, STEP_ROLES.undo, 'undo stock movements');
@@ -189,7 +197,8 @@ export function createApi(file: string) {
     return {
       ready,
       defs: defs.map((d) => ({ ...d, can: { read: can(user, d, 'read'), write: can(user, d, 'write'), delete: can(user, d, 'delete') } })),
-      steps: { read: allowedRoles(user, STEP_ROLES.read), write: allowedRoles(user, STEP_ROLES.write), undo: allowedRoles(user, STEP_ROLES.undo) },
+      steps: { read: allowedRoles(user, STEP_ROLES.read), write: allowedRoles(user, STEP_ROLES.write), undo: allowedRoles(user, STEP_ROLES.undo),
+        kinds: Object.fromEntries(Object.entries(STEP_ROLES.kinds).map(([k, r]) => [k, allowedRoles(user, r)])) },
     };
   }
 

@@ -7,7 +7,7 @@ import type { AccountRole, InvoiceResult, LedgerTotal, MoneyAccount, MoneyLine, 
 import { roundMoney } from '../money.ts';
 import type { StockLedger } from '../stock/ledger.ts';
 import type { Totals } from './taxes.ts';
-import { invoiceTotals } from './taxes.ts';
+import { invoiceTotals, lineRate } from './taxes.ts';
 
 type Kind = MoneyStep['kind'];
 export const MONEY_KINDS = new Set<string>(['sales_invoice', 'purchase_invoice', 'payment', 'credit_note', 'money_transfer', 'journal']);
@@ -36,6 +36,8 @@ export class MoneyBook {
   private stock: StockLedger;
   private parties = new Map<string, 'customer' | 'supplier'>();
   private items: Set<string>;
+  private services: Set<string>;               // items that never move stock (delivery charge, transport, rent)
+  private limits = new Map<string, number>();  // customer -> credit limit (none if absent or 0)
   posted = new Map<string, Posted>();
   order: string[] = [];
   invoices = new Map<string, Invoice>();
@@ -45,8 +47,12 @@ export class MoneyBook {
   constructor(scenario: Scenario, stock: StockLedger) {
     this.scenario = scenario;
     this.stock = stock;
-    for (const p of scenario.parties ?? []) this.parties.set(p.key, p.type);
+    for (const p of scenario.parties ?? []) {
+      this.parties.set(p.key, p.type);
+      if (p.creditLimit && p.creditLimit > 0) this.limits.set(p.key, p.creditLimit);
+    }
     this.items = new Set(scenario.items.map((i) => i.key));
+    this.services = new Set(scenario.items.filter((i) => i.stock === false).map((i) => i.key));
     this.rounding = scenario.rounding !== false;
   }
 
@@ -87,41 +93,62 @@ export class MoneyBook {
   // ---- documents -------------------------------------------------------------------------------------------
 
   private salesInvoice(step: Extract<MoneyStep, { kind: 'sales_invoice' }>): void {
-    const t = invoiceTotals(step.lines, step.tax, this.rounding);
-    if (step.updateStock && !this.moveStock(step.id, step, 'out', step.warehouse, step.lines)) return;
-    const gl: Gl[] = [dr('receivable', t.roundedTotal, step.customer)];
-    if (t.vat) gl.push(cr('vat', t.vat));
-    gl.push(cr('income', t.netTotal));
-    const ple: Ple[] = [{ party: step.customer, against: step.id, amount: t.roundedTotal }];
-    // paid at the till (01 §7.3): each payment settles the invoice; cash above the total is change
+    const t = invoiceTotals(step.lines, step.tax, this.rounding, step.discountAmount);
     const pays = (step.payments ?? []).filter((p) => p.amount > 0);
     const paid = roundMoney(pays.reduce((s, p) => s + p.amount, 0));
+    const change = paid > t.roundedTotal && pays.some((p) => p.account === 'cash') ? roundMoney(paid - t.roundedTotal) : 0;
+    const left = roundMoney(t.roundedTotal - paid + change);
+    // credit limit (03 §5.1-5.2, referee M18): refused when what the customer owes would go above the limit. Ours only
+    // checks a sale that adds to what is owed (ERPNext also blocks a fully paid sale of a customer already over it).
+    const limit = this.limits.get(step.customer);
+    const adds = step.writeOff ? 0 : left;
+    if (limit && adds > 0 && !step.creditOk) {
+      const owed = roundMoney(this.balanceOf(step.customer) + adds);
+      if (owed > limit) return this.fail(step.id, `Credit limit crossed for ${step.customer}: they would owe ${money(owed)}, the limit is ${money(limit)}`);
+    }
+    const goods = this.goods(step.lines);
+    const moves = !!step.updateStock && !step.opening && goods.length > 0;
+    if (moves && !this.moveStock(step.id, step, 'out', step.warehouse, goods)) return;
+    const gl: Gl[] = [dr('receivable', t.roundedTotal, step.customer)];
+    if (t.vat) gl.push(cr('vat', t.vat));
+    gl.push(cr(step.opening ? 'temporary_opening' : 'income', t.netTotal));
+    const ple: Ple[] = [{ party: step.customer, against: step.id, amount: t.roundedTotal }];
+    // paid at the till (01 §7.3): each payment settles the invoice; cash above the total is change
     for (const p of pays) {
       gl.push(cr('receivable', p.amount, step.customer), dr(ACCOUNT_ROLE[p.account], p.amount));
       ple.push({ party: step.customer, against: step.id, amount: -p.amount });
     }
-    const change = paid > t.roundedTotal && pays.some((p) => p.account === 'cash') ? roundMoney(paid - t.roundedTotal) : 0;
     if (change) {
       gl.push(dr('receivable', change, step.customer), cr('cash', change));
       ple.push({ party: step.customer, against: step.id, amount: change });
     }
-    const left = roundMoney(t.roundedTotal - paid + change);
     if (step.writeOff && left > 0) {
       gl.push(cr('receivable', left, step.customer), dr('write_off', left));
       ple.push({ party: step.customer, against: step.id, amount: -left });
     }
-    this.invoices.set(step.id, { step, party: step.customer, side: 'customer', totals: t, dueDate: step.dueDate ?? step.date, stock: step.updateStock ? 'out' : null });
+    this.invoices.set(step.id, { step, party: step.customer, side: 'customer', totals: t, dueDate: step.dueDate ?? step.date, stock: moves ? 'out' : null });
     this.keep(step, balance(gl), ple);
   }
 
   private purchaseInvoice(step: Extract<MoneyStep, { kind: 'purchase_invoice' }>): void {
-    const t = invoiceTotals(step.lines, step.tax, this.rounding);
-    if (step.updateStock && !this.moveStock(step.id, step, 'in', step.warehouse, step.lines, t)) return;
-    // what the lines are: goods already received (01 §7.5, SRBNB), goods coming in now (stock), or expenses
-    const lineRole: AccountRole = step.receipt ? 'stock_received_not_billed' : step.updateStock ? 'stock' : 'expense';
-    const gl: Gl[] = [cr('payable', t.roundedTotal, step.supplier), dr(lineRole, t.netTotal)];
+    const t = invoiceTotals(step.lines, step.tax, this.rounding, step.discountAmount);
+    const moves = !!step.updateStock && !step.opening && !step.receipt && this.goods(step.lines).length > 0;
+    if (moves) {
+      // goods come in at their net cost after discounts; services on the same bill are expenses (referee M15)
+      const idx = step.lines.map((_, i) => i).filter((i) => !this.services.has(step.lines[i].item));
+      const goods = idx.map((i) => ({ item: step.lines[i].item, qty: step.lines[i].qty, rate: t.lines[i].net / step.lines[i].qty }));
+      if (!this.moveStock(step.id, step, 'in', step.warehouse, goods)) return;
+    }
+    // what each line is: an opening balance, a service or expense, goods coming in now (stock), or goods already
+    // received or still to come (01 §7.5, stock received not billed: the goods' receipt clears it, referee M23)
+    const gl: Gl[] = [cr('payable', t.roundedTotal, step.supplier)];
+    step.lines.forEach((l, i) => {
+      const role: AccountRole = step.opening ? 'temporary_opening' : this.services.has(l.item) ? 'expense'
+        : moves ? 'stock' : 'stock_received_not_billed';
+      gl.push(dr(role, t.lines[i].net));
+    });
     if (t.vat) gl.push(dr('vat', t.vat));
-    this.invoices.set(step.id, { step, party: step.supplier, side: 'supplier', totals: t, dueDate: step.dueDate ?? step.date, stock: step.updateStock ? 'in' : null });
+    this.invoices.set(step.id, { step, party: step.supplier, side: 'supplier', totals: t, dueDate: step.dueDate ?? step.date, stock: moves ? 'in' : null });
     this.keep(step, balance(gl), [{ party: step.supplier, against: step.id, amount: t.roundedTotal }]);
   }
 
@@ -129,10 +156,14 @@ export class MoneyBook {
     const orig = this.invoices.get(step.against)!;
     const sold = orig.step as Extract<MoneyStep, { kind: 'sales_invoice' }>;
     const lines: MoneyLine[] = step.lines ?? sold.lines;
-    const t = invoiceTotals(lines, sold.tax, this.rounding);
-    if (step.updateStock) {
+    // a discount on the whole sale comes back in proportion to what is returned (ERPNext gives the whole discount back
+    // again on a part return, so the customer gets less than they paid for those goods; ours differs, referee M22)
+    const t = invoiceTotals(lines, sold.tax, this.rounding, step.lines ? this.discountShare(orig, lines) : sold.discountAmount);
+    const goods = this.goods(lines);
+    const moves = !!step.updateStock && goods.length > 0;
+    if (moves) {
       // goods come back at the cost they left with (the original invoice's stock rows)
-      const back = lines.map((l) => {
+      const back = goods.map((l) => {
         const rows = this.stock.rowsOf(sold.id).filter((r) => r.item === l.item);
         const qty = rows.reduce((s, r) => s - r.qty, 0), value = rows.reduce((s, r) => s - r.valueChange, 0);
         return { item: l.item, qty: l.qty, rate: qty ? value / qty : 0 };
@@ -141,9 +172,9 @@ export class MoneyBook {
     }
     const gl: Gl[] = [cr('receivable', t.roundedTotal, orig.party), dr('income', t.netTotal)];
     if (t.vat) gl.push(dr('vat', t.vat));
-    this.invoices.set(step.id, { step, party: orig.party, side: 'customer', totals: t, dueDate: step.date, returnOf: step.against, stock: step.updateStock ? 'in' : null });
-    // its own balance is a credit to the customer (01 §3.3, update_outstanding_for_self)
-    this.keep(step, balance(gl), [{ party: orig.party, against: step.id, amount: -t.roundedTotal }]);
+    this.invoices.set(step.id, { step, party: orig.party, side: 'customer', totals: t, dueDate: step.date, returnOf: step.against, stock: moves ? 'in' : null });
+    // its own balance is a credit to the customer (01 §3.3, update_outstanding_for_self), or it comes off the invoice
+    this.keep(step, balance(gl), [{ party: orig.party, against: step.reduceInvoice ? step.against : step.id, amount: -t.roundedTotal }]);
   }
 
   private payment(step: Extract<MoneyStep, { kind: 'payment' }>): void {
@@ -204,7 +235,8 @@ export class MoneyBook {
     if (k === 'credit_note') {
       const orig = this.invoices.get(step.against);
       if (!orig || orig.step.kind !== 'sales_invoice' || this.posted.get(step.against)?.cancelled) return `${step.against} is not a posted sales invoice`;
-      if (step.updateStock && !orig.stock) return 'The invoice moved no goods, so none can come back';
+      if (step.updateStock && !orig.stock && this.goods(step.lines ?? orig.step.lines).length) return 'The invoice moved no goods, so none can come back';
+      if (step.reduceInvoice && this.outstanding(step.against) <= 0) return `Nothing is owed on ${step.against} any more; give the return as credit`;
       if (step.lines) {
         const bad = lines(step.lines);
         if (bad) return bad;
@@ -323,6 +355,26 @@ export class MoneyBook {
 
   // ---- helpers -------------------------------------------------------------------------------------------------
 
+  /** Lines whose items keep stock (services left out), with the rate after any line discount. */
+  private goods(lines: MoneyLine[]): { item: string; qty: number; rate: number }[] {
+    return lines.filter((l) => !this.services.has(l.item)).map((l) => ({ item: l.item, qty: l.qty, rate: lineRate(l) }));
+  }
+
+  /** The part of an invoice's whole-invoice discount that belongs to these returned lines (by their amount). */
+  private discountShare(orig: Invoice, lines: MoneyLine[]): number {
+    const d = orig.totals.discount;
+    if (!d || !orig.totals.total) return 0;
+    const back = lines.reduce((s, l) => s + roundMoney(lineRate(l) * l.qty), 0);
+    return roundMoney((d * back) / orig.totals.total);
+  }
+
+  /** What a party owes now (customer) or is owed (supplier): its live party rows. */
+  private balanceOf(party: string): number {
+    let b = 0;
+    for (const p of this.posted.values()) if (!p.cancelled) for (const r of p.ple) if (r.party === party) b += r.amount;
+    return roundMoney(b);
+  }
+
   /** Send the goods of an invoice through the stock ledger under the invoice's id; false if the stock refused them. */
   private moveStock(id: string, step: { date: string; time: string }, dir: 'in' | 'out', warehouse: string | undefined, lines: MoneyLine[] | { item: string; qty: number; rate: number }[], t?: Totals): boolean {
     const before = this.stock.errors.length;
@@ -343,6 +395,7 @@ export class MoneyBook {
   }
 }
 
+const money = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const dr = (role: AccountRole, amount: number, party?: string): Gl => ({ role, debit: roundMoney(amount), credit: 0, party });
 const cr = (role: AccountRole, amount: number, party?: string): Gl => ({ role, debit: 0, credit: roundMoney(amount), party });
 

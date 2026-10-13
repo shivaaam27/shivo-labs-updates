@@ -72,6 +72,8 @@ Role = 'owner' | 'manager' | 'cashier' | 'storekeeper' | 'salesman' | 'accountan
 | `GET /api/business/steps?limit=&offset=` | {steps:[Step + {label, created, by, undone, undoneBy}] newest first, total, titles:{id:title}} |
 | `POST /api/business/steps` {step} | add a stock movement (Step without id; date/time default to now in Dar). Kept only if the engine accepts it, else 422 {error:'Not enough Rice 5kg in Main Store: 32 short'} → {step} |
 | `POST /api/business/steps/undo` {id} | undo a movement (adds a cancel step; refused like any step) → {step} |
+| `POST /api/business/preview` {step} | totals of a sale or bill being typed (VAT, discounts, rounding; nothing saved); for a sale also {credit:{owed, limit}} |
+| `GET /api/business/price?item=&party=&side=sell\|buy&date=` | {price:{rate, price_list} \| null}: the party's list, else its group's, else the company default; valid on the date |
 | `POST /api/business/run` | no body: engine on the stored steps → Result + titles; with a full Scenario (the old demo): runs it, stores nothing |
 
 **Records as the screens get them:** `{...fields, id, title, _name (its number or code, e.g. CUST-00001), _titles:{linkField: title},
@@ -88,6 +90,11 @@ sent together still hit the 5-try lock. `/run` always works from the stored move
 timeout returns the first). Undo uses `undo-<movement id>`. A movement recorded while negative stock is allowed keeps
 `negativeOk`, so switching the setting off applies from then on and never refuses or drops past movements.
 Linked record names a role may not open come back as "Hidden".
+**Who records what** (`STEP_ROLES.kinds`, like ERPNext's Stock / Sales / Purchase / Accounts users; the owner may do all):
+stock movements manager + storekeeper; sales manager + cashier + salesman; returns manager + cashier; supplier bills
+manager + accountant; payments manager + accountant + cashier; moving money and journals manager + accountant. Only
+the owner or a manager may sell over a credit limit or write off more than 1,000 at the till; opening balances need the
+owner, a manager or the accountant. `GET meta` gives `steps.kinds` so screens show only what the person may record.
 
 ## Masters in Phase 2
 Setup: company (single), store/van, unit, payment method, tax (VAT), account (chart of accounts), user.

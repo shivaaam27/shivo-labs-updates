@@ -32,26 +32,39 @@ export type MoneyAccount = 'cash' | 'bank' | 'mobile_money';
 export interface TaxSpec { rate: number; inclusive: boolean }
 
 /** A line of an invoice. `vatRate` overrides the document's VAT rate for this item (e.g. 0 for exempt goods). */
-export interface MoneyLine { item: string; qty: number; rate: number; vatRate?: number }
+export interface MoneyLine { item: string; qty: number; rate: number; vatRate?: number; discount?: number }
+// `discount`: % off `rate` (the price-list price); the line is charged rate x (1 - discount/100), rounded to the cent.
 
-export type MoneyStep =
+/** Extra on sales and purchase invoices: `discountAmount` = a discount on the whole invoice (on the grand total,
+ *  spread over the lines by their net, VAT worked out again); `opening` = an opening balance brought in from the old
+ *  books (no VAT, no stock: the lines go to Temporary Opening instead of sales or expenses). */
+export interface InvoiceExtra { discountAmount?: number; opening?: boolean }
+
+/** Words kept with a money document for people (the engine ignores them): remarks, a payment's reference (M-Pesa code,
+ *  cheque number), a supplier's own bill number and date. */
+export interface MoneyNotes { remarks?: string; reference?: string; billNo?: string; billDate?: string }
+
+export type MoneyStep = (
   // sale to a customer. updateStock: goods leave `warehouse` now (cost of goods sold). payments: paid at the till
   // (several methods allowed; cash above the total is change). Unpaid remainder is owed (outstanding).
   | { id: string; kind: 'sales_invoice'; date: string; time: string; customer: string; dueDate?: string; lines: MoneyLine[];
-      tax?: TaxSpec; updateStock?: boolean; warehouse?: string; payments?: { account: MoneyAccount; amount: number }[]; writeOff?: boolean }
+      tax?: TaxSpec; updateStock?: boolean; warehouse?: string; payments?: { account: MoneyAccount; amount: number }[]; writeOff?: boolean;
+      creditOk?: boolean } & InvoiceExtra   // creditOk: allowed over the customer's credit limit by a manager
   // bill from a supplier. receipt: the purchase_receipt step it bills (stock already in: Dr stock received not billed);
   // without it, lines are expenses (non-stock) unless updateStock (goods come in now into `warehouse`).
   | { id: string; kind: 'purchase_invoice'; date: string; time: string; supplier: string; dueDate?: string; lines: MoneyLine[];
-      tax?: TaxSpec; receipt?: string; updateStock?: boolean; warehouse?: string }
+      tax?: TaxSpec; receipt?: string; updateStock?: boolean; warehouse?: string } & InvoiceExtra
   // money received from a customer (in) or paid to a supplier (out); allocate: which invoices it settles (the rest stays as credit)
   | { id: string; kind: 'payment'; date: string; time: string; direction: 'in' | 'out'; party: string; account: MoneyAccount; amount: number;
       allocate?: { invoice: string; amount: number }[] }
-  // a full or partial return of an earlier sales invoice (lines default to all of it); its own balance is negative credit
-  | { id: string; kind: 'credit_note'; date: string; time: string; against: string; lines?: MoneyLine[]; updateStock?: boolean }
+  // a full or partial return of an earlier sales invoice (lines default to all of it); its own balance is negative
+  // credit, or with reduceInvoice it comes off what is owed on that invoice (ERPNext update_outstanding_for_self = 0)
+  | { id: string; kind: 'credit_note'; date: string; time: string; against: string; lines?: MoneyLine[]; updateStock?: boolean; reduceInvoice?: boolean }
   // move money between own accounts (cash to bank deposit)
   | { id: string; kind: 'money_transfer'; date: string; time: string; from: MoneyAccount; to: MoneyAccount; amount: number }
   // a journal: rows must balance (total debit = total credit), else refused
-  | { id: string; kind: 'journal'; date: string; time: string; rows: { role: AccountRole; debit?: number; credit?: number; party?: string; invoice?: string }[] };
+  | { id: string; kind: 'journal'; date: string; time: string; rows: { role: AccountRole; account?: string; debit?: number; credit?: number; party?: string; invoice?: string }[] }
+) & MoneyNotes;
 
 /** Any step may carry `negativeOk: true`: it was recorded while negative stock was allowed, so its own rows may
  *  go below zero even if the scenario no longer allows it (the setting was switched off later). */
@@ -60,11 +73,12 @@ export type NegativeOk = { negativeOk?: boolean };
 export interface Scenario {
   id: string;            // e.g. "S01-moving-average-receipts"
   title: string;         // one line, plain English
-  items: { key: string; valuation: ValuationMethod }[];
+  items: { key: string; valuation: ValuationMethod; stock?: boolean }[]; // stock: false = a service (never moves stock)
   warehouses: string[];  // scenario keys, e.g. ["Stores", "Van"]
   allowNegativeStock?: boolean; // default false
-  parties?: { key: string; type: 'customer' | 'supplier' }[]; // money scenarios: customers and suppliers
+  parties?: { key: string; type: 'customer' | 'supplier'; creditLimit?: number }[]; // money: customers and suppliers (creditLimit 0/absent = none)
   rounding?: boolean;    // money: round grand totals to whole shillings (default true, ERPNext's default)
+  oursDiffers?: { why: string; diffs: string[] }; // a deliberate difference from ERPNext: the exact difference lines expected
   steps: Step[];
 }
 
@@ -83,7 +97,8 @@ export interface StockRow {
 
 /** Ledger rows summed per account role, per step. Account names differ between systems, roles do not. */
 export type AccountRole = 'stock' | 'stock_adjustment' | 'stock_received_not_billed' | 'cost_of_goods_sold' | 'expenses_in_valuation'
-  | 'receivable' | 'payable' | 'income' | 'expense' | 'vat' | 'cash' | 'bank' | 'mobile_money' | 'round_off' | 'write_off' | 'capital' | 'other';
+  | 'receivable' | 'payable' | 'income' | 'expense' | 'vat' | 'cash' | 'bank' | 'mobile_money' | 'round_off' | 'write_off' | 'capital'
+  | 'temporary_opening' | 'other';
 export interface LedgerTotal { step: string; role: AccountRole; debit: number; credit: number }
 
 export interface Result {

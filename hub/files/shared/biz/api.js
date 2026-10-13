@@ -89,6 +89,8 @@ export const api = {
   run: (body = {}) => call('POST', '/run', body),
   /** Totals of a sale or bill being typed (nothing saved). */
   preview: (step) => call('POST', '/preview', { step }),
+  /** The price of a product for a customer (side 'sell') or supplier ('buy') on a date: {price: {rate, price_list} | null}. */
+  price: (item, party, side, date) => call('GET', `/price${qs({ item, party, side, date })}`),
 };
 
 /** Normalise the different shapes a list of definitions may come in to {type: def}. */

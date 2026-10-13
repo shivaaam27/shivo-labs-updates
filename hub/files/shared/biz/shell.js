@@ -9,7 +9,7 @@ import { mountList, importCsv } from './list.js';
 import { mountDoc, quickCreate } from './form.js';
 import { mountSetup } from './setup.js';
 import { mountStock, STOCK_ACTIONS } from './stock.js';
-import { mountMoney, MONEY_ACTIONS } from './money.js';
+import { mountMoney, MONEY_ACTIONS, mayDo } from './money.js';
 
 export const MODULES = [
   { id: 'home', label: 'Home', icon: I.home, sub: 'Everything in one place' },
@@ -44,6 +44,7 @@ export function mountShell(root, ctx = {}) {
     api, toast,
     get defs() { return defs; },
     get session() { return session; },
+    get user() { return session?.user || null; },
     nav: (r, extra, replace) => nav(r, extra, replace),
     can,
     titleOf: null,
@@ -93,6 +94,8 @@ export function mountShell(root, ctx = {}) {
     } catch (e) { toast(errText(e)); }
     kit.titleOf = titleCache(api, defs);
   }
+  // stock movements: the per-kind right from the server (older servers: the general write right)
+  function mayStock() { const r = kit.stepRights; return !r || (r.kinds ? !!r.kinds.receipt : !!r.write); }
   function normSession(s) { return { ...s, user: s?.user || (s?.id ? { id: s.id, name: s.name, role: s.role } : null), ready: s?.ready !== false }; }
 
   // ---------- frame
@@ -216,8 +219,8 @@ export function mountShell(root, ctx = {}) {
     const name = session?.user?.name?.split(' ')[0] || '';
     setTitle(`${hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'}${name ? ', ' + name : ''}`, session?.company?.name || session?.company || 'Shivo Labs Business');
     const quick = [
-      ...MONEY_ACTIONS.filter((x) => ['sale', 'receive'].includes(x.kind) && (!kit.stepRights || kit.stepRights.write)).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}` })),
-      ...STOCK_ACTIONS.filter((x) => ['purchase_receipt', 'delivery', 'count'].includes(x.kind) && (!kit.stepRights || kit.stepRights.write)).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `stock/${x.kind}`, need: 'stock' })),
+      ...MONEY_ACTIONS.filter((x) => ['sale', 'receive'].includes(x.kind) && mayDo(kit, x.kind)).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}` })),
+      ...STOCK_ACTIONS.filter((x) => ['purchase_receipt', 'delivery', 'count'].includes(x.kind) && mayStock()).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `stock/${x.kind}`, need: 'stock' })),
       ...['product', 'customer', 'supplier'].filter((t) => defs[t] && can(t, 'write')).map((t) => ({ label: `New ${defs[t].label.toLowerCase()}`, sub: defs[t].plural, icon: defs[t].icon, go: `n/${t}` })),
     ];
     host.innerHTML = `<div class="bz-home">
@@ -300,11 +303,14 @@ export function mountShell(root, ctx = {}) {
   // ---------- "+ New" menu
   function newItems() {
     const items = [];
-    if (kit.stepRights ? kit.stepRights.write : can('product', 'read')) {
+    if (kit.stepRights ? mayStock() : can('product', 'read')) {
       items.push({ head: 'Stock' });
       STOCK_ACTIONS.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `stock/${x.kind}` }));
+    }
+    const money = MONEY_ACTIONS.filter((x) => mayDo(kit, x.kind));
+    if (money.length) {
       items.push({ head: 'Sell, buy and money' });
-      MONEY_ACTIONS.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `money/${x.kind}` }));
+      money.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `money/${x.kind}` }));
     }
     for (const m of MODULES) {
       const ds = Object.values(defs).filter((d) => modOfDef(d) === m.id && !d.child && !d.single && can(d.type, 'write'));
@@ -373,14 +379,14 @@ export function mountShell(root, ctx = {}) {
   // ---------- command palette (Ctrl+K / Ctrl+F): actions and records of every kind
   function localActions() {
     const out = [];
-    if (!kit.stepRights || kit.stepRights.write) STOCK_ACTIONS.forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `stock/${x.kind}`, words: 'stock ' + x.words }));
+    if (!kit.stepRights || mayStock()) STOCK_ACTIONS.forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `stock/${x.kind}`, words: 'stock ' + x.words }));
     for (const d of Object.values(defs)) {
       if (d.child || !can(d.type, 'read')) continue;
       if (!d.single && can(d.type, 'write')) out.push({ kind: 'action', title: `New ${d.label.toLowerCase()}`, sub: d.plural, icon: I.plus, go: `n/${d.type}`, words: 'new add create ' + d.label + ' ' + d.plural });
       out.push({ kind: 'action', title: d.single ? d.label : d.plural, sub: d.single ? 'Open' : 'Open the list', icon: d.icon, go: d.single ? `d/${d.type}` : `l/${d.type}`, words: 'open list ' + d.label + ' ' + d.plural });
       if (!d.single && can(d.type, 'write')) out.push({ kind: 'action', title: `Import ${d.plural.toLowerCase()}`, sub: 'From a CSV file', icon: I.upload, imp: d.type, words: 'import csv excel upload ' + d.plural });
     }
-    if (!kit.stepRights || kit.stepRights.write) MONEY_ACTIONS.forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}`, words: x.words }));
+    MONEY_ACTIONS.filter((x) => mayDo(kit, x.kind)).forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}`, words: x.words }));
     MODULES.forEach((m) => out.push({ kind: 'action', title: m.label, sub: m.sub, icon: m.icon, go: m.id === 'home' ? 'home' : 'm/' + m.id, words: 'go module ' + m.label }));
     out.push({ kind: 'action', title: 'Switch user', sub: 'With a PIN', icon: I.user, fn: () => askPin(false), words: 'user pin login change' });
     return out;

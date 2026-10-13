@@ -23,7 +23,7 @@ const stamp = (s) => { const d = new Date(`${s.date}T00:00:00`); return isNaN(d)
 export function mountStock(el, kit, { action = null, tab: tab0 = null, records = null } = {}) {
   let alive = true, tab = tab0 || 'stock', steps = [], result = null, products = [], stores = [], q = '';
   const rights = kit.stepRights || { read: true, write: true, undo: true };
-  const canWrite = !!rights.write, canUndo = !!rights.undo;
+  const canWrite = rights.kinds ? !!rights.kinds.receipt : !!rights.write, canUndo = !!rights.undo;   // stock movements: manager and storekeeper
   const pName = new Map(), sName = new Map(), names = new Map();
   let total = 0;
   const itemTitle = (id) => pName.get(id) ?? names.get(id) ?? id;
