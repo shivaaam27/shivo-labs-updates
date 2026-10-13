@@ -4,7 +4,8 @@ Runs beam/app/beam/beam.py from this repo unchanged. The questions the tray app 
 ("Accept files from an iPhone?") go to the hub, which shows them in its window.
 
   pythonw beam_host.py               run the engine (the hub starts it)
-  pythonw beam_host.py send <files>  put files on the iPhone's list (Explorer: right-click > Send to iPhone (Beam))
+  pythonw beam_host.py send [--to id,id] <files>  put files on the waiting list of those devices, or any device
+                                   (Explorer: right-click > Send to Beam > a device)
   pythonw beam_host.py add <files>   the same without a notice (the hub's Beam page shows its own)
 """
 import json, os, sys, tempfile, threading, time, urllib.request
@@ -46,7 +47,10 @@ def notify_together(n):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] in ("send", "add"):
-        n = beam.send(sys.argv[2:])
+        args, to = sys.argv[2:], None
+        if args[:1] == ["--to"] and len(args) > 1:   # send --to <id>,<id> <files>: only those devices
+            to, args = [d for d in args[1].split(",") if d], args[2:]
+        n = beam.send(args, to)
         if sys.argv[1] == "send":
             notify_together(n)
         return

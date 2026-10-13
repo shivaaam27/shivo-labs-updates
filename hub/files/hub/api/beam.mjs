@@ -3,7 +3,7 @@
 //   send list  %APPDATA%\Beam\outbox   (the iPhone pulls from here)
 //   received   Downloads\Beam
 import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { readFile, readdir, stat, link, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile, readdir, stat, link, rename, unlink, writeFile, copyFile, mkdir } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import dgram from "node:dgram";
 import { join, extname, basename, dirname } from "node:path";
@@ -44,10 +44,10 @@ async function files(dir, max = 50) {
 }
 
 // Give a finished temp file its real name in one step, like Beam's publish(): the iPhone never sees half a file.
-async function publish(tmp, name) {
+async function publish(tmp, name, dir = OUTBOX) {
   const stem = name.slice(0, name.length - extname(name).length), ext = extname(name);
   for (let n = 0; ; n++) {
-    const final = join(OUTBOX, n ? `${stem} (${n})${ext}` : name);
+    const final = join(dir, n ? `${stem} (${n})${ext}` : name);
     try { await link(tmp, final); await unlink(tmp).catch(() => {}); return basename(final); }
     catch (e) {
       if (e.code === "EEXIST") continue;
@@ -55,6 +55,45 @@ async function publish(tmp, name) {
       await rename(tmp, final); return basename(final);
     }
   }
+}
+
+// ---------- your devices (beam.py keeps devices.json: each phone, tablet or browser that checked in, with its name,
+// kind and when it was last seen). Each has its own waiting folder outbox\d-<id>; loose files in outbox are for
+// any device. Names you give a device here, and devices you remove, are kept in device-names.json.
+const NAMES = join(HOME, "device-names.json");
+const devDir = (id) => join(OUTBOX, "d-" + String(id).replace(/[^A-Za-z0-9-]/g, "_"));
+const KIND_NAME = { iphone: "iPhone", ipad: "iPad", android: "Android", tablet: "Tablet" };
+const readJsonFile = async (p) => { try { return JSON.parse(await readFile(p, "utf8")); } catch { return {}; } };
+async function deviceList() {
+  const seen = await readJsonFile(join(HOME, "devices.json")), names = await readJsonFile(NAMES);
+  const now = Date.now() / 1000, out = [];
+  for (const [id, d] of Object.entries(seen)) {
+    const n = names[id] || {};
+    if (n.hidden && !(d.seen > n.hidden)) continue;   // removed (it comes back if it checks in again later)
+    out.push({ id, name: n.name || d.name || KIND_NAME[d.kind] || "Phone", kind: d.kind || "", seen: (d.seen || 0) * 1000,
+      nearby: now - (d.seen || 0) < 45, waiting: await files(devDir(id)) });
+  }
+  return out.sort((a, b) => b.seen - a.seen);
+}
+// which devices a request is for: ?to=<id>,<id> (only known ones); none means any device
+async function targets(param) {
+  const ids = String(param || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (!ids.length) return [];
+  const known = new Set((await deviceList()).map((d) => d.id));
+  return ids.filter((id) => known.has(id));
+}
+// a finished temp file onto the waiting list of each device (hard links: no extra disk space), or any device
+async function publishTo(tmp, name, ids) {
+  if (!ids.length) return publish(tmp, name);
+  let last = name;
+  for (const id of ids) {
+    const dir = devDir(id); await mkdir(dir, { recursive: true });
+    const part = join(dir, "." + randomBytes(6).toString("hex"));
+    await link(tmp, part).catch(() => copyFile(tmp, part));
+    last = await publish(part, name, dir);
+  }
+  await unlink(tmp).catch(() => {});
+  return last;
 }
 
 // ---------- the engine: hub/engines/beam_host.py (runs beam.py from this repo; no tray app, no window)
@@ -99,22 +138,37 @@ export const beamEngine = { python: PYW, host: HOST_PY };
 // The iPhone must always be able to reach the PC: start the engine with the hub and bring it back if it stops.
 export function superviseBeam() {
   setTimeout(() => startBeam().then(addToExplorer).catch(() => {}), 1500);
-  setInterval(() => startBeam().catch(() => {}), 60000);
+  setInterval(() => { startBeam().catch(() => {}); addToExplorer().catch(() => {}); }, 60000);
 }
-
-// ---------- Explorer: right-click a file or folder > "Send to iPhone (Beam)" (any PC, this user only, no admin).
-// On Windows 10 it is in the menu itself; on Windows 11 under "Show more options" (the new short menu only takes apps
-// signed with a code-signing certificate). Selecting several files runs it once per file; beam_host.py combines them
-// into one notice. Written each time the hub starts, so it always points at this install's Python and Beam.
-function addToExplorer() {
+// ---------- Explorer (any PC, this user only, no admin; on Windows 11 under "Show more options"). Selecting several
+// files runs the command once per file; beam_host.py combines them into one notice.
+// Right-click > "Send to Beam" > one of your devices, "All my devices", or "Any device". Rewritten when the device
+// list or names change (and at start, so it always points at this install).
+let explorerSig = "";
+async function addToExplorer() {
+  const list = await deviceList().catch(() => []);
+  const sig = JSON.stringify([PYW, HOST_PY, list.map((d) => [d.id, d.name])]);
+  if (sig === explorerSig) return;
+  explorerSig = sig;
   const ico = join(here, "..", "shivo-labs.ico");
-  const cmd = `"${PYW}" "${HOST_PY}" send "%1"`;
+  const cmd = (to) => `"${PYW}" "${HOST_PY}" send ${to ? `--to ${to} ` : ""}"%1"`;
+  const items = [
+    ...list.map((d) => [d.name, cmd(d.id)]),
+    ...(list.length > 1 ? [["All my devices", cmd(list.map((d) => d.id).join(","))]] : []),
+    [list.length ? "Any device (whichever checks first)" : "My iPhone or iPad", cmd("")],
+  ];
   for (const cls of ["*", "Directory"]) {
     const key = `HKCU\\Software\\Classes\\${cls}\\shell\\ShivoLabsBeam`;
-    run("reg.exe", ["add", key, "/ve", "/d", "Send to iPhone (Beam)", "/f"]);
-    run("reg.exe", ["add", key, "/v", "Icon", "/d", ico, "/f"]);
-    run("reg.exe", ["add", key, "/v", "MultiSelectModel", "/d", "Player", "/f"]);
-    run("reg.exe", ["add", key + "\\command", "/ve", "/d", cmd, "/f"]);
+    await run("reg.exe", ["delete", key, "/f"]);
+    await run("reg.exe", ["add", key, "/v", "MUIVerb", "/d", "Send to Beam", "/f"]);
+    await run("reg.exe", ["add", key, "/v", "Icon", "/d", ico, "/f"]);
+    await run("reg.exe", ["add", key, "/v", "SubCommands", "/d", "", "/f"]);
+    for (const [i, [label, c]] of items.entries()) {
+      const sub = `${key}\\shell\\${String(i).padStart(2, "0")}`;
+      await run("reg.exe", ["add", sub, "/v", "MUIVerb", "/d", label, "/f"]);
+      await run("reg.exe", ["add", sub, "/v", "MultiSelectModel", "/d", "Player", "/f"]);
+      await run("reg.exe", ["add", sub + "\\command", "/ve", "/d", c, "/f"]);
+    }
   }
 }
 
@@ -143,7 +197,7 @@ export async function beamApi(req, res, path, url) {
       running: await portOpen(port), host: `${hostname()}.local`, ip, trusted: (cfg.trusted || []).length,
       shortcut: SHORTCUT_URL, web: cfg.token ? `http://${hostname()}.local:${port}/p/${cfg.token}` : null,
       webIp: cfg.token ? `http://${ip}:${port}/p/${cfg.token}` : null,
-      waiting: await files(OUTBOX), received: await files(INBOX, 8),
+      waiting: await files(OUTBOX), received: await files(INBOX, 8), devices: await deviceList(),
     }), true;
   }
   if (req.method === "GET" && what === "asks") {  // the hub page checks for questions every couple of seconds
@@ -174,7 +228,7 @@ export async function beamApi(req, res, path, url) {
   mkdirSync(OUTBOX, { recursive: true });
   if (what === "send") {  // body = the file's bytes, ?name=
     const tmp = join(OUTBOX, "." + randomBytes(6).toString("hex"));
-    try { await pipeline(req, createWriteStream(tmp)); return json(res, 200, { name: await publish(tmp, cleanName(url.searchParams.get("name"))) }), true; }
+    try { await pipeline(req, createWriteStream(tmp)); return json(res, 200, { name: await publishTo(tmp, cleanName(url.searchParams.get("name")), await targets(url.searchParams.get("to"))) }), true; }
     catch (e) { await unlink(tmp).catch(() => {}); return json(res, 500, { error: String(e.message || e) }), true; }
   }
   if (what === "text") {  // pasted text goes over as a .txt, like Beam's "Send clipboard"
@@ -183,17 +237,29 @@ export async function beamApi(req, res, path, url) {
     const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
     const tmp = join(OUTBOX, "." + randomBytes(6).toString("hex"));
     await writeFile(tmp, text, "utf8");
-    return json(res, 200, { name: await publish(tmp, `Clipboard ${p2(d.getHours())}.${p2(d.getMinutes())}.txt`) }), true;
+    return json(res, 200, { name: await publishTo(tmp, `Clipboard ${p2(d.getHours())}.${p2(d.getMinutes())}.txt`, await targets(url.searchParams.get("to"))) }), true;
   }
   if (what === "remove") {  // take a file off the send list
-    await unlink(join(OUTBOX, cleanName(url.searchParams.get("name")))).catch(() => {});
+    const [dev] = await targets(url.searchParams.get("to"));
+    await unlink(join(dev ? devDir(dev) : OUTBOX, cleanName(url.searchParams.get("name")))).catch(() => {});
     return json(res, 200, { ok: true }), true;
   }
   if (what === "paste" && req.method === "POST") {  // Ctrl+V on the Beam page: files and folders copied in Explorer
     const paths = await clipboardPaths();
     if (!paths.length || !(await prepare())) return json(res, 200, { count: 0 }), true;
-    await run(PYW, [HOST_PY, "add", ...paths]);
+    const to = await targets(url.searchParams.get("to"));
+    await run(PYW, [HOST_PY, "add", ...(to.length ? ["--to", to.join(",")] : []), ...paths]);
     return json(res, 200, { count: paths.length }), true;
+  }
+  if (what === "device") {   // rename a device, or remove it from the list
+    let body = ""; for await (const c of req) body += c;
+    const { id, name, remove } = JSON.parse(body || "{}");
+    const names = await readJsonFile(NAMES), n = names[id] || {};
+    if (typeof name === "string" && name.trim()) n.name = name.trim().slice(0, 40);
+    if (remove) { n.hidden = Date.now() / 1000; rmSync(devDir(id), { recursive: true, force: true }); }
+    names[id] = n; await mkdir(HOME, { recursive: true }); await writeFile(NAMES, JSON.stringify(names));
+    addToExplorer().catch(() => {});
+    return json(res, 200, { ok: true }), true;
   }
   if (what === "reveal") {  // open Downloads\Beam, or show one received file in it
     mkdirSync(INBOX, { recursive: true });

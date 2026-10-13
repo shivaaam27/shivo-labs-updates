@@ -113,6 +113,27 @@ button.file:hover .n{color:var(--sage)}
 .bm-steps li{margin:4px 0}
 .bm-steps li::marker{color:var(--sage);font:600 13px var(--display)}
 .bm-note{font-size:12.5px;color:var(--muted);margin:12px 0 0;line-height:1.5}
+.bm-hint{margin-left:auto;color:var(--muted);font-size:12.5px}
+.bm-devlist{display:flex;flex-wrap:wrap;gap:10px}
+.bm-dev{position:relative;width:118px;border:1.5px solid var(--line);border-radius:16px;transition:border-color .2s,background .2s,transform .25s var(--spring)}
+.bm-dev:hover{border-color:var(--sage)}
+.bm-dev.on{border-color:var(--sage);background:var(--sage-soft)}
+.bm-dev.drag{border-color:var(--sage);background:var(--sage-soft);transform:scale(1.05)}
+.bm-devpick{all:unset;box-sizing:border-box;width:100%;display:flex;flex-direction:column;align-items:center;gap:3px;padding:12px 8px 10px;cursor:pointer;text-align:center;position:relative}
+.bm-shape{width:52px;height:52px;fill:none;stroke:var(--text);stroke-width:1.6;opacity:.55;transition:opacity .2s,stroke .2s}
+.bm-shape .f{fill:var(--text);stroke:none}
+.bm-dev.near .bm-shape,.bm-dev.on .bm-shape{opacity:1}
+.bm-dev.on .bm-shape{stroke:var(--sage)}.bm-dev.on .bm-shape .f{fill:var(--sage)}
+.bm-devname{font:600 13.5px var(--display);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;outline:none;border-radius:6px;padding:0 3px}
+.bm-devname[contenteditable="plaintext-only"]{background:var(--bg);box-shadow:0 0 0 1.5px var(--sage);white-space:normal}
+.bm-devpick small{color:var(--muted);font-size:11.5px;display:flex;align-items:center;gap:5px}
+.bm-devpick small .dot{width:6px;height:6px}
+.bm-badge{position:absolute;top:8px;right:22px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--sage);color:#fff;font:600 11px/18px var(--body)}
+.bm-devmore{position:absolute;top:4px;right:4px;width:24px;height:24px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;opacity:0;transition:opacity .15s}
+.bm-dev:hover .bm-devmore,.bm-devmore:focus-visible{opacity:1}
+.bm-devmenu{display:flex;flex-direction:column;gap:2px;padding:0 6px 8px}
+.bm-devmenu .tbtn{justify-content:center}
+.bm-for{color:var(--sage);font-weight:600}
 @media (max-width:820px){.bm-grid{grid-template-columns:1fr}#page{padding:18px 16px 32px}}
 
 /* ---------- X Tools ---------- */

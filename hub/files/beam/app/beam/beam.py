@@ -40,6 +40,52 @@ def save_config(cfg):
     (HOME / "config.json").write_text(json.dumps(cfg))
 
 
+# ---------- your devices: each one gets its own waiting list ----------
+# A device is known by the id the Shivo Labs app (or the Beam page) sends with every request (X-Beam-Id, or ?bid= in
+# the address for downloads that can't carry headers; kept on the
+# device), or, for older apps and the Shortcut, by its Wi-Fi hardware address (device_id). The app also says its name
+# and kind (X-Beam-Name, X-Beam-Kind: iphone, ipad, android, tablet). The hub shows these as cards and sends files to
+# one or several of them: a file in outbox/<device folder>/ waits only for that device; a file loose in outbox/ is
+# for whichever device asks first (as before).
+DEVICES = HOME / "devices.json"
+_devices, _dev_lock, _dev_saved = None, threading.Lock(), [0.0]
+
+
+def devices():
+    global _devices
+    if _devices is None:
+        try:
+            _devices = json.loads(DEVICES.read_text())
+        except (OSError, ValueError):
+            _devices = {}
+    return _devices
+
+
+def note_device(did, name="", kind=""):
+    """Remember a device and when it was last seen (written now and then, not on every 4-second check)."""
+    with _dev_lock:
+        d = devices().setdefault(did, {})
+        changed = (name and d.get("name") != name) or (kind and d.get("kind") != kind) or "seen" not in d
+        if name:
+            d["name"] = name
+        if kind:
+            d["kind"] = kind
+        d["seen"] = time.time()
+        if changed or time.time() - _dev_saved[0] > 15:
+            _dev_saved[0] = time.time()
+            try:
+                HOME.mkdir(parents=True, exist_ok=True)
+                tmp = DEVICES.with_suffix(".tmp")
+                tmp.write_text(json.dumps(_devices))
+                os.replace(tmp, DEVICES)
+            except OSError:
+                pass
+
+
+def dev_dir(did):
+    return OUTBOX / ("d-" + re.sub(r"[^A-Za-z0-9-]", "_", did))
+
+
 def device_id(ip):
     """An iPhone keeps one Wi-Fi hardware address per network, so trust survives its IP changing."""
     try:
@@ -188,6 +234,7 @@ def header(h, key):
 
 
 _trust_cache = {}  # ip -> (checked at, is trusted)
+_addr_cache = {}   # ip -> (checked at, device id from the Wi-Fi address)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -227,9 +274,27 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403, "")
         self.send_response(204)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "X-Token, X-Name, Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "X-Token, X-Name, X-Beam-Id, X-Beam-Name, X-Beam-Kind, Content-Type")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
+
+    def param(self, key):
+        return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get(key, [""])[0]
+
+    def device(self):
+        """Who is asking: the id the app sends, or the Wi-Fi address (cached a minute, like trust)."""
+        if getattr(self, "_did", None):
+            return self._did
+        given = re.sub(r"[^A-Za-z0-9-]", "", self.headers.get("X-Beam-Id", "") or self.param("bid"))[:64]
+        if given:
+            self._did = "app:" + given
+        else:
+            ip, now = self.client_address[0], time.time()
+            hit = _addr_cache.get(ip)
+            if not hit or now - hit[0] > 60:
+                hit = _addr_cache[ip] = (now, device_id(ip))
+            self._did = hit[1]
+        return self._did
 
     def authed(self, path=""):
         tok = self.server.cfg["token"]
@@ -330,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", mimetypes.guess_type(p.name)[0] or "application/octet-stream")
         self.send_header("Content-Length", str(p.stat().st_size))
         self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + urllib.parse.quote(p.name))
-        self.send_header("X-Remaining", str(max(0, len(outbox()) - (1 if delete else 0))))
+        self.send_header("X-Remaining", str(max(0, len(outbox(self.device())) - (1 if delete else 0))))
         self.send_header("X-Kind", "media" if is_media(p) else "file")
         self.end_headers()
         size, t0 = p.stat().st_size, time.time()
@@ -364,20 +429,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, "ok")
         if not self.authed(path):
             return
+        self.seen()
         if path == "/ping":
             return self.reply(200, json.dumps({"ok": True, "pc": socket.gethostname()}), "application/json")
         if path == "/outbox":
-            items = [{"name": p.name, "size": p.stat().st_size, "kind": "media" if is_media(p) else "file"} for p in outbox()]
+            items = [{"name": p.name, "size": p.stat().st_size, "kind": "media" if is_media(p) else "file"} for p in outbox(self.device())]
             return self.reply(200, json.dumps(items), "application/json")
         if path.startswith("/file/"):
-            p = OUTBOX / Path(urllib.parse.unquote(path[6:])).name
-            return self.send_file(p) if p.is_file() else self.reply(404, "Not found")
+            p = find_waiting(self.device(), Path(urllib.parse.unquote(path[6:])).name)
+            return self.send_file(p) if p else self.reply(404, "Not found")
         if path == "/pull":
-            items = outbox()
+            items = outbox(self.device())
             return self.send_file(items[0], delete=True) if items else self.reply(200, "Nothing waiting on the PC.")
         if path == "/next":  # like /pull, but an empty queue answers 204 (no content) so a Shortcut loop can stop
             kind = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("kind", [""])[0]
-            items = [p for p in outbox() if not kind or (kind == "media") == is_media(p)]
+            items = [p for p in outbox(self.device()) if not kind or (kind == "media") == is_media(p)]
             if items:
                 return self.send_file(items[0], delete=True)
             self.send_response(204)
@@ -386,21 +452,29 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.reply(404, "Not found")
 
+    def seen(self):
+        try:
+            note_device(self.device(), urllib.parse.unquote(self.headers.get("X-Beam-Name", "") or self.param("bname"))[:60].strip(),
+                        re.sub(r"[^a-z]", "", (self.headers.get("X-Beam-Kind", "") or self.param("bkind")).lower())[:12])
+        except Exception:  # never let bookkeeping get in the way of a transfer
+            pass
+
     def do_POST(self):
         path = self.route()
         if not self.authed(path):
             return
+        self.seen()
         if path == "/done":  # the phone app saved this file: take it off the PC's send list
             name = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("name", [""])[0]
-            p = OUTBOX / Path(name).name
-            if name and p.is_file():
+            p = find_waiting(self.device(), Path(name).name) if name else None
+            if p:
                 try:
                     p.unlink()
                 except OSError:
                     pass  # still being read; the phone's own record stops it being saved twice
             return self.reply(200, "ok")
         if path == "/clear":
-            for p in outbox():
+            for p in outbox(self.device()):
                 try:
                     p.unlink()
                 except OSError:
@@ -513,9 +587,19 @@ def is_media(p):
     return t.startswith("image/") or t.startswith("video/") or p.suffix.lower() in (".heic", ".heif", ".mov")
 
 
-def outbox():
+def find_waiting(did, name):
+    for folder in (dev_dir(did), OUTBOX):
+        p = folder / name
+        if p.is_file():
+            return p
+    return None
+
+
+def outbox(did=None):
+    """What waits for this device: its own folder first, then files for any device."""
     OUTBOX.mkdir(parents=True, exist_ok=True)
-    return sorted((p for p in OUTBOX.iterdir() if p.is_file() and not p.name.startswith(".") and not p.name.endswith(".part")),
+    folders = ([dev_dir(did)] if did and dev_dir(did).is_dir() else []) + [OUTBOX]
+    return sorted((p for d in folders for p in d.iterdir() if p.is_file() and not p.name.startswith(".") and not p.name.endswith(".part")),
                   key=lambda p: p.stat().st_mtime)
 
 
@@ -529,7 +613,7 @@ def make_server():
     srv.cfg, srv.batch = cfg, {"n": 0, "t": 0}
     INBOX.mkdir(parents=True, exist_ok=True)
     OUTBOX.mkdir(parents=True, exist_ok=True)
-    for stale in [*OUTBOX.glob(".*"), *OUTBOX.glob("*.part")]:  # temp files from a send that was cut short
+    for stale in [*OUTBOX.glob(".*"), *OUTBOX.glob("*.part"), *OUTBOX.glob("d-*/.*")]:  # temp files from a send that was cut short
         stale.unlink(missing_ok=True)
     return srv
 
@@ -559,8 +643,13 @@ def publish(tmp, folder, name):
         return final
 
 
-def send(files):
-    OUTBOX.mkdir(parents=True, exist_ok=True)
+def send(files, to=None):
+    """Put files on the waiting list of the devices in to (their ids), or, without to, for any device.
+    A folder goes as a zip. With several devices the file is copied once and the others get hard links
+    (no extra disk space); each device takes and removes its own."""
+    folders = [dev_dir(d) for d in (to or [])] or [OUTBOX]
+    for d in folders:
+        d.mkdir(parents=True, exist_ok=True)
     n = 0
     for f in map(Path, files):
         tmp = OUTBOX / f".{secrets.token_hex(6)}"  # hidden until complete (outbox() skips dot files)
@@ -574,7 +663,13 @@ def send(files):
             else:
                 continue
             os.utime(tmp)  # fresh mtime = queue order
-            publish(tmp, OUTBOX, name)
+            for folder in folders:
+                part = folder / f".{secrets.token_hex(6)}"
+                try:
+                    os.link(tmp, part)
+                except OSError:
+                    shutil.copyfile(tmp, part)
+                publish(part, folder, name)
             n += 1
         finally:
             try:

@@ -205,9 +205,14 @@ const fmt = b => b > 1e9 ? (b/1e9).toFixed(1)+' GB' : b > 1e6 ? (b/1e6).toFixed(
 const loader = () => '<svg class="fl"><use href="#loader"/></svg>';
 const IMG = new Set(['jpg','jpeg','png','gif','heic','heif','webp','bmp','tif','tiff']);
 
+// this browser's own id and kind, so the PC can send files to it alone (see beam.py, "your devices")
+const KIND = /iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1) ? 'ipad'
+  : /iPhone|iPod/.test(navigator.userAgent) ? 'iphone' : Math.min(screen.width, screen.height) >= 600 ? 'tablet' : 'android';
+let BID = ''; try { BID = localStorage.getItem('beamId') || ''; if (!BID) { BID = 'w' + Math.random().toString(16).slice(2, 14); localStorage.setItem('beamId', BID); } } catch (e) {}
+const who = p => BID ? p + (p.includes('?') ? '&' : '?') + 'bid=' + BID + '&bkind=' + KIND : p;
 async function api(path, opts = {}) {
   opts.headers = Object.assign({ 'X-Token': token }, opts.headers || {});
-  return fetch(path, opts);
+  return fetch(who(path), opts);
 }
 
 async function init() {
@@ -232,7 +237,7 @@ function upload(file) {
     $('progress').appendChild(row);
     const dot = file.name.lastIndexOf('.');
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/upload');
+    xhr.open('POST', who('/upload'));
     xhr.setRequestHeader('X-Token', token);
     xhr.setRequestHeader('X-Name', encodeURIComponent(dot > 0 ? file.name.slice(0, dot) : file.name));
     xhr.setRequestHeader('X-Ext', dot > 0 ? file.name.slice(dot + 1) : 'bin');
@@ -293,7 +298,7 @@ async function loadOutbox() {
     row.querySelector('.ext').textContent = (it.name.includes('.') ? ext : 'file').slice(0, 4);
     row.querySelector('.n').textContent = it.name;
     row.querySelector('.s').textContent = fmt(it.size);
-    row.querySelector('a').href = '/file/' + encodeURIComponent(it.name);
+    row.querySelector('a').href = who('/file/' + encodeURIComponent(it.name));
     box.appendChild(row);
   }
 }
