@@ -67,8 +67,8 @@ def note_device(did, name="", kind="", mac=""):
         d = devices().setdefault(did, {})
         changed = ((name and d.get("name") != name) or (kind and d.get("kind") != kind)
                    or (mac and d.get("mac") != mac) or "seen" not in d)
-        if name:
-            d["name"] = name
+        if name and d.get("name") != name:   # the device was (re)named on itself
+            d["name"], d["named"] = name, time.time()
         if kind:
             d["kind"] = kind
         if mac:

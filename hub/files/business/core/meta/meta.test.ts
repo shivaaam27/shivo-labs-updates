@@ -79,3 +79,34 @@ test('every child definition is used by a table', () => {
     assert.ok(DEFS.some((p) => p.fields.some((f) => f.type === 'table' && f.of === d.type)), `${d.type} unused`);
   }
 });
+
+// No field may only look like it does something (13 Oct 2026: "opening balance", "credit limit" and "track batches"
+// were on the forms with no rule behind them). A field of a kind that drives behaviour (numbers, money, switches,
+// choices, dates, links, tables) must be read by the engine, the store, the server or a screen outside these
+// definitions, or say `soon` (which phase brings it) or `info` (why reading it is enough).
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO = fileURLToPath(new URL('../../../', import.meta.url));
+function sources(dir: string, out: string[] = []): string[] {
+  for (const n of readdirSync(dir)) {
+    const p = join(dir, n);
+    if (statSync(p).isDirectory()) { if (n !== 'meta' && n !== 'referee' && n !== 'node_modules') sources(p, out); }
+    // setup filling a field in (seed) or tests touching it is not a rule that uses it
+    else if (/\.(ts|js|mjs)$/.test(n) && !/\.test\.ts$/.test(n) && !/^(seed|testkit)\.ts$/.test(n)) out.push(p);
+  }
+  return out;
+}
+const CODE = [...sources(join(REPO, 'business')), ...sources(join(REPO, 'shared', 'biz'))].map((p) => readFileSync(p, 'utf8')).join('\n');
+const BEHAVIOUR = new Set(['number', 'money', 'percent', 'check', 'select', 'date', 'link', 'table']);
+const usedInCode = (key: string) => new RegExp(String.raw`(\.${key}\b|'${key}'|"${key}"|\b${key}:)`).test(CODE);
+
+test('no field only looks like it does something', () => {
+  const dead: string[] = [];
+  for (const d of DEFS) for (const f of d.fields) {
+    if (!BEHAVIOUR.has(f.type) || f.soon || f.info || f.gap) continue;
+    if (!usedInCode(f.key)) dead.push(`${d.type}.${f.key}`);
+  }
+  assert.deepEqual(dead, [], 'these fields are read by nothing: make them work, or mark them soon/info');
+});

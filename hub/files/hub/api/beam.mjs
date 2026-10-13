@@ -70,7 +70,9 @@ async function deviceList() {
   for (const [id, d] of Object.entries(seen)) {
     const n = names[id] || {};
     if (n.hidden && !(d.seen > n.hidden)) continue;   // removed (it comes back if it checks in again later)
-    out.push({ id, name: n.name || d.name || KIND_NAME[d.kind] || "Phone", kind: d.kind || "", seen: (d.seen || 0) * 1000,
+    // a name given on the PC card or on the device itself: whichever was set last
+    const name = (n.name && (n.at || 0) >= (d.named || 0) ? n.name : d.name || n.name) || KIND_NAME[d.kind] || "Phone";
+    out.push({ id, name, kind: d.kind || "", seen: (d.seen || 0) * 1000,
       nearby: now - (d.seen || 0) < 45, waiting: await files(devDir(id)) });
   }
   // two iPhones both called "iPhone": the one seen first keeps the name, the other becomes "iPhone 2" (rename on its card)
@@ -302,7 +304,7 @@ export async function beamApi(req, res, path, url) {
     let body = ""; for await (const c of req) body += c;
     const { id, name, remove } = JSON.parse(body || "{}");
     const names = await readJsonFile(NAMES), n = names[id] || {};
-    if (typeof name === "string" && name.trim()) n.name = name.trim().slice(0, 40);
+    if (typeof name === "string" && name.trim()) { n.name = name.trim().slice(0, 40); n.at = Date.now() / 1000; }
     if (remove) { n.hidden = Date.now() / 1000; rmSync(devDir(id), { recursive: true, force: true }); }
     names[id] = n; await mkdir(HOME, { recursive: true }); await writeFile(NAMES, JSON.stringify(names));
     addToExplorer().catch(() => {});

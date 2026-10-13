@@ -74,7 +74,10 @@ export function makeField(f, value, ctx = {}) {
   el.dataset.key = f.key;
   const req = f.required ? '<i class="req" aria-hidden="true">*</i>' : '';
   const label = `<label class="bz-lbl" for="${id}">${esc(f.label || f.key)}${req}</label>`;
-  const help = f.help && !ctx.compact ? `<small class="bz-help">${esc(f.help)}</small>` : '';
+  // a field that does not work yet says so, and when it will (Field.soon); never a silent promise
+  const help = (f.help && !ctx.compact ? `<small class="bz-help">${esc(f.help)}</small>` : '')
+    + (f.soon && !ctx.compact ? `<small class="bz-help bz-soon">Not working yet · ${esc(f.soon)}</small>` : '')
+    + (f.gap && !ctx.compact ? `<small class="bz-help bz-soon">Not working yet (to be fixed) · ${esc(f.gap)}</small>` : '');
   const errEl = '<small class="bz-ferr" role="alert"></small>';
   const changed = () => ctx.onChange?.();
   let w;

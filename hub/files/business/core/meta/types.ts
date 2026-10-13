@@ -39,6 +39,14 @@ export interface Field {
   search?: true;                       // included in quick search
   /** Cannot be changed once the record has stock movements (e.g. a product's valuation method). */
   lockOnStock?: true;
+  /** Not working yet: which phase brings it (the form says so next to the field). A field that only looks like it does
+   *  something is never allowed: it either works, or says "soon" (meta.test.ts checks this). */
+  soon?: string;
+  /** Kept for people to read only (no rule uses it): why that is enough, e.g. "printed on invoices". */
+  info?: string;
+  /** Promised by a phase marked done but not working: what is missing. Listed in the coverage report as a gap to fix;
+   *  the form says "Not working yet". */
+  gap?: string;
 }
 
 export interface Section { label: string; fields: string[]; columns?: 1 | 2 | 3 }
