@@ -18,6 +18,7 @@ const PLACES = [
   ["Beam", "Paired iPhones and the send list", join(process.env.APPDATA || "", "Beam")],
   ["Beam", "Files received from iPhones", join(homedir(), "Downloads", "Beam")],
   ["X Tools", "Your apps, Apple ID and the Linux it uses", join(process.env.LOCALAPPDATA || "", "Fabra Labs")],
+  ["Business", "Your business data", join(process.env.APPDATA || "", "Shivo Labs", "Business")],
 ];
 
 const json = (res, code, body) => { res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };

@@ -12,6 +12,7 @@ import { beamApi, startBeam, superviseBeam } from "./api/beam.mjs";
 import { xtoolsApi } from "./api/xtools.mjs";
 import { settingsApi } from "./api/settings.mjs";
 import { mirrorApi, superviseMirror } from "./api/mirror.mjs";
+import { businessApi } from "./api/business.mjs";
 import { autoCheck } from "./api/update.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -61,6 +62,7 @@ http.createServer(async (req, res) => {
     if (await xtoolsApi(req, res, url.pathname, url)) return;
     if (await settingsApi(req, res, url.pathname)) return;
     if (await mirrorApi(req, res, url.pathname)) return;
+    if (await businessApi(req, res, url.pathname)) return;
     if (url.pathname === "/api/modules") return send(res, 200, await Promise.all((await modules()).map(status)));
     const open = url.pathname.match(/^\/api\/open\/([\w-]+)$/);
     if (open && req.method === "POST") {

@@ -6,9 +6,10 @@ import { mountChat } from '/shared/chat/chat.js';
 import { makeAiPage, aiSettings } from './modules/ai.js';
 import { mountSettings } from './modules/settings.js';
 import { mountMirror } from './modules/mirror.js';
+import { mountBusiness } from './modules/business.js';
 import { quietStart, quietReload } from './modules/quiet.js';
 const QUIET = quietStart();   // this load follows a quiet update: no splash, no entrance animations
-const PAGES = { chat: mountChat, mirror: mountMirror, beam: mountBeam, xtools: mountXtools };  // module id -> its screen (modules/<id>.js)
+const PAGES = { business: mountBusiness, chat: mountChat, mirror: mountMirror, beam: mountBeam, xtools: mountXtools };  // module id -> its screen (modules/<id>.js)
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -62,8 +63,9 @@ function openModule(id, startEngine, opts = {}) {
   $('#pageState').innerHTML = '';
   $('#home').hidden = true; $('#page').hidden = false;
   $('#page').classList.toggle('full', !!m.full);
-  leave = PAGES[id]($('#pageBody'), { esc, toast, openModule, module: m, startModule: start });
-  history.replaceState(null, '', `#${id}`);
+  leave = PAGES[id]($('#pageBody'), { esc, toast, openModule, module: m, startModule: start, goHome });
+  // a module may keep its own place after its id (#business/l/product); keep it when it is already there
+  if (!location.hash.startsWith(`#${id}/`)) history.replaceState(null, '', `#${id}`);
   if (opts.aiSettings && id === 'ai') aiSettings();
 }
 function goHome() {
@@ -99,7 +101,7 @@ setTimeout(() => {
 async function showHome() {
   $('#homeMark').innerHTML = shivoMark('play loop'); $('#home').hidden = false;
   await renderHome();
-  const back = location.hash.slice(1); if (back === 'settings') openSettings(); else if (PAGES[back]) openModule(back);
+  const back = location.hash.slice(1).split('/')[0]; if (back === 'settings') openSettings(); else if (PAGES[back]) openModule(back);
 }
 // Screen updates arrive by themselves (the hub installs them; see api/update.mjs). When the version of the screens
 // changes, refresh quietly, right away on the home screen, or when you come back to it from a module.

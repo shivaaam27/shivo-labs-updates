@@ -82,3 +82,19 @@ svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-l
 html[data-theme=dark] .dot{background:var(--glow)}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* dropdown (shared/select.js): our own list instead of Windows' white one */
+.sl{position:relative}
+.sl-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 13px;border-radius:12px;border:1px solid var(--line);
+  background:var(--panel);color:var(--text);font:15px var(--body);text-align:left;transition:border-color .2s}
+.sl-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sl-btn svg{width:18px;height:18px;color:var(--muted);flex:none;transition:transform .25s var(--spring)}
+.sl-btn[aria-expanded=true]{border-color:var(--sage)}.sl-btn[aria-expanded=true] svg{transform:rotate(180deg)}
+.sl-btn:focus-visible{outline:none;border-color:var(--sage);box-shadow:0 0 0 3px var(--sage-soft)}
+.sl-pop{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:90;max-height:280px;overflow:auto;padding:6px;border-radius:16px;
+  background:var(--panel);border:.5px solid var(--g-rim2);box-shadow:var(--g-sh);animation:pop .22s var(--spring) both;scrollbar-width:thin}
+.sl-pop.up{top:auto;bottom:calc(100% + 6px)}
+.sl-opt{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;font-size:15px;cursor:pointer}
+.sl-opt:hover,.sl-opt.hl{background:var(--hover)}
+.sl-opt.on{font-weight:600}
+.sl-opt svg{width:17px;height:17px;color:var(--sage);flex:none}
