@@ -1,0 +1,49 @@
+/* Shivo Labs animation kit: the six-tile mark (leaning 15deg, Sage tip), animated for 12 kinds of work.
+   Usage: <link rel="stylesheet" href="fabra-loader.css"> + fabra-loader.js, then
+   el.innerHTML = fabraLoader("read", 18)   // kind, size in px (default 18)
+   Colours follow the Shivo Labs brand: Ink tiles, Sage tip. Override the variables to theme it. */
+.fk{--fk-tile:#2E3034;--fk-sage:#4F7A5A;--fk-glow:#7FB08B;position:relative;flex-shrink:0;display:inline-block;vertical-align:middle}
+.fk.light{--fk-tile:#D6D7D2;--fk-glow:#6E9F7A}
+.fk .st{position:absolute;left:0;top:0;width:64px;height:64px;transform-origin:0 0}
+.fk .b{position:absolute;width:18px;height:18px;border-radius:4.5px;background:var(--fk-tile)}
+.fk .lit{background:var(--fk-sage)}
+/* 1 think: a diagonal wave rolls across the F */
+.fk[data-k=think] .b{animation:fk-wv 1.6s ease-in-out infinite}
+@keyframes fk-wv{0%,60%,100%{background:var(--fk-tile);transform:scale(1)}25%{background:var(--fk-sage);transform:scale(.82)}}
+/* 2 read: each row is a line of text, read left to right */
+.fk[data-k=read] .b{animation:fk-hl 2.2s linear infinite}
+@keyframes fk-hl{0%,100%{background:var(--fk-tile)}5%,14%{background:var(--fk-sage)}22%{background:var(--fk-tile)}}
+/* 3 write: the F is typed in tile by tile */
+.fk[data-k=write] .ink{background:var(--fk-sage);opacity:0;animation:fk-wt 3s steps(1) infinite}
+@keyframes fk-wt{0%{opacity:0}1%,80%{opacity:1}81%,100%{opacity:0}}
+/* 4 edit: the middle tile flips and comes back changed */
+.fk[data-k=edit] .x{animation:fk-swap 1.8s ease-in-out infinite}
+@keyframes fk-swap{0%,15%{background:var(--fk-tile);transform:none}35%{transform:scaleY(0)}55%,85%{background:var(--fk-sage);transform:none}100%{background:var(--fk-tile)}}
+/* 5 search: a lens hops tile to tile and lands on the tip */
+.fk[data-k=search] .lens{position:absolute;width:18px;height:18px;box-sizing:border-box;border-radius:4.5px;border:2px solid var(--fk-glow);animation:fk-lens 2.8s ease-in-out infinite}
+@keyframes fk-lens{0%{left:0;top:46px}15%{left:0;top:23px}30%{left:23px;top:23px}45%{left:46px;top:0}60%{left:23px;top:0}75%,100%{left:0;top:0;background:var(--fk-sage);border-color:var(--fk-sage)}}
+/* 6 run: fills like a progress bar; the foot blinks like a cursor */
+.fk[data-k=run] .b{animation:fk-fill 2.2s steps(1) infinite}
+.fk[data-k=run] .cur{animation:fk-blk 1s steps(1) infinite}
+@keyframes fk-fill{0%{background:var(--fk-tile)}45%,95%{background:var(--fk-sage)}}
+@keyframes fk-blk{0%{background:var(--fk-glow)}50%{background:var(--fk-tile)}}
+/* 7 web: signal ripples out from the top-left corner */
+.fk[data-k=web] .b{animation:fk-rip 1.8s ease-out infinite}
+@keyframes fk-rip{0%,100%{background:var(--fk-tile);transform:scale(.9)}15%{background:var(--fk-glow);transform:scale(1.06)}40%{background:var(--fk-tile);transform:scale(.9)}}
+/* 8 plan: tiles tick off one by one, like a checklist */
+.fk[data-k=plan] .b{animation:fk-tk 3.2s ease infinite}
+@keyframes fk-tk{0%{background:var(--fk-tile)}6%{background:var(--fk-glow);transform:scale(.75)}12%,82%{background:var(--fk-sage);transform:scale(1)}100%{background:var(--fk-tile)}}
+/* 9 agent: two lights chase each other around the F */
+.fk[data-k=agent] .b{animation:fk-chase 1.5s linear infinite}
+@keyframes fk-chase{0%,100%{background:var(--fk-tile)}8%{background:var(--fk-sage)}20%,50%{background:var(--fk-tile)}58%{background:var(--fk-glow)}70%{background:var(--fk-tile)}}
+/* 10 look: a scan sweeps the F, then it flashes like a screenshot */
+.fk[data-k=look] .b{animation:fk-scn 2.4s ease-in-out infinite}
+@keyframes fk-scn{0%,100%{background:var(--fk-tile);transform:scale(1)}10%{background:var(--fk-glow);transform:scale(.86)}22%,66%{background:var(--fk-tile);transform:scale(1)}72%{background:var(--fk-sage);transform:scale(1.06)}82%{background:var(--fk-tile);transform:scale(1)}}
+/* 11 wait: the lit corner bounces, patiently */
+.fk[data-k=wait] .hop{animation:fk-bn 1.3s cubic-bezier(.3,0,.3,1) infinite}
+@keyframes fk-bn{0%,100%{transform:translateY(0)}40%{transform:translateY(-10px)}60%{transform:translateY(0)}}
+/* 12 git: the lit corner branches to the empty corner and merges back */
+.fk[data-k=git] .m{animation:fk-mg 2.6s ease-in-out infinite}
+@keyframes fk-mg{0%,15%{left:0;top:0}40%,60%{left:46px;top:46px;background:var(--fk-glow)}85%,100%{left:0;top:0}}
+.fk[data-k=git] .gh{box-sizing:border-box;border:1.5px dashed var(--fk-tile);background:none}
+@media (prefers-reduced-motion:reduce){.fk *{animation:none!important}}

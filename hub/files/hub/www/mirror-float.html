@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shivo Labs Mirror</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0b0c; overflow: hidden; user-select: none; font: 12px/1.4 "Hanken Grotesk", system-ui, sans-serif; color: #e9e9e4; }
+  canvas { display: block; width: 100%; height: 100%; object-fit: contain; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  .bar { position: fixed; top: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; }
+  body:hover .bar { opacity: 1; }
+  .bar button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(20, 20, 22, .72); color: #fff; cursor: pointer; display: grid; place-items: center; backdrop-filter: blur(8px); }
+  .bar button:hover { background: rgba(60, 60, 64, .9); }
+  .bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .info { position: fixed; left: 8px; bottom: 8px; padding: 3px 8px; border-radius: 8px; background: rgba(20, 20, 22, .72); opacity: 0; transition: opacity .2s; pointer-events: none; }
+  body:hover .info { opacity: 1; }
+  .wait { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; color: #9a9a94; padding: 20px; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="wait" id="wait">Waiting for the iPhone…</div>
+<div class="bar"><button id="close" title="Close">
+  <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+<div class="info" id="info"></div>
+<script type="module">
+  import { createPlayer } from "/modules/mirror-player.js";
+  const host = window.chrome?.webview;
+  const send = (m) => host?.postMessage(m);
+  const canvas = document.getElementById("c");
+  const player = createPlayer(canvas, {
+    onSize: (w, h) => send({ cmd: "aspect", w, h }),
+    onError: (m) => { document.getElementById("wait").textContent = m; },
+  });
+  // drag the window by the picture (Windows does the moving); buttons don't drag
+  canvas.addEventListener("mousedown", (e) => { if (e.button === 0) send({ cmd: "drag" }); });
+  document.getElementById("close").onclick = () => { fetch("/api/mirror/float", { method: "POST", headers: { "x-hub": "1", "content-type": "application/json" }, body: JSON.stringify({ open: false }) }); send({ cmd: "close" }); };
+  // a still screen sends no new pictures, so "connected" comes from the receiver, not from pictures arriving
+  setInterval(async () => {
+    const s = player.stats();
+    let st = null; try { st = await (await fetch("/api/mirror/status", { cache: "no-store" })).json(); } catch {}
+    const connected = !!st?.client, shown = connected && player.drawn() > 0;
+    const wait = document.getElementById("wait");
+    wait.hidden = shown && !st.paused;
+    if (!wait.hidden) wait.textContent = !connected ? "Waiting for the iPhone…" : st.paused ? "The iPhone's screen is locked" : "Connecting…";
+    document.getElementById("info").textContent = shown ? `${player.codec()} · ${canvas.width}×${canvas.height} · ${s.drawFps} fps · ${s.lagMs} ms · ${s.decoder}` : "";
+    fetch("/api/mirror/seen", { method: "POST", headers: { "x-hub": "1", "content-type": "application/json" }, body: JSON.stringify({ where: "float", ...s }) }).catch(() => {});
+  }, 1000);
+</script>
+</body>
+</html>

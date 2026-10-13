@@ -1,0 +1,45 @@
+[
+  {
+    "id": "ai",
+    "name": "Shivo Labs AI",
+    "sub": "Chat, code and documents",
+    "mark": true,
+    "page": true,
+    "full": true,
+    "embed": "http://localhost:4823/",
+    "port": 4823,
+    "dir": ["%USERPROFILE%\\Documents\\Shivo Labs AI\\fabra-labs-ai", "%ROOT%\\ai\\app"],
+    "check": "server.mjs",
+    "server": ["%NODE%", "launcher.mjs"]
+  },
+  {
+    "id": "chat",
+    "name": "Chat",
+    "sub": "Messages with your team",
+    "page": true,
+    "icon": "<path d=\"M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17A2.5 2.5 0 0 1 4 14.5z\"/><path d=\"M8.5 9h7M8.5 12.5h4.5\"/>"
+  },
+  {
+    "id": "mirror",
+    "name": "Mirror",
+    "sub": "Your iPhone's screen, wirelessly",
+    "page": true,
+    "icon": "<rect x=\"2.5\" y=\"4\" width=\"13\" height=\"9\" rx=\"1.5\"/><path d=\"M6 17h6M9 13v4\"/><rect x=\"17\" y=\"8\" width=\"4.5\" height=\"9\" rx=\"1\"/>"
+  },
+  {
+    "id": "beam",
+    "name": "Beam",
+    "sub": "Files to and from your phone",
+    "page": true,
+    "engine": "beam",
+    "port": 8765,
+    "icon": "<path d=\"M4 12h11M11 7l5 5-5 5\"/><path d=\"M20 5v14\"/>"
+  },
+  {
+    "id": "xtools",
+    "name": "X Tools",
+    "sub": "Install and renew iPhone apps",
+    "page": true,
+    "icon": "<rect x=\"7\" y=\"3\" width=\"10\" height=\"18\" rx=\"2.5\"/><path d=\"M11 18h2\"/>"
+  }
+]

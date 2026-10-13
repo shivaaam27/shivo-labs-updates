@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shivo Labs</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg transform='rotate(15 50 50)'%3E%3Crect x='18' y='18' width='18' height='18' rx='4.5' fill='%234F7A5A'/%3E%3Crect x='41' y='18' width='18' height='18' rx='4.5' fill='%23141517'/%3E%3Crect x='64' y='18' width='18' height='18' rx='4.5' fill='%23141517'/%3E%3Crect x='18' y='41' width='18' height='18' rx='4.5' fill='%23141517'/%3E%3Crect x='41' y='41' width='18' height='18' rx='4.5' fill='%23141517'/%3E%3Crect x='18' y='64' width='18' height='18' rx='4.5' fill='%23141517'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="/shared/tokens.css">
+<link rel="stylesheet" href="hub.css">
+<link rel="stylesheet" href="/shared/chat/chat.css">
+</head>
+<body>
+  <div id="splash"><div class="lock"><div id="splashMark"></div><div class="word">SHIVO<span>LABS</span></div></div></div>
+
+  <!-- welcome: shown the first time only -->
+  <section id="welcome" hidden>
+    <div class="wl-in">
+      <div id="welcomeMark"></div>
+      <div class="word big rise" style="animation-delay:.5s">SHIVO<span>LABS</span></div>
+      <h1 class="wl-h rise" style="animation-delay:.65s">Welcome.<span>Everything Shivo Labs makes, in one place.</span></h1>
+      <button class="btn pri rise" id="startBtn" style="animation-delay:.8s">Get started</button>
+    </div>
+  </section>
+
+  <main id="home" hidden>
+    <header class="home-top">
+      <div class="home-brand"><div class="mkw" id="homeMark"></div><div class="word">SHIVO<span>LABS</span></div></div>
+      <button class="gbtn" id="setOpen" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><i class="set-dot" id="setDot" hidden></i></button>
+    </header>
+    <h1 class="home-hi" id="hi"></h1>
+    <div class="mods" id="mods"></div>
+  </main>
+
+  <!-- a module's own screen, inside the hub -->
+  <section id="page" hidden>
+    <header class="page-top">
+      <button class="gbtn" id="homeBtn" aria-label="Home"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg></button>
+      <div class="page-t"><span class="mod-ic sm" id="pageIc"></span><b id="pageName"></b></div>
+      <span class="page-state" id="pageState"></span>
+    </header>
+    <div class="page-body" id="pageBody"></div>
+  </section>
+
+  <div id="toast"></div>
+<script src="/shared/mark.js"></script>
+<script type="module" src="hub.js"></script>
+</body>
+</html>

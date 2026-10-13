@@ -1,0 +1,531 @@
+/* Class names all start with ch- : the phone app has short global classes (.m, .file) that must not leak in.
+   Shivo Labs Chat: the phone app's look (phone/www/app.css) on shared/tokens.css.
+   No framed window: content sits on the page, navigation is glass circles, Sora titles,
+   cards with soft shadows, the floating message box, Settings as grouped cards with icon tiles. */
+.ch-root{position:relative}
+.ch-root svg{width:20px;height:20px;flex:none}
+.ch-root input,.ch-root textarea{font:inherit;color:var(--text)}
+.ch-root .gbtn.on{background:var(--g-sel)}
+.ch-root .gbtn svg{width:20px;height:20px}
+
+/* shared pieces */
+.ch-hero{width:64px;height:64px}
+.ch-root .ch-hero svg{width:100%;height:100%}
+.ch-h{font:500 30px/1.18 var(--display);letter-spacing:-.02em;margin:0;text-align:center;text-wrap:balance}
+.ch-h span{display:block;font-weight:300;color:var(--muted)}
+.ch-ib{width:38px;height:38px;border-radius:var(--r-ctl);display:grid;place-items:center;color:var(--muted);flex:none;transition:background .2s,color .2s,transform .2s var(--ease)}
+.ch-ib:hover{background:var(--hover);color:var(--text)}
+.ch-ib:active{transform:scale(.92)}
+.ch-ib.sm{width:32px;height:32px;border-radius:10px}
+.ch-ib.sm svg{width:17px;height:17px}
+.ch-tile,.ch-s-ic{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--text) 9%,transparent)}
+.ch-tile svg,.ch-s-ic svg{width:18px;height:18px}
+.ch-s-ic{width:32px;height:32px;border-radius:10px;background:color-mix(in srgb,var(--text) 10%,transparent)}
+.ch-root .seg{display:flex;gap:4px;padding:4px;border-radius:12px;background:color-mix(in srgb,var(--text) 8%,transparent)}
+.ch-root .seg button{flex:1;padding:7px 13px;border-radius:9px;font:600 13px var(--body);color:var(--muted);white-space:nowrap;transition:background .2s,color .2s}
+.ch-root .seg button.on{background:var(--g-sel);color:var(--text);box-shadow:inset 0 1px 0 var(--g-rim)}
+.ch-sugg{display:flex;align-items:center;gap:10px;padding:11px 15px;border-radius:99px;border:1px solid var(--line);background:var(--panel);font-size:14px;transition:transform .2s var(--ease)}
+.ch-sugg svg{width:16px;height:16px;color:var(--muted)}
+.ch-sugg:active{transform:scale(.97)}
+.ch-hint{color:var(--muted);font-size:13.5px;padding:10px 6px;margin:0}
+.btn:disabled{opacity:.35;pointer-events:none}
+.btn.danger{color:var(--err)}
+.btn.pri.danger{background:var(--err);border-color:var(--err);color:#fff}
+mark{background:color-mix(in srgb,var(--sage) 28%,transparent);color:inherit;border-radius:3px}
+
+/* avatars: rounded tiles like the module icons; people get their own soft colour */
+.ch-av{--c:var(--sage);position:relative;width:46px;height:46px;border-radius:15px;flex:none;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c);font:600 15px/1 var(--display);letter-spacing:.02em}
+html[data-theme=dark] .ch-av{color:color-mix(in srgb,var(--c) 55%,#fff)}
+html[data-theme=dark] .ch-av.notes{color:var(--bg)}
+html[data-theme=dark] .ch-av.grp,html[data-theme=dark] .ch-av.add{color:var(--text)}
+.ch-av.sm{width:36px;height:36px;border-radius:12px;font-size:12.5px}
+.ch-av.md{width:42px;height:42px;border-radius:14px;font-size:14px}
+.ch-av.lg{width:64px;height:64px;border-radius:20px;font-size:21px}
+.ch-av.xl{width:84px;height:84px;border-radius:26px;font-size:27px}
+.ch-av.grp,.ch-av.add{background:color-mix(in srgb,var(--text) 9%,transparent);color:var(--text)}
+.ch-av.notes{background:var(--text);color:var(--bg)}
+.ch-av svg{width:46%;height:46%}
+.ch-on{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;background:var(--sage);border:2.5px solid var(--bg)}
+.ch-av.sm .ch-on{width:10px;height:10px;border-width:2px}
+
+/* sign in: like the phone's setup screen */
+.ch-sign{min-height:calc(100vh - 150px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:20px 0}
+.ch-sign-top{display:flex;flex-direction:column;align-items:center;gap:16px}
+.ch-sign-top .word{font-size:17px}
+.ch-sign .ch-h{font-size:28px}
+.ch-sign .ch-h span{font-size:19px;margin-top:4px}
+.ch-card{width:min(440px,100%);display:flex;flex-direction:column;gap:10px;padding:18px;border-radius:28px;
+  background:color-mix(in srgb,var(--panel) 72%,transparent);-webkit-backdrop-filter:blur(26px) saturate(170%);backdrop-filter:blur(26px) saturate(170%);
+  border:.5px solid var(--g-rim2);box-shadow:var(--g-sh),inset 0 1px 0 var(--g-rim)}
+.ch-kh{display:flex;align-items:center;gap:12px;margin-top:6px}
+.ch-kh label b{display:block;font:500 16px var(--display)}
+.ch-kh label small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px}
+.ch-field{width:100%;padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:var(--panel);font:15px var(--body);outline:0;transition:border-color .2s}
+.ch-field:focus{border-color:color-mix(in srgb,var(--text) 35%,var(--line))}
+.hide-srv{display:none!important}
+.ch-seg{margin-bottom:4px}
+.ch-err{color:var(--err);font-size:13.5px;min-height:1em;margin:4px 2px}
+.ch-card .btn{border-radius:16px}
+
+/* layout: list | conversation | details, straight on the page */
+.ch-app{display:grid;grid-template-columns:330px 1fr;gap:20px;height:calc(100vh - 128px);min-height:440px}
+.ch-app.info{grid-template-columns:330px 1fr 320px}
+.ch-side,.ch-main,.ch-info{display:flex;flex-direction:column;min-width:0;min-height:0}
+.ch-main{position:relative}
+
+/* chat list: like the phone's chats drawer */
+.ch-side-top{display:flex;align-items:center;gap:10px;padding:2px 2px 12px}
+.ch-title{flex:1;font:500 26px/1 var(--display);letter-spacing:-.02em}
+.ch-search{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:99px;background:var(--panel);border:1px solid var(--line);color:var(--muted)}
+.ch-search svg{width:20px;height:20px}
+.ch-search input{flex:1;border:0;background:none;outline:0;min-width:0;font-size:15px}
+.ch-x{display:grid;color:var(--muted)}
+.ch-x svg{width:17px;height:17px}
+.ch-chips{display:flex;gap:6px;padding:12px 0 8px;overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);mask-image:linear-gradient(90deg,#000 88%,transparent)}
+.ch-chips::after{content:"";flex:0 0 20px}
+.ch-chips::-webkit-scrollbar{display:none}
+.ch-chips button{flex:none;padding:7px 12px;border-radius:99px;border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--muted);transition:background .2s,color .2s,border-color .2s}
+.ch-chips button.on{background:var(--text);border-color:var(--text);color:var(--bg)}
+.ch-list{flex:1;overflow-y:auto;margin:0 -6px;padding:2px 6px 12px}
+.ch-row{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:12px;row-gap:3px;align-items:center;padding:10px 8px;border-radius:16px;text-align:left;transition:background .2s}
+.ch-row .ch-av{grid-row:1/3}
+.ch-row.on{background:var(--soft)}
+.ch-row-t{display:flex;align-items:baseline;gap:8px;min-width:0}
+.ch-row-t b{flex:1;font:500 16px/1.2 var(--display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-row-t time{font-size:12px;color:var(--faint);flex:none}
+.ch-row.new .ch-row-t time{color:var(--sage);font-weight:600}
+.ch-row-s{display:flex;align-items:center;gap:6px;min-width:0;height:22px;font-size:13.5px;line-height:20px;color:var(--muted)}
+.ch-row-s>span:not(.ch-row-b):not(.ch-tk){flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-row-s em{flex:1;color:var(--sage);font-style:normal;font-weight:600}
+.ch-row-b{display:flex;align-items:center;gap:5px;flex:none}
+.ch-mut,.ch-fav{width:15px!important;height:15px!important;color:var(--faint)}
+.ch-badge{min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--sage);color:#fff;font:600 11.5px/20px var(--body);text-align:center;font-style:normal}
+.ch-badge.muted{background:var(--faint)}
+.ch-men{width:20px;height:20px;border-radius:50%;background:var(--sage);color:#fff;font:700 12px/20px var(--body);text-align:center;font-style:normal}
+.ch-sec{font:500 15px var(--display);color:var(--muted);margin:16px 8px 6px}
+.ch-arch{width:100%;display:flex;align-items:center;gap:12px;padding:12px 10px;border-radius:14px;color:var(--muted);font-size:15px}
+.ch-arch:hover{background:var(--hover)}
+.ch-arch span{margin-left:auto;font-size:12.5px}
+.ch-conn{padding:9px;text-align:center;font-size:12.5px;color:var(--muted);border-radius:99px;background:var(--soft);animation:breathe 1.6s infinite}
+
+/* empty state: like the phone's AI home */
+.ch-empty{margin:auto;display:flex;flex-direction:column;align-items:center;gap:22px;padding:20px;text-align:center}
+
+/* conversation header: glass circles and a title, no bar */
+.ch-head{display:flex;align-items:center;gap:10px;padding:0 0 10px;z-index:2}
+.ch-back{display:none!important}
+.ch-head-who{flex:1;display:flex;align-items:center;gap:12px;min-width:0;padding:4px;border-radius:16px;text-align:left}
+.ch-head-who:hover{background:var(--hover)}
+.ch-head-who>span:last-child{display:flex;flex-direction:column;min-width:0;gap:2px}
+.ch-head-who b{font:500 19px/1.15 var(--display);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-head-who small{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-head-who em{color:var(--sage);font-style:normal;font-weight:600}
+.ch-online{color:var(--sage)}
+.ch-pinbar{display:flex;align-items:center;gap:10px;margin:0 0 6px;padding:10px 14px;border-radius:16px;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow-1);font-size:13px;cursor:pointer;color:var(--muted)}
+.ch-pinbar svg{width:16px;height:16px}
+.ch-pinbar span{display:flex;flex-direction:column;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-pinbar b{color:var(--text);font:500 13px var(--display)}
+
+/* messages: the phone's bubbles (yours soft grey, theirs a white card) */
+.ch-scroll{flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.ch-scroll::-webkit-scrollbar{display:none}
+.ch-msgs{display:flex;flex-direction:column;padding:6px 4px 12px;max-width:820px;margin:0 auto}
+.ch-start{display:flex;flex-direction:column;align-items:center;gap:8px;padding:30px 10px 20px;text-align:center}
+.ch-start b{font:500 20px/1.2 var(--display)}
+.ch-start small{color:var(--muted)}
+.ch-loadmore{text-align:center;color:var(--faint);font-size:12.5px;padding:10px}
+.ch-day,.ch-sys{display:flex;justify-content:center;margin:16px 0 8px;font-size:12.5px;color:var(--muted)}
+.ch-day span,.ch-dayf{font:500 12.5px var(--display);color:var(--muted);padding:5px 12px;border-radius:99px;
+  background:var(--g-bg);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);border:.5px solid var(--g-rim2);box-shadow:0 4px 14px -6px rgba(20,21,23,.18),inset 0 1px 0 var(--g-rim)}
+.ch-sys{margin:8px 0;color:var(--faint);font-size:12.5px}
+.ch-newline{display:flex;align-items:center;gap:10px;margin:14px 0 6px;color:var(--sage);font:500 12.5px var(--display)}
+.ch-newline::before,.ch-newline::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--sage) 40%,transparent)}
+.ch-m{position:relative;display:flex;align-items:flex-end;gap:8px;margin-top:14px;max-width:100%;touch-action:pan-y;transition:transform .35s var(--spring)}
+.ch-m.in{animation:chin .45s var(--spring) both}
+.ch-m.mine.in{animation-name:chinme}
+@keyframes chin{from{opacity:0;transform:translateY(14px) scale(.96)}}
+@keyframes chinme{from{opacity:0;transform:translate(10px,14px) scale(.96)}}
+.ch-m.drag{transition:none}
+.ch-m.held .ch-b{transform:scale(.97)}
+.ch-b{transition:transform .25s var(--spring)}
+.ch-m.cont{margin-top:3px}
+.ch-m.mine{flex-direction:row-reverse}
+.ch-gap{width:36px;flex:none}
+.ch-b-wrap{display:flex;flex-direction:column;align-items:flex-start;max-width:min(560px,78%);min-width:0}
+.ch-m.mine .ch-b-wrap{align-items:flex-end}
+.ch-who{font:500 13px var(--display);margin:0 0 4px 14px}
+.ch-b{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:22px 22px 22px 7px;padding:11px 15px 8px;min-width:70px;max-width:100%;overflow-wrap:anywhere;line-height:1.45;box-shadow:var(--shadow-1)}
+.ch-m.cont .ch-b{border-top-left-radius:7px}
+.ch-m.mine .ch-b{background:var(--soft);border-color:transparent;box-shadow:none;border-radius:22px 22px 7px 22px}
+.ch-m.mine.cont .ch-b{border-top-right-radius:7px}
+.ch-b.media{padding:4px;background:transparent!important;border:0;box-shadow:none}
+.ch-b.media .ch-meta{position:absolute;right:12px;bottom:10px;background:rgba(0,0,0,.5);color:#fff;padding:2px 8px;border-radius:99px;margin:0;opacity:1;pointer-events:none}
+.ch-txt.big{font-size:38px;line-height:1.15}
+.ch-txt a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.ch-txt code{font:13px var(--mono);padding:1px 5px;border-radius:5px;background:color-mix(in srgb,var(--text) 8%,transparent)}
+.ch-txt pre{font:12.5px/1.45 var(--mono);padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--text) 6%,transparent);overflow-x:auto;margin:4px 0;white-space:pre}
+.ch-at{color:var(--sage);font-weight:600}
+html[data-theme=dark] .ch-at{color:var(--glow)}
+.ch-at.me{background:var(--sage-soft);border-radius:6px;padding:0 4px}
+.ch-meta{display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:11px;color:var(--faint);margin:3px -5px 0 12px;float:right;position:relative;top:4px;white-space:nowrap}
+.ch-meta svg{width:13px;height:13px}
+.ch-pinned{transform:rotate(30deg)}
+.ch-tk{display:inline-flex;position:relative;width:18px;color:var(--faint)}
+.ch-tk svg{width:15px;height:15px;stroke-width:2.2}
+.ch-tk svg.b{position:absolute;left:5px}
+.ch-tk.all{color:var(--sage)}
+html[data-theme=dark] .ch-tk.all{color:var(--glow)}
+.ch-m.pend{opacity:.65}
+.ch-failed{font-size:12px;color:var(--err);font-weight:600;margin-top:4px}
+.ch-del{display:flex;align-items:center;gap:6px;font-style:italic;color:var(--muted)}
+.ch-del svg{width:15px;height:15px}
+.ch-fwd{display:flex;align-items:center;gap:4px;font-size:12px;font-style:italic;color:var(--muted);margin-bottom:3px}
+.ch-fwd svg{width:14px;height:14px}
+.ch-quote{--c:var(--sage);display:flex;flex-direction:column;width:100%;text-align:left;border-left:3px solid var(--c);background:color-mix(in srgb,var(--text) 5%,transparent);border-radius:10px;padding:6px 10px;margin:0 0 6px;font-size:13px}
+.ch-quote b{color:var(--c);font:500 12.5px var(--display)}
+html[data-theme=dark] .ch-quote b{color:color-mix(in srgb,var(--c) 55%,#fff)}
+.ch-quote span{color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ch-img{display:block;min-width:80px;min-height:80px;max-width:min(280px,100%);max-height:320px;height:auto;border-radius:18px;cursor:zoom-in;background:var(--soft);object-fit:cover}
+.ch-vid{display:block;max-width:min(320px,100%);max-height:320px;border-radius:18px;background:#000}
+.ch-filecard{display:flex;align-items:center;gap:12px;padding:6px 4px 4px;color:inherit;text-decoration:none;width:250px;max-width:100%}
+.ch-filecard>svg:first-child{width:38px;height:38px;padding:9px;border-radius:12px;background:color-mix(in srgb,var(--text) 9%,transparent);box-sizing:border-box}
+.ch-filecard span{flex:1;display:flex;flex-direction:column;min-width:0}
+.ch-filecard b{font:500 14px var(--display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-filecard small{font-size:12px;color:var(--muted)}
+.ch-filecard>svg:last-child{width:18px;height:18px;color:var(--muted)}
+.ch-voice{display:flex;align-items:center;gap:10px;width:240px;max-width:100%;padding:2px 0}
+.ch-play{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:var(--text);color:var(--bg);flex:none}
+.ch-play svg{width:15px;height:15px;fill:currentColor}
+.ch-wave{flex:1;height:4px;border-radius:9px;background:var(--tile);overflow:hidden}
+.ch-wave i{display:block;height:100%;width:0;background:var(--text);transition:width .2s linear}
+.ch-voice small{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ch-rx{display:flex;flex-wrap:wrap;gap:4px;margin-top:-6px;padding:0 10px;z-index:1}
+.ch-rx button{display:flex;align-items:center;gap:4px;padding:3px 9px;border-radius:99px;background:var(--panel);border:1px solid var(--line);font-size:14px;box-shadow:var(--shadow-1)}
+.ch-rx button b{font-size:11.5px;color:var(--muted)}
+.ch-rx button.me{border-color:var(--text)}
+.ch-m.flash .ch-b{animation:chflash 1.6s var(--ease)}
+@keyframes chflash{20%,60%{box-shadow:0 0 0 4px color-mix(in srgb,var(--sage) 40%,transparent)}}
+.ch-tools{display:flex;gap:2px;align-self:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.ch-m:hover .ch-tools{opacity:1;pointer-events:auto}
+.ch-tools button{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.ch-tools button:hover{background:var(--hover);color:var(--text)}
+.ch-tools svg{width:17px;height:17px}
+@media (hover:none){.ch-tools{display:none}.ch-b{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}}
+.ch-tobottom{position:absolute;right:12px;bottom:140px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;z-index:3;
+  background:var(--g-bg);-webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);border:.5px solid var(--g-rim2);box-shadow:var(--g-sh),inset 0 1px 0 var(--g-rim)}
+.ch-tobottom i{position:absolute;top:-6px;right:-4px;min-width:18px;height:18px;border-radius:99px;background:var(--sage);color:#fff;font:600 11px/18px var(--body);font-style:normal;padding:0 5px}
+.ch-tobottom i:empty{display:none}
+.ch-drop{position:absolute;inset:0;z-index:5;display:grid;place-items:center;background:color-mix(in srgb,var(--bg) 82%,transparent);border:2px dashed var(--faint);border-radius:var(--r-mod);pointer-events:none}
+.ch-drop span{display:flex;align-items:center;gap:8px;font:500 20px var(--display)}
+
+/* message box: the phone's floating composer */
+.ch-comp{position:relative;padding:6px 0 4px}
+.ch-composer{position:relative;max-width:820px;margin:0 auto;padding:12px 12px 10px 18px;border:1px solid var(--line);border-radius:28px;
+  background:color-mix(in srgb,var(--panel) 70%,transparent);-webkit-backdrop-filter:blur(24px) saturate(170%);backdrop-filter:blur(24px) saturate(170%);
+  box-shadow:var(--shadow-1);transition:border-color .25s,box-shadow .3s var(--ease)}
+.ch-composer:focus-within{border-color:color-mix(in srgb,var(--sage) 45%,var(--line));box-shadow:0 14px 34px -16px rgba(20,21,23,.28),0 0 0 4px color-mix(in srgb,var(--sage) 10%,transparent)}
+.ch-send:not(:disabled){animation:pop .35s var(--spring) both}
+.ch-composer textarea{width:100%;display:block;border:0;outline:0;background:transparent;resize:none;font:16px/1.4 var(--body);padding:8px 0;max-height:180px}
+.ch-crow{display:flex;align-items:center;gap:6px;padding-top:8px}
+.ch-crow #chAttach{color:var(--text);margin-left:-8px}
+.ch-chip{display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:99px;background:var(--soft);font:600 12.5px var(--body);color:var(--muted);transition:transform .15s var(--ease)}
+.ch-chip svg{width:15px;height:15px}
+.ch-chip:active{transform:scale(.95)}
+.ch-mic{margin-left:auto}
+.ch-send{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--text);color:var(--bg);transition:opacity .2s,transform .25s var(--spring)}
+.ch-send svg{width:18px;height:18px;stroke-width:2.4}
+.ch-send:disabled{opacity:.25}
+.ch-send:active{transform:scale(.92)}
+.ch-crow .ch-mic[hidden]+.ch-send{margin-left:auto}
+.ch-rec{display:flex;align-items:center;gap:10px;padding:10px 10px 10px 12px}
+.ch-rec small{flex:1;color:var(--muted)}
+.ch-rec span{font-variant-numeric:tabular-nums;font:500 16px var(--display)}
+.ch-dot{width:10px;height:10px;border-radius:50%;background:var(--err);animation:breathe 1s infinite}
+.ch-ctx{display:flex;align-items:center;gap:10px;max-width:820px;margin:0 auto 8px;padding:10px 8px 10px 14px;border-radius:18px;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow-1);font-size:13px}
+.ch-ctx>svg{width:18px;height:18px;color:var(--muted)}
+.ch-ctx span{flex:1;display:flex;flex-direction:column;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-ctx b{color:var(--text);font:500 13px var(--display)}
+
+/* popups: frosted glass cards like the phone's model menu */
+.ch-pop,.ch-mention{background:rgba(255,255,255,.62);-webkit-backdrop-filter:blur(28px) saturate(190%);backdrop-filter:blur(28px) saturate(190%);
+  border:.5px solid var(--g-rim2);box-shadow:var(--g-sh),inset 0 1px 0 var(--g-rim)}
+html[data-theme=dark] .ch-pop,html[data-theme=dark] .ch-mention{background:rgba(36,37,41,.82)}
+.ch-pop{position:absolute;z-index:20;border-radius:22px;animation:pop .25s var(--spring)}
+.ch-emo-pop{display:grid;grid-template-columns:repeat(auto-fill,minmax(38px,1fr));gap:2px;max-height:240px;overflow-y:auto;padding:8px}
+.ch-emo-pop button{font-size:22px;height:38px;border-radius:12px}
+.ch-emo-pop button:hover{background:var(--hover)}
+.ch-mention{position:absolute;bottom:calc(100% - 2px);left:0;min-width:240px;border-radius:22px;padding:6px;z-index:6}
+.ch-mention button{width:100%;display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:14px;font:500 15px var(--display);text-align:left}
+.ch-mention button.on,.ch-mention button:hover{background:var(--g-sel)}
+.ch-react{display:flex;gap:2px;padding:6px;border-radius:99px}
+.ch-react button{width:42px;height:42px;border-radius:50%;font-size:24px;transition:transform .2s var(--spring)}
+.ch-react button:hover{transform:scale(1.2)}
+.ch-react .plus{display:grid;place-items:center;color:var(--muted)}
+.ch-emo-pop{width:320px}
+.ch-menu{display:flex;flex-direction:column;padding:6px;min-width:220px}
+.ch-menu button{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:14px;font:500 15px var(--display);text-align:left}
+.ch-menu button:hover{background:var(--g-sel)}
+.ch-menu svg{width:18px;height:18px;color:var(--muted)}
+.ch-menu .danger,.ch-menu .danger svg{color:var(--err)}
+
+/* sheets: like the phone's settings sheet (bottom sheet on the phone, a card on the laptop) */
+.ch-veil{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:16px;background:#0004;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);animation:rise .25s var(--ease)}
+.ch-modal{position:relative;width:min(440px,100%);max-height:min(760px,calc(100vh - 32px));overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:22px;border-radius:30px;
+  background:color-mix(in srgb,var(--panel) 80%,transparent);-webkit-backdrop-filter:blur(30px) saturate(180%);backdrop-filter:blur(30px) saturate(180%);
+  border:.5px solid var(--g-rim2);box-shadow:0 30px 80px -20px rgba(0,0,0,.45),inset 0 1px 0 var(--g-rim);animation:pop .4s var(--spring);scrollbar-width:none}
+.ch-modal.sm{width:min(380px,100%)}
+.ch-modal.wide{width:min(560px,100%)}
+.ch-grab{display:none;width:40px;height:5px;border-radius:3px;background:var(--line);margin:-8px auto 6px;flex:none}
+.ch-modal h3{font:500 24px/1.2 var(--display);letter-spacing:-.01em;margin:4px 56px 6px 0}
+.ch-modal h4{font:600 11px var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:14px 2px 2px}
+.ch-modal-x{position:absolute;top:16px;right:16px;width:40px;height:40px}
+.ch-modal .btn{border-radius:16px}
+.ch-acts{display:flex;gap:8px;margin-top:4px}
+.ch-person{display:flex;align-items:center;gap:12px;padding:9px 8px;border-radius:16px;width:100%;text-align:left}
+.ch-person b{font:500 16px var(--display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-person small{color:var(--muted);font-size:12.5px;margin-left:auto;white-space:nowrap}
+.ch-person.act:hover,label.ch-person:hover{background:var(--hover);cursor:pointer}
+.ch-person.dim{opacity:.5}
+.ch-person.danger,.ch-person.danger svg{color:var(--err)}
+.ch-person input[type=checkbox]{width:20px;height:20px;accent-color:var(--text);flex:none}
+.ch-pick{display:flex;flex-direction:column;max-height:340px;overflow-y:auto;margin:0 -8px}
+.ch-modal .ch-f{display:flex;flex-direction:column;gap:6px}
+.ch-modal .ch-f span{font:500 14px var(--display);color:var(--muted);margin-left:2px}
+.ch-modal .ch-f input{padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:var(--panel);outline:0}
+
+/* settings: grouped cards with icon tiles */
+.ch-s-head{display:flex;align-items:center;gap:12px;margin:0 0 4px}
+.ch-s-head b{display:block;font:500 17px var(--display)}
+.ch-s-head small{color:var(--muted);font-size:12.5px}
+.ch-sub{font:600 11px var(--display);letter-spacing:.14em;color:var(--muted);margin:14px 2px 2px}
+.ch-group{border-radius:20px;padding:2px 14px;background:color-mix(in srgb,var(--text) 6%,transparent);border:.5px solid var(--g-rim2)}
+.ch-srow{display:flex;align-items:center;gap:12px;width:100%;padding:13px 0;border-top:1px solid var(--line);text-align:left}
+.ch-group>.ch-srow:first-child,#chInvites>.ch-srow:first-child{border-top:0}
+#chInvites:not(:empty){border-top:1px solid var(--line)}
+.ch-row-l{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.ch-row-l b{font:500 15.5px var(--display)}
+.ch-row-l small{color:var(--muted);font-size:12.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis}
+.ch-row-l input{border:0;background:none;outline:0;padding:2px 0;font-size:14.5px;color:var(--muted);width:100%}
+.ch-row-l input:focus{color:var(--text)}
+.ch-srow.danger,.ch-srow.danger .ch-s-ic{color:var(--err)}
+.ch-chev{width:16px!important;height:16px!important;color:var(--faint)}
+.ch-save{padding:9px 16px;border-radius:99px;background:var(--text);color:var(--bg);font:600 13.5px var(--body);flex:none;transition:transform .15s var(--ease)}
+.ch-save:active{transform:scale(.94)}
+.ch-inv-new{flex-wrap:wrap}
+.ch-inv-new .seg{flex:none}
+.ch-inv code{font:600 15px var(--mono);letter-spacing:.08em}
+input.ch-sw{appearance:none;-webkit-appearance:none;width:51px;height:31px;border-radius:99px;background:var(--tile);position:relative;flex:none;cursor:pointer;transition:background .3s var(--ease);margin:0}
+input.ch-sw::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25);transition:transform .35s var(--spring)}
+input.ch-sw:checked{background:var(--sage)}
+input.ch-sw:checked::after{transform:translateX(20px)}
+.ch-light{position:relative;max-width:min(1100px,96vw);max-height:92vh;display:flex;flex-direction:column;align-items:center;gap:12px}
+.ch-light img{max-width:100%;max-height:82vh;border-radius:18px;object-fit:contain;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.ch-light-bar{display:flex;align-items:center;gap:8px;color:#fff}
+.ch-light-bar span{margin-right:10px;font-size:14px}
+.ch-light-bar .ch-ib{color:#fff;background:rgba(255,255,255,.16);border-radius:50%}
+
+/* details panel: frosted, grouped like Settings */
+.ch-info{border-radius:var(--r-mod);background:color-mix(in srgb,var(--panel) 72%,transparent);-webkit-backdrop-filter:blur(26px) saturate(170%);backdrop-filter:blur(26px) saturate(170%);
+  border:.5px solid var(--g-rim2);box-shadow:var(--g-sh),inset 0 1px 0 var(--g-rim);overflow:hidden}
+.ch-info-top{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 6px 20px}
+.ch-info-top b{font:500 20px var(--display);letter-spacing:-.01em}
+.ch-info-body{flex:1;overflow-y:auto;padding:8px 14px 16px;scrollbar-width:none}
+.ch-info-body>.ch-search{margin:0 0 10px}
+.ch-info-who{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:8px 0 16px}
+.ch-info-who b{font:500 21px/1.2 var(--display);margin-top:6px}
+.ch-info-who small{color:var(--muted)}
+.ch-info-who .tbtn{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;margin-top:6px;padding:8px 13px;border-radius:99px;background:color-mix(in srgb,var(--text) 8%,transparent)}
+.ch-info-who .tbtn svg{width:15px;height:15px}
+.ch-info-acts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding-bottom:6px}
+.ch-info-acts button{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 4px;border-radius:18px;background:color-mix(in srgb,var(--text) 6%,transparent);font-size:11.5px;font-weight:600;color:var(--muted);transition:transform .15s var(--ease)}
+.ch-info-acts button:hover{color:var(--text)}
+.ch-info-acts button:active{transform:scale(.95)}
+.ch-info-sec{margin-top:12px;border-radius:20px;padding:8px 8px 6px;background:color-mix(in srgb,var(--text) 5%,transparent);border:.5px solid var(--g-rim2)}
+.ch-info-sec h4{font:600 11px var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:4px 8px 6px}
+.ch-info-sec .ch-person{padding:7px 6px}
+.ch-info-sec .ch-person b{font-size:15px}
+.ch-hit{width:100%;display:flex;flex-direction:column;gap:2px;padding:10px;border-radius:14px;text-align:left;font-size:13.5px}
+.ch-hit:hover{background:var(--hover)}
+.ch-hit small{color:var(--faint);font-size:12px}
+.ch-hit span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* narrower windows: details float over; the phone: one pane at a time, sheets from the bottom */
+@media (max-width:1320px){.ch-app.info{grid-template-columns:330px 1fr}.ch-app{position:relative}
+  .ch-app.info .ch-info{position:absolute;right:0;top:0;bottom:0;width:min(340px,100%);z-index:8;background:color-mix(in srgb,var(--panel) 88%,transparent)}}
+@media (max-width:760px){
+  .ch-app,.ch-app.info{grid-template-columns:1fr;gap:0;height:calc(100dvh - 104px)}
+  .ch-app .ch-main{display:none}
+  .ch-app.open .ch-side{display:none}
+  .ch-app.open .ch-main{display:flex}
+  .ch-back{display:grid!important}
+  .ch-b-wrap{max-width:86%}
+  .ch-msgs{padding:4px 0 10px}
+  .ch-info-acts{grid-template-columns:repeat(4,1fr)}
+  .ch-veil{place-items:end stretch;padding:0}
+  .ch-modal,.ch-modal.sm,.ch-modal.wide{width:100%;max-height:88vh;border-radius:30px 30px 0 0;padding:14px 20px max(24px,env(safe-area-inset-bottom));animation:chsheet .5s var(--spring)}
+  .ch-grab{display:block}
+  .ch-modal-x{top:22px}
+}
+@keyframes chsheet{from{transform:translateY(100%)}}
+@media (prefers-reduced-motion:reduce){.ch-m,.ch-modal,.ch-pop{animation:none}}
+
+/* "Look around first" (demo with a sample team) */
+.ch-skip{display:block;width:100%;padding:10px;font:600 14.5px var(--body);color:var(--muted)}
+.ch-skip:hover{color:var(--text)}
+.ch-demo{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 10px;padding:10px 14px;border-radius:16px;background:var(--sage-soft);color:var(--text);text-align:left;font-size:13px}
+.ch-demo b{font:600 11px var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--sage)}
+html[data-theme=dark] .ch-demo b{color:var(--glow)}
+.ch-demo span{flex:1;color:var(--muted)}
+.ch-demo i{font-style:normal;font-weight:600}
+
+/* swipe a chat: actions sit behind the row */
+.ch-sw{position:relative;border-radius:16px;overflow:hidden;margin-bottom:2px}
+.ch-sw .ch-row{position:relative;z-index:1;background:var(--bg);touch-action:pan-y;transition:transform .45s var(--spring),background .2s}
+.ch-sw .ch-sw .ch-row.on{background:var(--soft)}
+.ch-sw.drag .ch-row{transition:none}
+.ch-sw-a{position:absolute;top:0;bottom:0;display:flex;opacity:0;transition:opacity .2s}
+.ch-sw.open .ch-sw-a,.ch-sw.drag .ch-sw-a{opacity:1}
+.ch-sw-a.l{left:0}
+.ch-sw-a.r{right:0}
+
+/* swipe a message right: the reply arrow appears behind it */
+.ch-swr{position:absolute;left:-44px;top:50%;width:32px;height:32px;margin-top:-16px;border-radius:50%;display:grid;place-items:center;background:var(--soft);color:var(--text);
+  opacity:var(--sw,0);transform:scale(calc(.6 + var(--sw,0) * .4));pointer-events:none}
+.ch-swr svg{width:17px;height:17px}
+
+/* press and hold: quick reactions on top of the menu */
+.ch-menu-rx{display:flex;justify-content:space-between;gap:2px;padding:2px 2px 6px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+.ch-menu-rx button{width:40px;height:40px;border-radius:50%;font-size:23px;display:grid;place-items:center;transition:transform .2s var(--spring)}
+.ch-menu-rx button:active,.ch-menu-rx button:hover{transform:scale(1.2)}
+
+/* someone is typing: three dots, like Labs AI thinking */
+.ch-typing{display:flex;align-items:center;gap:10px;margin:12px 0 4px;animation:chin .4s var(--spring) both}
+.ch-dots{display:flex;gap:5px;padding:14px 16px;border-radius:22px 22px 22px 7px;background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow-1)}
+.ch-dots i{width:7px;height:7px;border-radius:50%;background:var(--faint);animation:chdot 1.2s var(--ease) infinite}
+.ch-dots i:nth-child(2){animation-delay:.15s}.ch-dots i:nth-child(3){animation-delay:.3s}
+@keyframes chdot{0%,60%,100%{transform:translateY(0);opacity:.5}30%{transform:translateY(-5px);opacity:1;background:var(--sage)}}
+.ch-typing small{color:var(--muted);font-size:12.5px}
+
+/* "+": Photos, Camera, Files tiles (like Labs AI) */
+.ch-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;margin:4px 0 4px}
+.ch-tiles button{display:flex;flex-direction:column;align-items:center;gap:10px;padding:20px 6px;border-radius:24px;background:color-mix(in srgb,var(--text) 8%,transparent);font:500 16px var(--display);transition:transform .2s var(--spring)}
+.ch-tiles button:active{transform:scale(.95)}
+.ch-tiles svg{width:28px;height:28px;stroke-width:1.6}
+
+/* files waiting in the message box */
+.ch-att{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
+.ch-att::-webkit-scrollbar{display:none}
+.ch-att-t{position:relative;flex:none;width:72px;height:72px;border-radius:18px;overflow:hidden;background:var(--soft);animation:chin .4s var(--spring) both;animation-delay:calc(var(--i) * .04s)}
+.ch-att-t img,.ch-att-t video{width:100%;height:100%;object-fit:cover;display:block}
+.ch-att-f{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:100%;padding:6px;text-align:center}
+.ch-att-f svg{width:20px;height:20px;color:var(--muted)}
+.ch-att-f b{font:500 10.5px/1.2 var(--body);width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-att-f small{font-size:10px;color:var(--muted)}
+.ch-att-t button{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:rgba(20,21,23,.62);color:#fff;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.ch-att-t button svg{width:12px;height:12px;stroke-width:2.4}
+
+/* upload ring on a file that is still sending */
+.ch-up{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.ch-up svg{width:44px;height:44px;padding:4px;border-radius:50%;background:rgba(20,21,23,.45);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transform:rotate(-90deg)}
+.ch-up circle{fill:none;stroke:rgba(255,255,255,.25);stroke-width:3}
+.ch-up circle.v{stroke:#fff;stroke-linecap:round;stroke-dasharray:94.25;stroke-dashoffset:calc(94.25 * (1 - var(--p,0.04)));transition:stroke-dashoffset .25s var(--ease)}
+@media (prefers-reduced-motion:reduce){.ch-m.in,.ch-typing,.ch-att-t,.ch-dots i{animation:none}}
+
+/* floating day while scrolling */
+.ch-dayf{position:absolute;left:50%;top:70px;z-index:4;transform:translate(-50%,-6px);opacity:0;pointer-events:none;transition:opacity .3s var(--ease),transform .3s var(--ease)}
+.ch-dayf.on{opacity:1;transform:translate(-50%,0)}
+
+/* chat row: time on top, badges under it, in their own column */
+.ch-row-m{grid-column:3;grid-row:1/3;display:grid;grid-template-rows:auto 20px;justify-items:end;align-content:center;row-gap:7px;min-width:48px;padding-left:6px}
+.ch-row-m time{font-size:12px;color:var(--faint);line-height:1}
+.ch-row.new .ch-row-m time{color:var(--sage);font-weight:600}
+.ch-row-m .ch-row-b{height:20px;display:flex;flex-wrap:nowrap;align-items:center;gap:6px;white-space:nowrap}
+.ch-row-t,.ch-row-s{grid-column:2}
+/* a file that is still sending */
+.ch-media{position:relative;display:block;width:fit-content}
+.ch-media-file .ch-up{inset:auto 0 auto auto;top:50%;right:2px;width:auto;transform:translateY(-50%)}
+.ch-media-file .ch-up svg{width:34px;height:34px;padding:3px}
+
+@media (hover:hover){.ch-row:hover,.ch-sw .ch-row:hover{background:var(--hover)}.ch-row.on:hover{background:var(--soft)}}
+
+/* swipe actions: round buttons that grow and light up as you swipe */
+.ch-sw-a{align-items:center;gap:8px;padding:0 10px;opacity:1}
+.ch-sw-a button{display:flex;flex-direction:column;align-items:center;gap:5px;width:56px;font:600 11px var(--body);color:var(--muted);
+  opacity:var(--pr,0);transform:scale(calc(.6 + .4 * var(--pr,0)));transition:opacity .2s,transform .35s var(--spring)}
+.ch-sw.drag .ch-sw-a button{transition:none}
+.ch-sw-a i{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:#fff;box-shadow:0 8px 20px -8px currentColor}
+.ch-sw-a i svg{width:20px;height:20px}
+.ch-sw-a [data-sa=fav] i{background:#C9A23F;color:#fff}
+.ch-sw-a [data-sa=muted] i{background:#6B6E73}
+.ch-sw-a [data-sa=archived] i{background:var(--sage)}
+.ch-sw-a i{color:#fff}
+.ch-sw-a button:active i{transform:scale(.9)}
+.ch-sw .ch-row{border-radius:16px}
+
+/* empty lists */
+.ch-nothing{display:flex;flex-direction:column;align-items:center;gap:6px;padding:48px 20px;text-align:center;color:var(--muted)}
+.ch-nothing span{width:52px;height:52px;border-radius:18px;display:grid;place-items:center;background:color-mix(in srgb,var(--text) 7%,transparent);margin-bottom:6px}
+.ch-nothing span svg{width:24px;height:24px}
+.ch-nothing b{font:500 17px var(--display);color:var(--text)}
+.ch-nothing small{font-size:13.5px}
+.ch-nothing.sm{padding:30px 10px}
+
+/* press and hold: everything dims except the message and its menu */
+.ch-pop-veil{position:absolute;inset:0;z-index:15;background:rgba(10,10,12,.38);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:rise .2s var(--ease)}
+html[data-theme=dark] .ch-pop-veil{background:rgba(0,0,0,.5)}
+.ch-m.focus{z-index:16}
+.ch-m.focus .ch-b{transform:scale(1.02);box-shadow:0 18px 40px -16px rgba(0,0,0,.5)}
+
+/* emoji tray inside the message box, like a keyboard */
+.ch-chip.on{background:var(--text);color:var(--bg)}
+.ch-tray{margin:10px -6px -2px -10px;border-top:1px solid var(--line);animation:chin .3s var(--spring)}
+.ch-tray-tabs{display:flex;gap:4px;padding:8px 4px 4px}
+.ch-tray-tabs button{flex:1;height:34px;border-radius:12px;font-size:18px;display:grid;place-items:center;color:var(--muted);transition:background .2s}
+.ch-tray-tabs button.on{background:color-mix(in srgb,var(--text) 9%,transparent)}
+.ch-tray-tabs svg{width:18px;height:18px}
+.ch-tray-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));height:200px;overflow-y:auto;padding:2px 2px 4px;scrollbar-width:none;overscroll-behavior:contain}
+.ch-tray-grid::-webkit-scrollbar{display:none}
+.ch-tray-grid button{height:42px;font-size:25px;border-radius:12px;transition:transform .15s var(--spring)}
+.ch-tray-grid button:active{transform:scale(1.25)}
+@media (hover:hover){.ch-tray-grid button:hover{background:var(--hover)}}
+
+/* details: photos and files */
+.ch-thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:2px 2px 6px}
+.ch-thumbs button{aspect-ratio:1;border-radius:14px;overflow:hidden;background:var(--soft)}
+.ch-thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+.ch-doc{flex-direction:row!important;align-items:center;gap:12px!important}
+.ch-doc>svg{width:34px;height:34px;padding:8px;border-radius:11px;background:color-mix(in srgb,var(--text) 8%,transparent);box-sizing:border-box;flex:none}
+.ch-doc span{display:flex;flex-direction:column;min-width:0}
+.ch-doc b{font:500 14px var(--display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* phone: details and search cover the whole screen, sliding in from the right */
+@media (max-width:760px){
+  .ch-app.info .ch-info{position:fixed;inset:0;z-index:60;width:auto;border-radius:0;border:0;box-shadow:none;background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none;animation:chslide .4s var(--spring)}
+  .ch-info-top{padding:max(14px,env(safe-area-inset-top)) 16px 8px 20px}
+  .ch-info-body{padding:8px 16px max(20px,env(safe-area-inset-bottom))}
+}
+@keyframes chslide{from{transform:translateX(100%)}}
+
+/* sheets: the handle and close button stay, the content scrolls under them */
+.ch-modal{overflow:hidden;padding:0}
+.ch-mbody{display:flex;flex-direction:column;gap:10px;overflow-y:auto;overscroll-behavior:contain;padding:22px;scrollbar-width:none;max-height:inherit}
+.ch-mbody::-webkit-scrollbar{display:none}
+.ch-modal-x{z-index:3}
+@media (max-width:760px){.ch-modal,.ch-modal.sm,.ch-modal.wide{padding:0}.ch-grab{position:absolute;left:50%;top:8px;margin:0 0 0 -20px;z-index:3}.ch-mbody{padding:24px 20px max(24px,env(safe-area-inset-bottom))}.ch-modal-x{top:16px}}
+
+/* invite options */
+.ch-inv-new{flex-direction:column;align-items:stretch;gap:8px}
+.ch-inv-new>.seg{width:100%}
+.ch-inv-row{display:flex;gap:8px;align-items:center}
+.ch-inv-row .seg{flex:1}
+.ch-inv-row .seg button{padding:7px 6px}
+.ch-save-row{animation:chin .3s var(--spring)}
+
+/* round ticks instead of square checkboxes */
+.ch-person input[type=checkbox]{appearance:none;-webkit-appearance:none;width:24px;height:24px;border-radius:50%;border:1.5px solid var(--faint);margin:0;display:grid;place-items:center;transition:background .2s,border-color .2s;cursor:pointer}
+.ch-person input[type=checkbox]:checked{background:var(--sage) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12 4 4 8-8'/%3E%3C/svg%3E") center/14px no-repeat;border-color:var(--sage)}
+
+/* waiting files: readable in dark mode */
+.ch-att-t{background:color-mix(in srgb,var(--text) 9%,transparent)}
+.ch-att-f b{color:var(--text)}
