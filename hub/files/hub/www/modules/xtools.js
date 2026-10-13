@@ -21,7 +21,7 @@ const GUIDE = [
 export function mountXtools(root, { esc, toast }) {
   const $ = (s, el = root) => el.querySelector(s);
   const st = { appleId: null, device: null, apps: [], screen: null };
-  let alive = true, watching = false;
+  let alive = true;
 
   async function call(cmd, args) {
     const r = await (await fetch('/api/xtools/call', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ cmd, args }) })).json();
@@ -38,7 +38,7 @@ export function mountXtools(root, { esc, toast }) {
   function paintBar() {
     const pill = document.getElementById('pageState');
     if (!pill) return;
-    pill.innerHTML = `${st.device ? `<i class="dot"></i>${esc(st.device.name)}<span class="xt-sep"></span>` : ''}<button class="tbtn" id="xtGuide">${svg(I.book)}Guide</button>`;
+    pill.innerHTML = `${st.device ? `<i class="dot"></i>${esc(st.device.name)}<span class="xt-sep"></span>` : st.waiting ? `<i class="dot wait"></i>Waiting for Trust<span class="xt-sep"></span>` : ''}<button class="tbtn" id="xtGuide">${svg(I.book)}Guide</button>`;
     document.getElementById('xtGuide').onclick = openGuide;
   }
 
@@ -49,9 +49,24 @@ export function mountXtools(root, { esc, toast }) {
     if (m.event === 'setup') setStep(m.data.step, m.data.pct >= 100 ? 'done' : 'active', m.data.label, m.data.pct);
     if (m.event === 'progress') { const f = $('#pFill'); if (f) { f.style.width = m.data.pct + '%'; $('#pLabel').textContent = m.data.label; $('#pPct').textContent = m.data.pct + '%'; } }
     if (m.event === 'ask') ask(m.data);
+    if (m.event === 'device') onDevice(m.data);
   };
+  // the plugged-in device changed (plugged in, pulled out, another one, now trusted): follow it at once
+  let gotDevice = false;
+  function onDevice(d) {
+    gotDevice = true;
+    const before = st.device;
+    st.device = d && !d.untrusted ? d : null; st.waiting = d && d.untrusted ? d : null;
+    paintBar();
+    if (!alive || ['setup', 'boot'].includes(st.screen)) return;
+    if (!st.device) { if (st.screen !== 'connect') openConnect(); else paintConnect(); return; }
+    if (st.screen === 'connect') return route();
+    if (st.screen === 'apps') { if (before?.udid !== st.device.udid) openApps(); else { renderApps(); renderFound(); } }
+  }
+  const lookAgain = async () => { try { const r = await (await fetch('/api/xtools/device', { method: 'POST', headers: { 'x-hub': '1' } })).json(); if (r.ok) onDevice(r.data); } catch {} };
 
   async function boot() {
+    st.screen = 'boot';
     screen(`<div class="xt-center">${loader()}<p class="xt-sub">Starting X Tools…</p></div>`);
     paintBar();
     let s;
@@ -59,6 +74,7 @@ export function mountXtools(root, { esc, toast }) {
     catch (e) { return screen(`<div class="xt-center"><h1 class="xt-h">X Tools can't start here</h1><p class="xt-sub">${esc(e.message)}</p><button class="btn pri xt-btn" id="xtRetry">Try again</button></div>`), ($('#xtRetry').onclick = boot); }
     st.appleId = s.appleId || null; st.apps = s.apps || [];
     if (!s.ready) return openSetup(s);
+    if (!gotDevice) await lookAgain();
     route();
   }
   function route() { if (!st.device) return openConnect(); if (!st.appleId) return openSignIn(); openApps(); }
@@ -97,23 +113,24 @@ export function mountXtools(root, { esc, toast }) {
     } else track?.remove();
   }
 
-  // ---------- 2. connect the iPhone
-  async function openConnect() {
+  // ---------- 2. connect an iPhone or iPad (the picture turns from one to the other)
+  let morph = 0, connectPoll = 0;
+  function openConnect() {
     st.screen = 'connect';
-    screen(`<div class="xt-center xt-hero"><div class="xt-phone"><i class="xt-notch"></i>${loader()}</div><h1 class="xt-h">Connect your iPhone</h1><p class="xt-sub">X Tools installs and renews your apps over a cable.</p>
-      <ol class="xt-how"><li><b>1</b>Plug it in with a cable</li><li><b>2</b>Unlock it</li><li><b>3</b>Tap <i>Trust</i></li></ol></div>`);
-    while (alive && st.screen === 'connect') {
-      try { const d = await call('device'); if (d) { st.device = d; paintBar(); break; } } catch (e) { if (/in use somewhere else/.test(e.message)) return boot(); }
-      await new Promise((r) => setTimeout(r, 2500));
-    }
-    if (alive && st.device) route();
+    screen(`<div class="xt-center xt-hero"><div class="xt-phone" id="xtDev"><i class="xt-notch"></i>${loader()}</div><h1 class="xt-h" id="xtConnH"></h1><p class="xt-sub" id="xtConnS"></p>
+      <ol class="xt-how" id="xtHow"></ol></div>`);
+    paintConnect();
+    clearInterval(morph); morph = setInterval(() => { const e = $('#xtDev'); if (!e || st.screen !== 'connect') return clearInterval(morph); e.classList.toggle('tablet'); }, 2600);
+    clearInterval(connectPoll); connectPoll = setInterval(() => { if (st.screen !== 'connect' || !alive) return clearInterval(connectPoll); lookAgain(); }, 5000);
   }
-  // keep the device pill true to what is plugged in
-  const devTimer = setInterval(async () => {
-    if (!alive || watching || st.screen !== 'apps') return;
-    watching = true;
-    try { const d = await call('device'); if ((d?.udid || null) !== (st.device?.udid || null)) { st.device = d; paintBar(); } } catch {} finally { watching = false; }
-  }, 4000);
+  function paintConnect() {
+    if (st.screen !== 'connect') return;
+    const w = st.waiting;   // plugged in, but this PC isn't trusted yet
+    $('#xtConnH').textContent = w ? `Unlock your ${w.kind === 'iPad' ? 'iPad' : 'iPhone'}` : 'Connect your iPhone or iPad';
+    $('#xtConnS').textContent = w ? 'Then tap Trust and enter the passcode. X Tools carries on by itself.' : 'X Tools installs and renews your apps over a cable.';
+    $('#xtHow').innerHTML = w ? '<li><b>1</b>Unlock it</li><li><b>2</b>Tap <i>Trust</i></li><li><b>3</b>Enter the passcode</li>'
+      : '<li><b>1</b>Plug it in with a cable</li><li><b>2</b>Unlock it</li><li><b>3</b>Tap <i>Trust</i></li>';
+  }
 
   // ---------- 3. sign in with Apple
   function openSignIn() {
@@ -139,9 +156,10 @@ export function mountXtools(root, { esc, toast }) {
   function openApps() {
     st.screen = 'apps';
     screen(`<div class="xt-apps">
-      <div class="xt-row-h"><h1 class="xt-h">Your apps</h1><span class="xt-slots" id="slots"></span><button class="tbtn xt-acct" id="acct">${esc(st.appleId || '')}</button></div>
+      <div class="xt-row-h"><h1 class="xt-h" id="xtAppsH">Your apps</h1><span class="xt-slots" id="slots"></span><button class="tbtn xt-acct" id="acct">${esc(st.appleId || '')}</button></div>
       <label class="bm-drop card" id="xtDrop"><input type="file" id="xtPick" accept=".ipa" hidden><span class="mod-ic">${svg(I.up)}</span><b>Add an app</b><small>Drop an .ipa file here, or click to choose</small></label>
       <div class="card"><div id="apps"></div></div>
+      <div class="card" id="notOn" hidden><div class="bm-h"><h2 id="notOnH"></h2></div><div id="notOnList"></div></div>
       <div class="card" id="found" hidden><div class="bm-h"><h2>Found on this PC</h2></div><div id="foundList"></div></div></div>`);
     renderApps(); renderFound();
     $('#acct').onclick = () => box(`<h2>Apple ID</h2><p>${esc(st.appleId)}</p><div class="xt-actions"><button class="btn" data-close>Close</button><button class="btn" id="signOutBtn">Sign out</button></div>`, (d) => {
@@ -156,12 +174,26 @@ export function mountXtools(root, { esc, toast }) {
   function appRow(a, i, actions) {
     return `<div class="xt-app" style="--i:${i}"><span class="xt-ic">${esc((a.name || '?').trim()[0].toUpperCase())}</span><div class="meta"><div class="n">${esc(a.name)}</div><div class="s">${actions.sub}</div></div>${actions.html}</div>`;
   }
+  // xtool installs an app as "XTL-<team>.<its own id>": match both ways
+  const onDev = (a) => (st.device?.apps || []).find((x) => x.bundleId === a.bundleId || (x.bundleId.startsWith('XTL-') && x.bundleId.endsWith('.' + a.bundleId)));
+  function daysOf(installed) {
+    const exp = st.device?.expiry?.[installed.bundleId];
+    return exp ? Math.max(0, Math.ceil((exp - Date.now()) / 86400000)) : null;
+  }
   function renderApps() {
-    $('#slots').textContent = st.apps.length ? `${st.apps.length} of 3 on a free Apple ID` : '';
-    $('#apps').innerHTML = st.apps.length ? st.apps.map((a, i) => {
-      const days = a.daysLeft === 0 ? 'Expired' : a.daysLeft === 1 ? '1 day left' : `${a.daysLeft} days left`;
-      return appRow(a, i, { sub: esc(a.version ? 'Version ' + a.version : a.bundleId), html: `<span class="xt-days${a.daysLeft <= 1 ? ' low' : ''}">${days}</span><button class="btn sm xt-btn" data-renew="${esc(a.bundleId)}">Renew</button><button class="ibtn" data-more="${esc(a.bundleId)}" aria-label="More">${svg(I.more)}</button>` });
-    }).join('') : `<p class="emptyt">No apps yet. Add an .ipa above.</p>`;
+    if (!$('#apps')) return;
+    const kind = st.device?.kind === 'iPad' ? 'iPad' : 'iPhone';
+    const here = st.apps.filter(onDev), away = st.apps.filter((a) => !onDev(a));
+    const signed = (st.device?.apps || []).filter((x) => x.bundleId.startsWith('XTL-')).length;   // apps signed with a free Apple ID on this device
+    $('#xtAppsH').textContent = st.device ? `On ${st.device.name}` : 'Your apps';
+    $('#slots').textContent = st.device ? `${signed} of 3 on this ${kind}` : '';
+    $('#apps').innerHTML = here.length ? here.map((a, i) => {
+      const d = daysOf(onDev(a)), days = d == null ? '' : d === 0 ? 'Expired' : d === 1 ? '1 day left' : `${d} days left`;
+      return appRow(a, i, { sub: esc(a.version ? 'Version ' + a.version : a.bundleId), html: `${days ? `<span class="xt-days${d <= 1 ? ' low' : ''}">${days}</span>` : ''}<button class="btn sm xt-btn" data-renew="${esc(a.bundleId)}">Renew</button><button class="ibtn" data-more="${esc(a.bundleId)}" aria-label="More">${svg(I.more)}</button>` });
+    }).join('') : `<p class="emptyt">No apps from X Tools on this ${kind} yet. Add an .ipa above${away.length ? ', or install one from below' : ''}.</p>`;
+    $('#notOn').hidden = !away.length;
+    $('#notOnH').textContent = `Not on this ${kind}`;
+    $('#notOnList').innerHTML = away.map((a, i) => appRow(a, i, { sub: esc(a.version ? 'Version ' + a.version : a.bundleId), html: `<button class="btn sm xt-btn" data-renew="${esc(a.bundleId)}">Install</button>` })).join('');
     root.querySelectorAll('[data-renew]').forEach((b) => (b.onclick = () => install({ renew: st.apps.find((a) => a.bundleId === b.dataset.renew) })));
     root.querySelectorAll('[data-more]').forEach((b) => (b.onclick = () => {
       const a = st.apps.find((x) => x.bundleId === b.dataset.more);
@@ -199,8 +231,9 @@ export function mountXtools(root, { esc, toast }) {
     box(`<div class="xt-center">${loader()}<p class="xt-plabel" id="pLabel">Preparing</p><div class="xt-track big"><i id="pFill"></i></div><p class="xt-pct" id="pPct">0%</p>
       <button class="tbtn" id="xtCancel">Cancel</button></div>`, (d) => { $('#xtCancel', d).onclick = () => call('cancel').catch(() => {}); }, true);
     try {
-      const r = renew ? await call('renew', { bundleId: renew.bundleId }) : await call('install', { path });
-      st.apps = r.apps; renderApps(); renderFound(); done(r.name, renew);
+      const udid = st.device.udid, wasOn = renew && onDev(renew);
+      const r = renew ? await call('renew', { bundleId: renew.bundleId, udid }) : await call('install', { path, udid });
+      st.apps = r.apps; await lookAgain(); renderApps(); renderFound(); done(r.name, wasOn);
     } catch (e) { if (e.message === 'Cancelled.') return closeBox(); alertBox(renew ? "Couldn't renew" : "Couldn't install", e.message); }
   }
   function done(name, renewed) {
@@ -257,7 +290,7 @@ export function mountXtools(root, { esc, toast }) {
 
   boot();
   return () => {
-    alive = false; events.close(); clearInterval(devTimer); document.removeEventListener('keydown', onKey);
+    alive = false; events.close(); clearInterval(morph); clearInterval(connectPoll); document.removeEventListener('keydown', onKey);
     fetch('/api/xtools/stop', { method: 'POST', headers: { 'x-hub': '1' } }).catch(() => {});
   };
 }

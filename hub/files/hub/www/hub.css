@@ -250,3 +250,9 @@ html.calm #splash{display:none}
 .xt-how{list-style:none;display:flex;gap:10px;flex-wrap:wrap;justify-content:center;padding:0;margin:22px 0 0}
 .xt-how li{display:flex;align-items:center;gap:8px;padding:9px 16px 9px 9px;border-radius:999px;background:var(--panel);box-shadow:var(--shadow-1);font-size:14px}
 .xt-how b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--sage-soft);color:var(--sage);font-size:12.5px}
+/* X Tools connect screen: the picture turns from an iPhone into an iPad and back */
+.xt-hero .xt-phone{transition:width .9s var(--spring),height .9s var(--spring),border-radius .9s var(--spring)}
+.xt-hero .xt-phone.tablet{width:250px;height:330px;border-radius:30px}
+.xt-hero .xt-notch{transition:width .6s var(--ease),margin-left .6s var(--ease),opacity .6s var(--ease)}
+.xt-hero .xt-phone.tablet .xt-notch{width:10px;margin-left:-5px;opacity:.8}
+.dot.wait{background:var(--faint)}

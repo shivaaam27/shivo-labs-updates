@@ -314,7 +314,9 @@ $Stages = @(
 function Invoke-XtoolInstallOnce([string]$IpaPath, [scriptblock]$Progress) {
     Stop-LinuxXtool   # an earlier install left stuck would hold the iPhone
     Start-Bridge
-    $s = Start-Session "script -qfec $(Q-Bash "xtool install --usb $(Q-Bash (ConvertTo-LinuxPath $IpaPath))") /dev/null"
+    # the exact device the person is looking at in Shivo Labs (with two plugged in, xtool would otherwise pick one)
+    $target = if ($script:TargetUdid) { " --udid $(Q-Bash $script:TargetUdid)" } else { '' }
+    $s = Start-Session "script -qfec $(Q-Bash "xtool install --usb$target $(Q-Bash (ConvertTo-LinuxPath $IpaPath))") /dev/null"
     try {
         $revokeAsked = $false; $waitShown = $false
         & $Progress 0 'Preparing'
@@ -570,8 +572,9 @@ function Invoke-EngineCommand([string]$Cmd, $A) {
             return @{ appleId = $email }
         }
         'signOut' { [void](Invoke-Sh 'xtool auth logout 2>&1'); return $null }
-        'install' { return Invoke-Install ([string]$A.path) }
+        'install' { $script:TargetUdid = [string]$A.udid; return Invoke-Install ([string]$A.path) }
         'renew' {
+            $script:TargetUdid = [string]$A.udid
             $app = (Get-Store).Apps | Where-Object { $_.BundleId -eq $A.bundleId } | Select-Object -First 1
             if (-not $app) { throw 'App not found.' }
             return Invoke-Install $app.File

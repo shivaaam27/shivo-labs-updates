@@ -7,6 +7,7 @@ import { unlink } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
+import { listUsb, describe, watch as watchDevices } from "./idevice.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The hub's own copy of the X Tools engine, refreshed from this repo each time it starts (x-tools/installer/src).
@@ -27,6 +28,45 @@ const BUSY = "X Tools is already in use somewhere else on this PC (another Shivo
 let bridge = null, seq = 0, buf = "", stopWanted = false;
 const pending = new Map(), listeners = new Set();
 const broadcast = (evt) => { const line = `data: ${JSON.stringify(evt)}\n\n`; for (const res of listeners) res.write(line); };
+
+// ---------- the plugged-in device, live (idevice.mjs, Apple's device service; no engine needed)
+// Only USB counts: an iPhone that is only reachable over Wi-Fi is not "connected". When several are plugged in,
+// the one already shown stays, otherwise the last one plugged in. The page hears every change at once.
+const dev = { current: null, view: undefined, watcher: null, busy: null, again: false };   // view undefined: not looked yet
+async function refreshDevice() {
+  if (dev.busy) { dev.again = true; return dev.busy; }
+  dev.busy = (async () => {
+    let usb = [];
+    try { usb = await listUsb(); } catch {}   // Apple's device service isn't running: nothing is connected
+    const cur = usb.find((d) => d.udid === dev.current?.udid) || usb[usb.length - 1] || null;
+    let view = null;
+    if (cur) {
+      try {
+        const d = await describe(cur);
+        view = { udid: d.udid, name: d.name, kind: d.kind, model: d.model, ios: d.ios, apps: d.apps, expiry: d.expiry };
+      } catch (e) {   // not trusted yet (locked, or "Trust" not tapped)
+        view = { udid: cur.udid, name: "Your device", kind: "iPhone", untrusted: true, error: String(e.message || e) };
+      }
+    }
+    const changed = JSON.stringify(view) !== JSON.stringify(dev.view);
+    dev.current = cur; dev.view = view;
+    if (changed) broadcast({ event: "device", data: view });
+    return view;
+  })();
+  try { return await dev.busy; }
+  finally { dev.busy = null; if (dev.again) { dev.again = false; refreshDevice(); } }
+}
+function watchStart() {
+  if (dev.watcher) return;
+  let t = 0;
+  const soon = () => { clearTimeout(t); t = setTimeout(refreshDevice, 700); };   // a device announces itself in a burst
+  dev.watcher = watchDevices();
+  dev.watcher.on("attach", soon); dev.watcher.on("detach", soon);
+  // an untrusted device becomes trusted without a plug event: look again while one waits for "Trust"
+  dev.poll = setInterval(() => { if (listeners.size && dev.view?.untrusted) refreshDevice(); }, 3000);
+  refreshDevice();
+}
+function watchStop() { dev.watcher?.stop(); dev.watcher = null; clearInterval(dev.poll); }
 
 function start() {
   if (bridge) return bridge;
@@ -81,11 +121,14 @@ export async function xtoolsApi(req, res, path, url) {
   if (what === "events" && req.method === "GET") {  // progress and questions, as they happen
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
     res.write(": hello\n\n");
-    listeners.add(res); req.on("close", () => listeners.delete(res));
+    listeners.add(res); req.on("close", () => { listeners.delete(res); if (!listeners.size) watchStop(); });
+    watchStart();
+    if (dev.view !== undefined) res.write(`data: ${JSON.stringify({ event: "device", data: dev.view })}\n\n`);
     return true;
   }
   if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
   try {
+    if (what === "device") return json(res, 200, { ok: true, data: await refreshDevice() }), true;   // look again now (e.g. after an install)
     if (what === "call") {
       const { cmd, args } = await readJson(req);
       if (!COMMANDS.has(cmd)) return json(res, 400, { ok: false, error: "Unknown command" }), true;

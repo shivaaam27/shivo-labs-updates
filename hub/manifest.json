@@ -1,14 +1,14 @@
 {
- "version": "1.0.76",
- "build": 76,
- "built": "2026-10-13T12:52:25.756Z",
+ "version": "1.0.78",
+ "build": 78,
+ "built": "2026-10-13T13:14:31.707Z",
  "notes": [
+  "X Tools follows the device live: unplug, switch iPhone/iPad, and shows only the apps that are on it",
+  "Phone app: a real tablet layout, a welcome like the laptop's, keys asked only when Labs AI opens",
   "Laptop updates over the air, like the phone app: GitHub publishes each change, installs fetch only changed files",
   "X Tools: 'Connect your iPhone' centred in the window and sized for it, with the three steps as chips",
   "Beam: right-click > Send to iPhone (Beam) and Ctrl+V on the Beam page; X Tools says who holds it",
-  "Installer: a Shivo Labs setup window instead of a console; Beam's zeroconf without the blocked .pyd files",
-  "Notes: rule 7, Shivo Labs is a universal product (works for any iPhone + Windows user; fix in the product, never via manual settings)",
-  "Settings: a build number that grows with each update (and when it was made); no flash when checking"
+  "Installer: a Shivo Labs setup window instead of a console; Beam's zeroconf without the blocked .pyd files"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11161,11 +11161,12 @@
   "hub/api/airplay/playfair.mjs": "443d285fa13bd758947ccbc5fdace0f8b98556f7559d112977bbb687ae4b39d5",
   "hub/api/airplay/receiver.mjs": "ce5ab6ece5fd198884aa111c793b229da82f89e1e32824609dc4122049eb34d0",
   "hub/api/beam.mjs": "8671323422b61285f1d94f59025ab5a15dec3c289daf43206c598b81ca40369a",
+  "hub/api/idevice.mjs": "fed616f37489100c65e685b5635c50bfc0ea86d94c7f5fb0d2e014b4232b33a4",
   "hub/api/mirror.mjs": "687bfbcc85a5b89249cba4c8d7f57007127d3e580f3bcecd4baa96773d16c404",
   "hub/api/settings.mjs": "e88445089b78159be2b3ccb7491a9e8de4f8b83bbcbd1d5e3c9894e719add4db",
   "hub/api/update.mjs": "e46b5c0e5fbe38a6bb8bb58fb416b5ca28e87fcce85c3030fd9d0c2251819eb9",
   "hub/api/xtools-bridge.ps1": "067078185b5d6d092ac93bbea5e5b3df7b7feb31795834e107761d5742a4caf7",
-  "hub/api/xtools.mjs": "b35027c0707db5b1c2dbdc28c5d76c37559e5d13d1480a9be3783860ed4e536b",
+  "hub/api/xtools.mjs": "bf48fcfdc22bf28441615c5ccad0da88130621e79d5e5d3a064551cf4f74e721",
   "hub/engines/beam_host.py": "9983af0501d879cb21ae8dc0c86ff22756996e385b81f4837b258294321e8172",
   "hub/engines/mirror-window.ps1": "58893cf43474492edfafc12e2dc1afd387ba2d9505a20de2537ad984a1ba338a",
   "hub/engines/restart.mjs": "db1e0d3f86713e0d55752faf5be9bde9d449bb441f58e8c58de2d81ce6bb6a74",
@@ -11173,7 +11174,7 @@
   "hub/server.mjs": "15bda86b4f22b402d22e73fbf95e94d3a23b825118595ed740b09802db8570bb",
   "hub/shivo-labs.ico": "2150b7a9f2c995ac9678ab5f46228c734a3214b45d5cc56ea94b9d48cca34e34",
   "hub/update-key.xml": "d06a586eab4a62e12f25c68a486464593e5329142a89fb6bad3ec84af6808a75",
-  "hub/www/hub.css": "09ed64182c3ebc318483a536cb007b1ce38972813a188d448b6c6fb4f03547a1",
+  "hub/www/hub.css": "5cd61e07ca6e12513ffb9bdf822bba592d5f8f6f0e45db15be8c82e097a73a71",
   "hub/www/hub.js": "742fb96259e80201aeebf612fddce995736e8c11586a81b56eba0662aed55e63",
   "hub/www/index.html": "b6a358781c3bfe55eea431c1a82031d98b790f23083be8d2b0ed2243300be886",
   "hub/www/mirror-float.html": "04f5ef54a84a5dffda8104e1ced92ed7b0715ce322556f5e4ecb097bd1267c2c",
@@ -11183,7 +11184,7 @@
   "hub/www/modules/mirror.js": "a9104345f27832f592b5afc690d2cd013a4f5d9a6c0c727600d593a16015415d",
   "hub/www/modules/quiet.js": "242dd7b138aa98516e17052278e47326849185a4da6c57b0f3a9eeaf46c8ef90",
   "hub/www/modules/settings.js": "27305f460505a567e5d5c71364485239761db0053de87cfcf687d2a8f2a693d9",
-  "hub/www/modules/xtools.js": "a16ba1e0a9bceec6488ab71b63689fa3ee0fe375148da8687f4065d849997b74",
+  "hub/www/modules/xtools.js": "b16d50f369acdbd2457fb8d9316a3a9dda6faa044d8cf6b452c3a321ef97cc35",
   "shared/chat/chat.css": "b4e52286b9d1bf68989d501e757322be649a838e29896f8c67141821ce339cbc",
   "shared/chat/chat.js": "49ec65cdba053b6fd81ce9a5f380e29105e3464d3bdd9728b5b2d8740b3fb860",
   "shared/chat/demo.js": "6bec00d380d5b9ac3be6485e9fec6a8131139fbf2ea5108c11dde1f25b3f4dd0",
@@ -11197,7 +11198,7 @@
   "shared/qrcode.mjs": "ea91d7118a5395289170da848b7c6758b996163bfbccf312591ab65a4911b7c0",
   "shared/tokens.css": "06e29415ce026711714b5d595812fc193b175bf54b71d387ef63c17e62586bbe",
   "x-tools/installer/src/Engine/provision.sh": "90a45f23aa6b227adacf8edd416918af4ace6d4c7a578acd44a871ec3b836208",
-  "x-tools/installer/src/host/Engine.ps1": "eda02629f4456d748c8bdb45f3169d7d611065dd3011a5641b4a5894885004ed",
+  "x-tools/installer/src/host/Engine.ps1": "84adaf48c2ea049cc8239143d0c43b8c05af2cc7bdb32afda1c63af6a85d38c1",
   "x-tools/installer/src/host/update-key.xml": "ca38621b5cadbbaca3d748c766b0b706acadc2da00628cea574e7bd40afec7b7",
   "x-tools/installer/src/version.txt": "7fbd210ebec11f65a97190ef900795c4b8da3805af3f5a1b8d1d272556b292ca"
  }
