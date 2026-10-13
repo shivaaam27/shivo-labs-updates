@@ -14,13 +14,13 @@ const FIELDS = [
 ];
 
 /** mountSetup(root, { api, toast, done(session) }) */
-export function mountSetup(root, { api, toast, done }) {
+export function mountSetup(root, { api, toast, done, back }) {
   const field = (f) => `<div class="bz-fld${f.wide ? ' wide' : ''}" data-key="${f.key}"><label class="bz-lbl" for="bzs-${f.key}">${esc(f.label)}${f.required ? '<i class="req">*</i>' : ''}</label>
     <input class="bz-in" id="bzs-${f.key}" type="${f.type || 'text'}"${f.mode ? ` inputmode="${f.mode}"` : ''}${f.max ? ` maxlength="${f.max}"` : ''} placeholder="${esc(f.ph || '')}" autocomplete="off">
     ${f.help ? `<small class="bz-help">${esc(f.help)}</small>` : ''}<small class="bz-ferr" role="alert"></small></div>`;
   root.innerHTML = `<div class="bz-setup">
     <form class="bz-setcard" novalidate>
-      <div class="bz-setmark" id="bzSetMark"></div>
+      <div class="bz-settop"><div class="bz-setmark" id="bzSetMark"></div>${back ? '<button type="button" class="tbtn" id="bzSetBack">Not now · back to Shivo Labs</button>' : ''}</div>
       <h1>Set up your business<span>One page, then you're ready. You can change all of it later in Setup.</span></h1>
       <div class="bz-formerr" role="alert" hidden></div>
       <section class="bz-sec"><h3>The business</h3><div class="bz-grid c2">${FIELDS.filter((f) => f.group === 'c').map(field).join('')}</div></section>
@@ -33,6 +33,7 @@ export function mountSetup(root, { api, toast, done }) {
   const val = (k) => root.querySelector(`#bzs-${k}`).value.trim();
   const err = (k, m) => { const f = root.querySelector(`[data-key="${k}"]`); f.classList.toggle('bad', !!m); f.querySelector('.bz-ferr').textContent = m || ''; };
   root.querySelector('#bzs-name').focus();
+  root.querySelector('#bzSetBack')?.addEventListener('click', () => back());
 
   form.onsubmit = (e) => {
     e.preventDefault();

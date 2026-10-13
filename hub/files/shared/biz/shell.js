@@ -71,13 +71,14 @@ export function mountShell(root, ctx = {}) {
       session = normSession(await api.session());
     } catch (e) {
       if (!alive) return;
-      root.innerHTML = `<div class="bz-boot"><div class="bz-empty card"><span class="bz-ic big">${svg(I.info)}</span><b>Business can't start</b><p>${esc(errText(e))}</p><button class="btn pri sm" id="bzRetry">Try again</button></div></div>`;
+      root.innerHTML = `<div class="bz-boot"><div class="bz-empty card"><span class="bz-ic big">${svg(I.info)}</span><b>Business can't start</b><p>${esc(errText(e))}</p><div class="bz-acts2"><button class="btn sm" id="bzBackHub">Back to Shivo Labs</button><button class="btn pri sm" id="bzRetry">Try again</button></div></div></div>`;
+      root.querySelector('#bzBackHub').onclick = () => ctx.goHome?.();
       root.querySelector('#bzRetry').onclick = () => { root.innerHTML = '<div class="bz-boot"><span class="bz-spin"></span></div>'; start(); };
       return;
     }
     if (!alive) return;
     if (!session.ready) {
-      return mountSetup(root, { api, toast, done: (s) => { if (s) session = normSession(s); start(); } });
+      return mountSetup(root, { api, toast, back: () => ctx.goHome?.(), done: (s) => { if (s) session = normSession(s); start(); } });
     }
     await loadMeta();
     if (!alive) return;
@@ -331,10 +332,12 @@ export function mountShell(root, ctx = {}) {
       <input class="bz-in bz-pinin" id="bzPinIn" type="password" inputmode="numeric" maxlength="12" autocomplete="off" autofocus>
       <small class="bz-ferr" role="alert"></small></form>`;
     const m = modal({ title: must ? "Who's working?" : 'Switch user', sub: 'Enter your PIN', icon: I.user, body, closeOnVeil: !must,
-      actions: [...(must ? [] : [{ label: 'Cancel', value: false }]), { label: 'Switch', pri: true, onClick: () => go() }] });
+      actions: [must ? { label: 'Back to Shivo Labs', value: 'hub' } : { label: 'Cancel', value: false }, { label: 'Switch', pri: true, onClick: () => go() }] });
     const inp = m.box.querySelector('#bzPinIn'), err = m.box.querySelector('.bz-ferr');
     m.box.querySelector('form').onsubmit = (e) => { e.preventDefault(); go(); };
-    if (must) m.beforeClose = (v) => v === true || !!session?.user;
+    // without a PIN the only ways out are a PIN or back to the hub (never into Business without a user)
+    if (must) m.beforeClose = (v) => v === true || v === 'hub' || !!session?.user;
+    m.done.then((v) => { if (v === 'hub') ctx.goHome?.(); });
     let busyNow = false;
     async function go() {
       const pin = inp.value.trim();

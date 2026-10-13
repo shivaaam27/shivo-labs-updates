@@ -407,6 +407,8 @@ input.bz-in[type=date]{min-height:2.95rem}
 .bz-setup{min-height:100vh;display:grid;place-items:center;padding:2rem 1rem;color:var(--text)}
 .bz-setcard{width:100%;max-width:46rem;display:flex;flex-direction:column;gap:1.3rem;padding:2rem;border-radius:1.8rem;background:color-mix(in srgb,var(--panel) 85%,transparent);
   border:.5px solid var(--g-rim2);box-shadow:var(--g-sh),inset 0 1px 0 var(--g-rim);animation:pop .55s var(--spring) backwards}
+.bz-settop{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.bz-settop .tbtn{margin-left:auto}
 .bz-setmark{width:3.2rem;height:3.2rem}
 .bz-setmark:empty{display:none}
 .bz-setcard h1{font:500 1.9rem/1.15 var(--display);letter-spacing:-.02em;margin:0}

@@ -1,14 +1,14 @@
 {
- "version": "1.0.87",
- "build": 87,
- "built": "2026-10-13T13:16:44.889Z",
+ "version": "1.0.88",
+ "build": 88,
+ "built": "2026-10-13T13:21:17.272Z",
  "notes": [
+  "Business: a way back to Shivo Labs from setup ('Not now'), the PIN box and the can't-start screen",
   "Merge remote-tracking branch 'origin/main' into claude/strange-poitras-51c08e",
   "Merge remote-tracking branch 'origin/main' into claude/strange-poitras-51c08e",
   "X Tools follows the device live: unplug, switch iPhone/iPad, and shows only the apps that are on it",
   "Business: Phase 1 frame and Phase 2 masters, with the review's 8 fixes",
-  "Phone app: a real tablet layout, a welcome like the laptop's, keys asked only when Labs AI opens",
-  "Laptop updates over the air, like the phone app: GitHub publishes each change, installs fetch only changed files"
+  "Phone app: a real tablet layout, a welcome like the laptop's, keys asked only when Labs AI opens"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11228,12 +11228,12 @@
   "hub/www/modules/settings.js": "27305f460505a567e5d5c71364485239761db0053de87cfcf687d2a8f2a693d9",
   "hub/www/modules/xtools.js": "b16d50f369acdbd2457fb8d9316a3a9dda6faa044d8cf6b452c3a321ef97cc35",
   "shared/biz/api.js": "4349ad2012853ece4006a8b4b98c57881f7e181685d30c3305d0d0bb50d6d0cf",
-  "shared/biz/biz.css": "4e86d37028b58ddd7ba5770c3a0071b65e2aaa9fe79fd2091ed09bc2119072c0",
+  "shared/biz/biz.css": "ebd2da8ac3158e9c0a910039d03e9ed8c32cc460d63fa99db8fe4639e7d83809",
   "shared/biz/fields.js": "7d219bc2bbf6d0b7f551e4b4fb7a3032703843fbb1f836701b9d0127abc65200",
   "shared/biz/form.js": "f2372b03be0a4f8c9810f385f9c7efd2c9257487c5badc738619eb5702d8dac3",
   "shared/biz/list.js": "cc4a1a0858aeeca90cd2e4bf3989f67b98392f6ce808ceefaa800ab549a0542e",
-  "shared/biz/setup.js": "ba47915ac035bbbd1eafbf6f73da3d89843483688faa58ace0258f4a661e0bfb",
-  "shared/biz/shell.js": "5eb5eb334080fd3536e74d1ce3ee7eb10f16d61e840122efa0388a1942d4a25e",
+  "shared/biz/setup.js": "2a94caf1ab5aef98eac68b3945170ce23536d950b2b63b1d8fbcd62caeb37196",
+  "shared/biz/shell.js": "075e757a8a5a061bf455d20e43744ea63d898b019b50f839e28094816d79415d",
   "shared/biz/stock.js": "ef770704765b3202a6929e375ddca8ec7289559fc764eb9a41fcc4b6b3606576",
   "shared/biz/ui.js": "3a23996e6aa30777b0120b79e2f274fd504973f6dd68898e1571a1c323887423",
   "shared/chat/chat.css": "b4e52286b9d1bf68989d501e757322be649a838e29896f8c67141821ce339cbc",
