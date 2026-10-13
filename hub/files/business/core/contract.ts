@@ -22,7 +22,17 @@ export type Step =
   | { id: string; kind: 'landed_cost'; date: string; time: string; receipt: string; amount: number; distribute: 'qty' | 'amount' } // extra cost on an earlier purchase_receipt step, or a purchase_invoice that brought the goods in
   | { id: string; kind: 'cancel'; date: string; time: string; target: string }                                  // cancel an earlier step by id
   | MoneyStep
-  | SellStep;
+  | SellStep
+  | ShiftStep;
+
+/** A till shift (phase 4c): opened with the money in the drawer, closed with a count per payment method. Ours only:
+ *  it books nothing, so the engine never sees it (store/steps.ts leaves shifts and their undo out of the scenario).
+ *  The close keeps what was expected at that moment (opening + money taken at the till during the shift). */
+export type ShiftStep =
+  | { id: string; kind: 'shift_open'; date: string; time: string; till: string; user: string; opening: { method: string; amount: number }[] }
+  | { id: string; kind: 'shift_close'; date: string; time: string; shift: string; till: string; user: string;
+      counted: { method: string; amount: number }[]; expected: { method: string; amount: number }[];
+      totals: { sales: number; grandTotal: number; netTotal: number; vat: number; qty: number; owed: number; paidOut: number } };
 // Every stock movement may also carry `remarks` (why goods were damaged, who took them): kept for people, the engine
 // ignores it (MoneyNotes has the same for money documents).
 
@@ -57,8 +67,9 @@ export type MoneyStep = (
   // sale to a customer. updateStock: goods leave `warehouse` now (cost of goods sold). payments: paid at the till
   // (several methods allowed; cash above the total is change). Unpaid remainder is owed (outstanding).
   | { id: string; kind: 'sales_invoice'; date: string; time: string; customer: string; dueDate?: string; lines: MoneyLine[];
-      tax?: TaxSpec; updateStock?: boolean; warehouse?: string; payments?: { account: MoneyAccount; amount: number; ref?: string }[]; writeOff?: boolean;
-      creditOk?: boolean } & InvoiceExtra   // creditOk: allowed over the customer's credit limit by a manager
+      tax?: TaxSpec; updateStock?: boolean; warehouse?: string; payments?: { account: MoneyAccount; amount: number; ref?: string; method?: string; reference?: string }[]; writeOff?: boolean;
+      creditOk?: boolean; till?: string; shift?: string } & InvoiceExtra   // creditOk: allowed over the customer's credit limit by a manager;
+      // till / shift / method: where it was sold and how it was paid (ours, for the shift's cash count; the engine ignores them)
   // bill from a supplier. receipt: the purchase_receipt step it bills (stock already in: Dr stock received not billed);
   // without it, lines are expenses (non-stock) unless updateStock (goods come in now into `warehouse`).
   | { id: string; kind: 'purchase_invoice'; date: string; time: string; supplier: string; dueDate?: string; lines: MoneyLine[];
@@ -68,7 +79,8 @@ export type MoneyStep = (
   // deductions: charges (bank, mobile money) or small differences, always booked as a debit to their role; money in:
   // the customer is settled for amount + deductions; money out: the supplier for amount - deductions (ERPNext, M26)
   | { id: string; kind: 'payment'; date: string; time: string; direction: 'in' | 'out'; party: string; account: MoneyAccount; amount: number;
-      allocate?: { invoice: string; amount: number }[]; deductions?: { role: AccountRole; amount: number; ref?: string }[]; ref?: string }
+      allocate?: { invoice: string; amount: number }[]; deductions?: { role: AccountRole; amount: number; ref?: string }[]; ref?: string;
+      method?: string; till?: string; shift?: string }   // paid in or out at a till during a shift (ours, for its cash count)
   // a full or partial return of an earlier sales invoice (lines default to all of it); its own balance is negative
   // credit, or with reduceInvoice it comes off what is owed on that invoice (ERPNext update_outstanding_for_self = 0)
   | { id: string; kind: 'credit_note'; date: string; time: string; against: string; lines?: MoneyLine[]; updateStock?: boolean; reduceInvoice?: boolean }

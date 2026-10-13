@@ -13,7 +13,7 @@ screen only looks like it works.** These checks are code, not intentions: they f
    field of ours (`core/meta`) or a real step input (`store/inputs.ts`, which `inputs.test.ts` checks the store reads).
 3. **No field only looks like it works** (`meta.test.ts`): a field of ours that should drive behaviour is read by real
    code, or says `soon` (the form then shows "Not working yet · phase N") or `info` (why reading it is enough).
-4. **Money and stock rules match ERPNext** story by story (`business/referee`, 48 stories so far). A deliberate
+4. **Money and stock rules match ERPNext** story by story (`business/referee`, 49 stories so far). A deliberate
    difference is written in the story (`oursDiffers`) with the reason; nothing else may differ.
 5. **The report is current**: `node business/referee/coverage.ts` writes `pos/blueprint/06-erpnext-coverage.md`; the
    test fails if it is stale.

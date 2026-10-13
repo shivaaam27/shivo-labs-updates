@@ -205,15 +205,19 @@ export class MoneyBook {
     const dsum = ded.reduce((s, d) => s + d.amount, 0);
     const settled = roundMoney(into ? step.amount + dsum : step.amount - dsum);
     const money = at((into ? dr : cr)(ACCOUNT_ROLE[step.account], step.amount), step.ref);
-    const gl: Gl[] = into ? [money, cr('receivable', settled, step.party)] : [dr('payable', settled, step.party), money];
+    // a customer paying, or us paying a supplier; or the other way: paying a customer back (their credit, e.g. a
+    // return, is used up) or a supplier paying us back (an advance comes back), referee M29
+    const role = this.parties.get(step.party) === 'customer' ? 'receivable' : 'payable';
+    const sign = (role === 'receivable') === into ? -1 : 1;
+    const gl: Gl[] = into ? [money, cr(role, settled, step.party)] : [dr(role, settled, step.party), money];
     for (const d of ded) gl.push(at(d.amount > 0 ? dr(d.role, d.amount) : cr(d.role, -d.amount), d.ref));
     const ple: Ple[] = [];
     let used = 0;
     for (const a of step.allocate ?? []) {
-      ple.push({ party: step.party, against: a.invoice, amount: -a.amount });
+      ple.push({ party: step.party, against: a.invoice, amount: sign * a.amount });
       used = roundMoney(used + a.amount);
     }
-    if (roundMoney(settled - used) > 0) ple.push({ party: step.party, against: step.id, amount: -roundMoney(settled - used) });
+    if (roundMoney(settled - used) > 0) ple.push({ party: step.party, against: step.id, amount: sign * roundMoney(settled - used) });
     this.keep(step, gl, ple);
   }
 
@@ -296,14 +300,16 @@ export class MoneyBook {
     }
     if (k === 'payment') {
       if (!(step.amount > 0)) return 'The amount must be above 0';
-      const bad = party(step.party, step.direction === 'in' ? 'customer' : 'supplier');
-      if (bad) return bad;
+      if (!this.parties.has(step.party)) return `Unknown customer or supplier ${step.party}`;
+      // paying back: what is linked must be credit they have (a negative balance, e.g. a return)
+      const back = (this.parties.get(step.party) === 'customer') !== (step.direction === 'in');
       let total = 0;
       for (const a of step.allocate ?? []) {
         const inv = this.invoices.get(a.invoice);
         if (!inv || inv.party !== step.party || this.posted.get(a.invoice)?.cancelled) return `${a.invoice} is not an open invoice of ${step.party}`;
         if (!(a.amount > 0)) return 'An allocated amount must be above 0';
-        if (a.amount > this.outstanding(a.invoice) + 0.001) return `More than is owed on ${a.invoice} (${this.outstanding(a.invoice)})`;
+        if (back && a.amount > -this.outstanding(a.invoice) + 0.001) return `More than the credit on ${a.invoice} (${-this.outstanding(a.invoice)})`;
+        if (!back && a.amount > this.outstanding(a.invoice) + 0.001) return `More than is owed on ${a.invoice} (${this.outstanding(a.invoice)})`;
         total += a.amount;
       }
       const ded = (step.deductions ?? []).reduce((s, d) => s + d.amount, 0);
@@ -446,7 +452,12 @@ export class MoneyBook {
   private status(inv: Invoice, o: number, cancelled: boolean, now: string): string {
     if (cancelled) return 'Cancelled';
     if (inv.returnOf) return 'Return';
-    const returned = [...this.invoices.values()].some((x) => x.returnOf === inv.step.id && !this.posted.get(x.step.id)?.cancelled);
+    // ERPNext keeps the status it set when the invoice's balance last changed: a return counts once something touched
+    // the invoice after it (a payment, or the return itself when it comes off the invoice), referee M29
+    const at = (id: string) => this.order.indexOf(id);
+    let touched = at(inv.step.id);
+    for (const [id, p] of this.posted) if (!p.cancelled && p.ple.some((r) => r.against === inv.step.id)) touched = Math.max(touched, at(id));
+    const returned = [...this.invoices.values()].some((x) => x.returnOf === inv.step.id && !this.posted.get(x.step.id)?.cancelled && at(x.step.id) <= touched);
     if (o > 0 && this.late(inv, o, now)) return 'Overdue';
     if (o > 0 && o < inv.totals.roundedTotal) return 'Partly Paid';
     if (o > 0) return 'Unpaid';

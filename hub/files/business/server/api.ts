@@ -12,6 +12,7 @@ import { importCsv } from '../store/import.ts';
 import { setupBusiness } from '../store/seed.ts';
 import { addStep, computeStock, listSteps, previewMoney, stepLabel, undoStep } from '../store/steps.ts';
 import { priceFor, ruleFor } from '../store/money.ts';
+import { shiftsNow, tillStart } from '../store/till.ts';
 import { accountLedger, trialBalance } from '../store/books.ts';
 /** Who may read the books per account (trial balance, account history): like ERPNext's Accounts User. */
 const BOOK_ROLES: Role[] = ['manager', 'accountant'];
@@ -142,6 +143,14 @@ export function createApi(file: string) {
       needRoles(u, STEP_ROLES.kinds[kind] ?? STEP_ROLES.kinds.receipt, `record a ${stepLabel({ kind } as Step).toLowerCase()}`);
       return { step: addStep(db, body.step as Data, u.id, u.role) };
     }
+    if (is('GET', 'till', 1)) {
+      needRoles(u, STEP_ROLES.kinds.shift_open, 'use the till');
+      return tillStart(db, u.id, u.role);
+    }
+    if (is('GET', 'shifts', 1)) {
+      needRoles(u, STEP_ROLES.kinds.shift_open, 'see till shifts');
+      return { shifts: shiftsNow(db, u.id, u.role) };
+    }
     if (is('POST', 'preview', 1)) {
       const kind = String((body.step as Data | undefined)?.kind ?? '');
       needRoles(u, STEP_ROLES.kinds[kind] ?? [], `record a ${stepLabel({ kind } as Step).toLowerCase()}`);
@@ -157,9 +166,9 @@ export function createApi(file: string) {
     }
     if (is('GET', 'price', 1)) {
       needRoles(u, STEP_ROLES.write, 'see prices');
-      const price = priceFor(db, { item: q.item, party: q.party, side: q.side, date: q.date });
+      const price = priceFor(db, { item: q.item, party: q.party, side: q.side, date: q.date, till: q.till });
       // selling: the pricing rule that fits this line (quantity, customer, group, brand), for the screen to apply
-      const rule = q.side === 'buy' ? null : ruleFor(db, { item: q.item, party: q.party, qty: q.qty, date: q.date, price_list: price?.price_list });
+      const rule = q.side === 'buy' ? null : ruleFor(db, { item: q.item, party: q.party, qty: q.qty, date: q.date, price_list: price?.price_list, till: q.till });
       return { price, rule };
     }
     if (is('POST', 'steps', 2) && a === 'undo') {

@@ -10,6 +10,7 @@ import { mountDoc, quickCreate } from './form.js';
 import { mountSetup } from './setup.js';
 import { mountStock, STOCK_ACTIONS } from './stock.js';
 import { mountMoney, MONEY_ACTIONS, mayDo } from './money.js';
+import { mountTill } from './till.js';
 
 export const MODULES = [
   { id: 'home', label: 'Home', icon: I.home, sub: 'Everything in one place' },
@@ -175,12 +176,13 @@ export function mountShell(root, ctx = {}) {
     host.className = 'bz-view';
     void host.offsetWidth; host.classList.add('in');
     const [a, b, c] = route.split('/');
-    const mod = a === 'home' ? 'home' : a === 'm' ? b : a === 'stock' ? 'stock' : a === 'money' ? (MONEY_ACTIONS.find((x) => x.kind === b)?.mod || 'money') : defs[b]?.module ? modOfDef(defs[b]) : 'home';
+    const mod = a === 'home' ? 'home' : a === 'till' ? 'sell' : a === 'm' ? b : a === 'stock' ? 'stock' : a === 'money' ? (MONEY_ACTIONS.find((x) => x.kind === b)?.mod || 'money') : defs[b]?.module ? modOfDef(defs[b]) : 'home';
     root.querySelectorAll('.bz-rb[data-m]').forEach((x) => x.classList.toggle('on', x.dataset.m === mod));
     root.querySelector('#bzMore')?.classList.toggle('on', !MOBILE_MAIN.includes(mod));
     scrollTo({ top: 0 });
 
     if (a === 'home') return (view = paintHome(host));
+    if (a === 'till') { setTitle('Till', 'Fast sales, shifts and the cash count'); return (view = mountTill(host, kit)); }
     if (a === 'm' && b === 'stock' || a === 'stock') {
       setTitle('Stock', MODULES.find((m) => m.id === 'stock').sub);
       const h = mountStock(host, kit, { action: a === 'stock' ? b : null, tab: extra?.tab, records: (el) => recordCards(el, 'stock') });
@@ -219,7 +221,7 @@ export function mountShell(root, ctx = {}) {
     const name = session?.user?.name?.split(' ')[0] || '';
     setTitle(`${hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'}${name ? ', ' + name : ''}`, session?.company?.name || session?.company || 'Shivo Labs Business');
     const quick = [
-      ...MONEY_ACTIONS.filter((x) => ['sale', 'receive'].includes(x.kind) && mayDo(kit, x.kind)).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}` })),
+      ...MONEY_ACTIONS.filter((x) => ['till', 'sale', 'receive'].includes(x.kind) && mayDo(kit, x.kind)).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: x.kind === 'till' ? 'till' : `money/${x.kind}` })),
       ...STOCK_ACTIONS.filter((x) => ['purchase_receipt', 'delivery', 'count'].includes(x.kind) && mayStock()).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `stock/${x.kind}`, need: 'stock' })),
       ...['product', 'customer', 'supplier'].filter((t) => defs[t] && can(t, 'write')).map((t) => ({ label: `New ${defs[t].label.toLowerCase()}`, sub: defs[t].plural, icon: defs[t].icon, go: `n/${t}` })),
     ];

@@ -14,19 +14,21 @@ import { MONEY_KINDS } from '../core/money/books.ts';
 import { SELL_KINDS } from '../core/sell/orders.ts';
 import { cleanSellStep } from './sell.ts';
 import { invoiceTotals } from '../core/money/taxes.ts';
+import { SHIFT_KINDS, applyTill, cleanShiftStep } from './till.ts';
 
 interface StepRow { seq: number; id: string; kind: string; data: string; created: string; by: string | null }
 const MOVING = ['receipt', 'issue', 'transfer', 'count', 'purchase_receipt', 'delivery'] as const;
 const NEEDS_RATE = new Set(['receipt', 'purchase_receipt', 'count', 'delivery']);
-const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS, ...SELL_KINDS]);
+const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS, ...SELL_KINDS, ...SHIFT_KINDS]);
 export const STEP_LABELS: Record<string, string> = {
   receipt: 'Stock in', issue: 'Damaged or own use', transfer: 'Move stock', count: 'Stock count',
   purchase_receipt: 'Goods arrived', delivery: 'Delivered to customer', landed_cost: 'Landed cost', cancel: 'Undo',
   sales_invoice: 'Sale', purchase_invoice: 'Supplier bill', payment: 'Payment', credit_note: 'Return', money_transfer: 'Money moved', journal: 'Journal',
   quotation: 'Quotation', sales_order: 'Sales order', delivery_note: 'Delivery note', set_status: 'Status change', reconcile: 'Credit matched',
+  shift_open: 'Shift opened', shift_close: 'Shift closed',
 };
 /** A step's label for people (an opening balance is a sale or bill underneath). */
-export const stepLabel = (s: Step): string => ('opening' in s && s.opening ? 'Opening balance' : STEP_LABELS[s.kind] ?? s.kind);
+export const stepLabel = (s: Step): string => ('opening' in s && s.opening === true ? 'Opening balance' : STEP_LABELS[s.kind] ?? s.kind);
 
 const parse = (s: string): Step | null => { try { return JSON.parse(s) as Step; } catch { return null; } };
 const docData = (db: DB, type: string, id: string): Data | null => {
@@ -58,7 +60,10 @@ function idsIn(steps: Step[]): { items: Set<string>; stores: Set<string>; partie
 
 /** The engine's scenario for these steps: each product with its own valuation method (services never move stock);
  *  the company's negative-stock rule. */
-export function scenarioOf(db: DB, steps: Step[], allowNegativeOverride?: boolean): Scenario {
+export function scenarioOf(db: DB, all: Step[], allowNegativeOverride?: boolean): Scenario {
+  // shifts book nothing: they and their undo stay out of the engine
+  const shiftIds = new Set(all.filter((s) => SHIFT_KINDS.has(s.kind)).map((s) => s.id));
+  const steps = all.filter((s) => !SHIFT_KINDS.has(s.kind) && !(s.kind === 'cancel' && shiftIds.has(s.target)));
   const { items, stores } = idsIn(steps);
   const company = loadSingle(db, 'company');
   let allowNegative = false;
@@ -135,7 +140,7 @@ function activeDoc(db: DB, type: 'product' | 'store', id: unknown, what: string)
 }
 
 /** Check a step sent by a screen and give it its final shape (ids, date, time, clean lines). */
-function cleanStep(db: DB, input: Data, id: string, role = ''): Step {
+function cleanStep(db: DB, input: Data, id: string, role = '', by: string | null = null): Step {
   if (!input || typeof input !== 'object') bad('Send the movement as {step: {...}}');
   const kind = String(input.kind ?? '');
   if (!KINDS.has(kind)) bad(`Unknown kind of stock movement "${kind}"`);
@@ -146,8 +151,11 @@ function cleanStep(db: DB, input: Data, id: string, role = ''): Step {
   if (!/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(time)) bad('Time must be like 14:30:00');
 
   if (SELL_KINDS.has(kind)) return cleanSellStep(db, input, kind, id, date, time, role);
+  if (SHIFT_KINDS.has(kind)) return withRemarks(cleanShiftStep(db, input, kind, id, date, time, by, role), input);
   if (MONEY_KINDS.has(kind)) {
     const step = cleanMoneyStep(db, input, kind, id, date, time, role);
+    // made at a till: its shift, payment methods, prices and write-off limit (store/till.ts)
+    if (input.till !== undefined && input.till !== null && input.till !== '') { applyTill(db, step, input, by, role); return step; }
     // the till may write off small change; more needs the owner or a manager (ERPNext: POS Profile write-off limit)
     if (step.kind === 'sales_invoice' && step.writeOff && role !== 'owner' && role !== 'manager') {
       const t = invoiceTotals(step.lines, step.tax, scenarioOf(db, []).rounding !== false, step.discountAmount);
@@ -278,7 +286,7 @@ export function previewMoney(db: DB, input: Data) {
 
 export function addStep(db: DB, input: Data, by: string | null, role = ''): Step {
   const clientId = clientIdOf(input?.client_id);
-  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, cleanStep(db, input, nextSeries(db, 'ST-', 5), role), by, clientId));
+  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, cleanStep(db, input, nextSeries(db, 'ST-', 5), role, by), by, clientId));
 }
 
 export function undoStep(db: DB, target: unknown, by: string | null, client?: unknown): Step {
@@ -290,7 +298,25 @@ export function undoStep(db: DB, target: unknown, by: string | null, client?: un
   if (!row) fail(404, 'That movement does not exist');
   if (row!.kind === 'cancel') bad('An undo cannot be undone');
   if (db.prepare("SELECT 1 FROM steps WHERE kind = 'cancel' AND json_extract(data, '$.target') = ?").get(target as string)) fail(409, 'This movement is already undone');
+  if (row!.kind === 'shift_open' || row!.kind === 'shift_close') undoShiftCheck(db, row!.kind, target as string);
   return tx(db, () => postIfAccepted(db, { id: nextSeries(db, 'ST-', 5), kind: 'cancel', ...darNow(), target: target as string }, by, clientId));
+}
+
+/** A shift can be undone only while nothing hangs on it: an opening with no sales, payments or close on it; a close
+ *  (the shift opens again) when its till and cashier have no other shift open. */
+function undoShiftCheck(db: DB, kind: string, target: string): void {
+  const steps = loadSteps(db);
+  const undone = new Set(steps.filter((s) => s.kind === 'cancel').map((s) => (s as { target: string }).target));
+  const live = steps.filter((s) => !undone.has(s.id));
+  if (kind === 'shift_open') {
+    const on = live.find((s) => (s as { shift?: string }).shift === target);
+    if (on) fail(422, `${on.id} was made in this shift; undo it first (or close the shift)`);
+    return;
+  }
+  const close = live.find((s) => s.id === target) as Extract<Step, { kind: 'shift_close' }>;
+  const closed = new Set(live.filter((s) => s.kind === 'shift_close').map((s) => (s as { shift: string }).shift));
+  const other = live.find((s) => s.kind === 'shift_open' && s.id !== close.shift && !closed.has(s.id) && (s.till === close.till || s.user === close.user));
+  if (other) fail(422, `Shift ${other.id} is open at that till or for that cashier; close it first`);
 }
 
 /** Movements, newest first, with who made them and whether they were undone; titles for every id. */
@@ -303,7 +329,18 @@ export function listSteps(db: DB, limit: unknown, offset: unknown) {
   for (const r of db.prepare("SELECT id, json_extract(data, '$.target') AS target FROM steps WHERE kind = 'cancel'").all() as { id: string; target: string }[]) undoneBy.set(r.target, r.id);
   const steps = rows.map((r) => ({ step: parse(r.data), row: r })).filter((x) => x.step);
   const { items, stores, parties } = idsIn(steps.map((x) => x.step!));
-  const titles = titlesOf(db, [...items, ...stores, ...parties, ...steps.map((x) => x.row.by ?? '')]);
+  // tills, cashiers and payment methods named by shifts and till sales
+  const more: string[] = [];
+  for (const { step } of steps) {
+    const x = step as unknown as Record<string, unknown>;
+    for (const k of ['till', 'user', 'method']) if (typeof x[k] === 'string') more.push(x[k] as string);
+    // rows of money per payment method (a shift's opening, count and expected; a sale's payments); `opening` may also
+    // be true on an opening balance
+    for (const k of ['opening', 'counted', 'expected', 'payments']) {
+      if (Array.isArray(x[k])) for (const r of x[k] as { method?: unknown }[]) if (typeof r?.method === 'string') more.push(r.method);
+    }
+  }
+  const titles = titlesOf(db, [...items, ...stores, ...parties, ...steps.map((x) => x.row.by ?? ''), ...more]);
   return {
     total,
     titles,

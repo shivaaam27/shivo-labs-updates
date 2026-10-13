@@ -278,14 +278,18 @@ export function mountStock(el, kit, { action = null, tab: tab0 = null, records =
   function activityView() {
     const rows = result?.stock || [];
     const cancelled = new Set(steps.filter((s) => s.undone).map((s) => s.id).concat(steps.filter((s) => s.kind === 'cancel').map((s) => s.target)));
-    return `<section class="card bz-alist">${steps.map((s) => {
+    // stock movements, and documents that moved stock (a sale from the store, a delivery note, a bill with goods); an
+    // undo is shown when what it undid is shown. Money-only documents and till shifts are not stock activity.
+    const moved = (s) => !!s && (!!ACT[s.kind] || rows.some((r) => r.step === s.id));
+    const shown = steps.filter((s) => (s.kind === 'cancel' ? moved(steps.find((x) => x.id === s.target)) : moved(s)));
+    return `<section class="card bz-alist">${shown.map((s) => {
       const err = result?.errors?.find((e) => e.step === s.id);
       const target = s.kind === 'cancel' ? steps.find((x) => x.id === s.target) : null;
-      const a = ACT[s.kind] || UNDONE;
+      const a = s.kind === 'cancel' ? UNDONE : ACT[s.kind] || { label: s.label || s.kind, icon: I.file };
       const my = rows.filter((r) => r.step === s.id);
       const where = s.kind === 'transfer' ? `${storeTitle(s.from)} → ${storeTitle(s.to)}` : s.warehouse ? storeTitle(s.warehouse) : '';
-      const lines = s.lines ? s.lines.map((l) => `${qty(l.qty)} × ${esc(itemTitle(l.item))}${l.rate && s.kind !== 'count' ? ` @ ${fmt(l.rate)}` : ''}`).join(', ')
-        : `${esc(ACT[target?.kind]?.label || 'Movement')}${target ? ` of ${esc(stamp(target))}` : ''}`;
+      const lines = s.kind === 'landed_cost' ? `Extra cost ${fmt(s.amount)} on ${esc(s.receipt)}, shared by ${s.distribute === 'qty' ? 'quantity' : 'amount'}` : s.lines ? s.lines.map((l) => `${qty(l.qty)} × ${esc(itemTitle(l.item))}${l.rate && s.kind !== 'count' ? ` @ ${fmt(l.rate)}` : ''}`).join(', ')
+        : `${esc(ACT[target?.kind]?.label || target?.label || 'Movement')}${target ? ` of ${esc(stamp(target))}` : ''}`;
       const gone = cancelled.has(s.id);
       return `<div class="bz-arow${err ? ' bad' : ''}${gone ? ' gone' : ''}"><span class="bz-ic sm">${svg(a.icon)}</span>
         <div class="bz-am"><b>${esc(a.label)}</b> <small>${[where, s.by ? names.get(s.by) : ''].filter(Boolean).map(esc).join(' · ')}</small><div>${lines}</div>

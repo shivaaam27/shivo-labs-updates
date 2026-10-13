@@ -3,6 +3,7 @@ import type { DocDef, Role } from './types.ts';
 import { company, store, unit, payment_method, tax, account, user } from './setup.ts';
 import { product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price, price_rule } from './products.ts';
 import { customer, customer_group, party_contact, payment_term_row, payment_terms, supplier, supplier_group, salesman } from './parties.ts';
+import { till, till_customer_group, till_method, till_product_group, till_user } from './till.ts';
 
 export type { DocDef, Field, Role, Section, Naming, FieldType, Module } from './types.ts';
 export { ROLES, FIELD_TYPES } from './types.ts';
@@ -11,6 +12,7 @@ export const DEFS: DocDef[] = [
   company, store, unit, payment_method, tax, account, user,
   product, product_barcode, product_unit, product_reorder, product_group, brand, price_list, item_price, price_rule,
   customer, customer_group, salesman, supplier, supplier_group, party_contact, payment_terms, payment_term_row,
+  till, till_user, till_method, till_product_group, till_customer_group,
 ];
 
 const BY_TYPE = new Map(DEFS.map((d) => [d.type, d]));
@@ -37,5 +39,7 @@ export const STEP_ROLES: { read: Role[]; write: Role[]; undo: Role[]; kinds: Rec
     delivery_note: ['manager', 'storekeeper'],
     set_status: ['manager', 'salesman'],
     reconcile: ['manager', 'accountant'],
+    shift_open: ['manager', 'cashier', 'salesman'],
+    shift_close: ['manager', 'cashier', 'salesman'],
   },
 };

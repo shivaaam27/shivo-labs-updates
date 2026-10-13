@@ -280,7 +280,11 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
       checkDiscounts(db, lines, role, gross > 0 ? ((step.discountAmount ?? 0) / gross) * 100 : 0);
       if (input.update_stock !== false && !fromDelivery) { step.updateStock = true; step.warehouse = record(db, 'store', input.warehouse, 'store').id; }
       if (Array.isArray(input.payments)) {
-        step.payments = (input.payments as Data[]).filter((p) => Number(p?.amount) > 0).map((p) => ({ ...methodOf(db, p.method), amount: amount(p.amount, 'Payment') }));
+        // each payment may carry its M-Pesa code, card slip or cheque number
+        step.payments = (input.payments as Data[]).filter((p) => Number(p?.amount) > 0).map((p) => {
+          const reference = text(p.reference, 'Payment code', 60);
+          return { ...methodOf(db, p.method), method: String(p.method), amount: amount(p.amount, 'Payment'), ...(reference ? { reference } : {}) };
+        });
       }
       if (input.write_off === true) step.writeOff = true;
       if (input.allow_over_limit === true) {
@@ -321,12 +325,17 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
   }
   if (kind === 'payment') {
     const dir = input.direction === 'out' ? 'out' : 'in';
-    const p = record(db, dir === 'in' ? 'customer' : 'supplier', input.party, dir === 'in' ? 'customer' : 'supplier');
+    // usually a customer pays in and we pay a supplier; paying a customer back or a supplier paying us back is the
+    // other way round (ERPNext Pay to a Customer / Receive from a Supplier, referee M29)
+    const pt = typeof input.party === 'string' ? (db.prepare("SELECT type FROM docs WHERE id = ? AND type IN ('customer', 'supplier') AND deleted = 0").get(input.party) as { type: string } | undefined)?.type : undefined;
+    const ptype = pt ?? (dir === 'in' ? 'customer' : 'supplier');
+    const p = record(db, ptype, input.party, ptype);
     const allocate = Array.isArray(input.allocate)
       ? (input.allocate as Data[]).filter((a) => Number(a?.amount) > 0).map((a) => ({ invoice: String(a.invoice ?? ''), amount: amount(a.amount, 'Allocated amount') }))
       : undefined;
     const via = methodOf(db, input.method);
-    const step: Step = { id, kind, date, time, direction: dir, party: p.id, account: via.account, amount: amount(input.amount, 'The amount'), allocate, ...(via.ref ? { ref: via.ref } : {}) };
+    const step: Step = { id, kind, date, time, direction: dir, party: p.id, account: via.account, amount: amount(input.amount, 'The amount'), allocate, ...(via.ref ? { ref: via.ref } : {}),
+      method: String(input.method) };
     // charges taken off (bank or mobile-money charges, small differences): each on an expense (or income) account
     if (Array.isArray(input.deductions)) {
       const ded = (input.deductions as Data[]).filter((d) => Number(d?.amount) > 0).map((d, i) => {
@@ -446,7 +455,7 @@ export function partiesOf(db: DB, steps: Step[]): { key: string; type: 'customer
 /** The price of a product for a customer or supplier on a date (03 §2.3): the price list is the party's own, else its
  *  group's, else the company's default for that side; the price row must be for the stock unit (or no unit) and valid
  *  on the date; the newest "valid from" wins. null when there is none (the screen then asks for a price). */
-export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unknown; date?: unknown }): { rate: number; price_list: string | null; last?: { date: string; step: string } } | null {
+export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unknown; date?: unknown; till?: unknown }): { rate: number; price_list: string | null; last?: { date: string; step: string } } | null {
   const side = q.side === 'buy' ? 'buy' : 'sell';
   const product = dataOf(db, 'product', q.item);
   if (!product) bad('That product does not exist');
@@ -455,7 +464,10 @@ export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unk
   const company = db.prepare("SELECT data FROM docs WHERE type = 'company' AND deleted = 0 LIMIT 1").get() as { data: string } | undefined;
   const c = company ? parse(company.data) : {};
   const group = party ? dataOf(db, side === 'sell' ? 'customer_group' : 'supplier_group', party.group) : null;
-  const lists = [party?.price_list, group?.price_list, side === 'sell' ? c.selling_price_list : c.buying_price_list].filter((x): x is string => typeof x === 'string' && !!x);
+  // at a till (ERPNext's POS path, 03 §2.3): the customer's own list, else the till's; their group's list is not used
+  const till = side === 'sell' ? dataOf(db, 'till', q.till) : null;
+  const lists = (till ? [party?.price_list, till.price_list, c.selling_price_list] : [party?.price_list, group?.price_list, side === 'sell' ? c.selling_price_list : c.buying_price_list])
+    .filter((x): x is string => typeof x === 'string' && !!x);
   const rows = (db.prepare("SELECT data FROM docs WHERE type = 'item_price' AND deleted = 0").all() as { data: string }[]).map((r) => parse(r.data))
     .filter((p) => p.product === q.item && (!given(p.unit) || p.unit === product!.stock_unit)
       && (!given(p.valid_from) || String(p.valid_from) <= date) && (!given(p.valid_to) || String(p.valid_to) >= date)
@@ -476,10 +488,11 @@ export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unk
 /** The pricing rule for a sale line (03 §2.4): rules for the product first, then its group (and the groups above),
  *  then its brand; the first level with a fitting rule decides; among those the highest priority wins, and two at the
  *  same top priority are refused ("Multiple Price Rules exists"). null when none fits. */
-export function ruleFor(db: DB, q: { item: unknown; party?: unknown; qty?: unknown; date?: unknown; price_list?: unknown }):
+export function ruleFor(db: DB, q: { item: unknown; party?: unknown; qty?: unknown; date?: unknown; price_list?: unknown; till?: unknown }):
   { action: string; value: number; rule: string; title: string } | { error: string } | null {
   const product = dataOf(db, 'product', q.item);
   if (!product) return null;
+  if (dataOf(db, 'till', q.till)?.ignore_price_rules === true) return null;   // a till set to use no pricing rules
   const date = typeof q.date === 'string' && realDate(q.date) ? q.date : new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
   const qty = Number(q.qty) || 0;
   const cust = dataOf(db, 'customer', q.party);

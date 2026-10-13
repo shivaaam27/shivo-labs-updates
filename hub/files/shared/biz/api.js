@@ -92,7 +92,11 @@ export const api = {
   /** The books per account: no id = trial balance {accounts, debit, credit, unset}; an account id = its entries. */
   books: (account) => call('GET', account ? `/books/${seg(account)}` : '/books'),
   /** The price of a product for a customer (side 'sell') or supplier ('buy') on a date: {price: {rate, price_list} | null}. */
-  price: (item, party, side, date, qty) => call('GET', `/price${qs({ item, party, side, date, qty })}`),
+  price: (item, party, side, date, qty, till) => call('GET', `/price${qs({ item, party, side, date, qty, till })}`),
+  /** Open till shifts with what they took so far ({shifts}); expected amounts are left out for a blind count. */
+  shifts: () => call('GET', '/shifts'),
+  /** The till screen's start: {tills (full settings), products (codes, barcodes), methods}. */
+  tillStart: () => call('GET', '/till'),
 };
 
 /** Normalise the different shapes a list of definitions may come in to {type: def}. */

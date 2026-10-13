@@ -13,24 +13,26 @@ const OPENING = '__opening';   // the engine item an opening balance is booked o
 const ACTIONS = {
   sale: { label: 'New sale', hint: 'On credit or paid now', icon: I.sell, mod: 'sell', words: 'sale sell invoice till customer discount' },
   order: { label: 'New order', hint: 'From WhatsApp, phone or a salesman', icon: I.file, mod: 'sell', words: 'order sales order whatsapp phone salesman wholesale' },
+  till: { label: 'Till', hint: 'Fast sales, scanning, shifts and the cash count', icon: I.sell, mod: 'sell', words: 'till pos counter cashier shift cash drawer scan barcode' },
   quote: { label: 'New quotation', hint: 'Prices offered to a customer', icon: I.file, mod: 'sell', words: 'quotation quote offer proforma estimate' },
   dnote: { label: 'New delivery', hint: 'Goods out to a customer, bill later', icon: I.move, mod: 'sell', words: 'delivery note deliver goods out customer bill later' },
   return: { label: 'Return', hint: 'Goods back from a customer', icon: I.undo, mod: 'sell', words: 'return credit note refund' },
   bill: { label: 'Supplier bill', hint: 'For goods or expenses', icon: I.arrived, mod: 'buy', words: 'bill supplier purchase invoice expense' },
   receive: { label: 'Receive payment', hint: 'From a customer', icon: I.money, mod: 'money', words: 'receive payment collect customer pays mpesa' },
   pay: { label: 'Pay supplier', hint: 'Money out to a supplier', icon: I.money, mod: 'money', words: 'pay supplier payment out' },
+  payback: { label: 'Pay back', hint: 'Credit back to a customer, or a supplier pays us back', icon: I.undo, mod: 'money', words: 'refund pay back return money customer credit supplier refund advance' },
   move: { label: 'Move money', hint: 'Cash to bank, and back', icon: I.move, mod: 'money', words: 'move transfer deposit cash bank' },
   match: { label: 'Match credit', hint: 'Credit or advance to open invoices', icon: I.link, mod: 'money', words: 'match reconcile allocate credit advance payment invoice unreconcile' },
   journal: { label: 'Journal', hint: 'Any entry between accounts', icon: I.file, mod: 'money', words: 'journal entry accounts rent salary adjust correction' },
   opening: { label: 'Opening balances', hint: 'What was owed before you started', icon: I.key, mod: 'money', words: 'opening balance old books start debtors creditors' },
 };
 /** The kind of document each action records (who may record it comes from the server, per kind). */
-const KIND_OF = { dnote: 'delivery_note', match: 'reconcile', quote: 'quotation', order: 'sales_order', sale: 'sales_invoice', return: 'credit_note', bill: 'purchase_invoice', receive: 'payment', pay: 'payment', move: 'money_transfer', journal: 'journal', opening: 'journal' };
+const KIND_OF = { till: 'shift_open', dnote: 'delivery_note', match: 'reconcile', quote: 'quotation', order: 'sales_order', sale: 'sales_invoice', return: 'credit_note', bill: 'purchase_invoice', receive: 'payment', pay: 'payment', payback: 'payment', move: 'money_transfer', journal: 'journal', opening: 'journal' };
 export const MONEY_ACTIONS = Object.entries(ACTIONS).map(([kind, a]) => ({ kind, ...a }));
 /** May this person use this money action? (Older servers without per-kind rights: the general write right.) */
 export const mayDo = (kit, action) => { const r = kit.stepRights; return !r || (r.kinds ? !!r.kinds[KIND_OF[action]] : !!r.write); };
 const TABS = {
-  sell: [['sales', 'Sales and returns'], ['orders', 'Orders'], ['deliveries', 'Deliveries'], ['quotes', 'Quotations']],
+  sell: [['sales', 'Sales and returns'], ['orders', 'Orders'], ['deliveries', 'Deliveries'], ['quotes', 'Quotations'], ['shifts', 'Till shifts']],
   buy: [['bills', 'Supplier bills']],
   money: [['owe_us', 'Who owes us'], ['we_owe', 'Who we owe'], ['payments', 'Payments'], ['journals', 'Journals'], ['accounts', 'Accounts']],
 };
@@ -103,7 +105,9 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
   const kindOf = (id) => stepOf(id)?.kind;
   const openOf = (party) => invoices().filter((i) => i.party === party && i.outstanding > 0.004 && kindOf(i.step) !== 'credit_note')
     .sort((a, b) => (stepOf(a.step)?.dueDate || '').localeCompare(stepOf(b.step)?.dueDate || ''));
-  const partyType = (id) => (steps.some((s) => s.kind === 'purchase_invoice' && s.supplier === id) || steps.some((s) => s.kind === 'payment' && s.direction === 'out' && s.party === id) ? 'supplier' : 'customer');
+  // a customer or a supplier: from the documents that name them (a payment out may also be paying a customer back)
+  const partyType = (id) => (steps.some((s) => s.customer === id) ? 'customer' : steps.some((s) => s.supplier === id) ? 'supplier'
+    : steps.some((s) => s.kind === 'payment' && s.direction === 'out' && s.party === id) ? 'supplier' : 'customer');
 
   // ---------- painting
   function paint() {
@@ -116,6 +120,7 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     else if (tab === 'orders') v.innerHTML = sellTable('sales_order', 'No orders yet. Record one with New order.');
     else if (tab === 'deliveries') v.innerHTML = sellTable('delivery_note', 'No deliveries yet. Make one from an order.');
     else if (tab === 'quotes') v.innerHTML = sellTable('quotation', 'No quotations yet.');
+    else if (tab === 'shifts') v.innerHTML = shiftTable();
     else if (tab === 'accounts') v.innerHTML = accountsTable();
     else v.innerHTML = balanceTable(tab === 'owe_us' ? 'customer' : 'supplier');
     v.querySelectorAll('[data-doc]').forEach((r) => (r.onclick = () => showDoc(r.dataset.doc)));
@@ -166,6 +171,54 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     return `<section class="card bz-table" style="--cols:minmax(7rem,1fr) 7rem minmax(10rem,3fr) 8rem">
       <div class="bz-tr bz-th" role="row"><span>Number</span><span>Date</span><span>What</span><span class="n">Amount</span></div>
       ${rowsOrEmpty(rows, 'No journals yet.')}</section>`;
+  }
+
+  // ---------- till shifts: opened with a float, closed with a count (expected and difference per payment method)
+  const closeOf = (open) => steps.find((c) => c.kind === 'shift_close' && !c.undone && c.shift === open.id);
+  const diffOf = (c) => (c ? c.counted.reduce((a, x) => a + x.amount, 0) - c.expected.reduce((a, x) => a + x.amount, 0) : null);
+  function shiftTable() {
+    const opens = steps.filter((x) => x.kind === 'shift_open');
+    const rows = opens.map((o) => {
+      const c = closeOf(o), d = diffOf(c);
+      return `<button class="bz-tr" role="row" data-doc="${esc(c ? c.id : o.id)}"><span class="bz-t1" data-l="Shift">${esc(o.id)}${o.undone ? ' <small class="bz-muted">undone</small>' : ''}</span>
+        <span data-l="Till">${esc(name(o.till))}</span><span data-l="Cashier">${esc(name(o.user))}</span>
+        <span data-l="Opened">${esc(day(o.date))} ${esc(o.time?.slice(0, 5) || '')}</span>
+        <span class="n" data-l="Takings">${c ? fmt(c.totals.grandTotal) : ''}</span>
+        <span data-l="Count">${o.undone ? '' : !c ? '<span class="bz-st warn">Open</span>' : Math.abs(d) < 0.005 ? '<span class="bz-st ok">Balanced</span>'
+          : `<span class="bz-st ${d < 0 ? 'bad' : 'warn'}">${d < 0 ? 'Short' : 'Over'} ${fmt(Math.abs(d))}</span>`}</span></button>`;
+    }).reverse();
+    return `<section class="card bz-table" style="--cols:minmax(6rem,1fr) minmax(7rem,1.4fr) minmax(7rem,1.4fr) 9rem 7rem 8rem">
+      <div class="bz-tr bz-th" role="row"><span>Shift</span><span>Till</span><span>Cashier</span><span>Opened</span><span class="n">Takings</span><span>Count</span></div>
+      ${rowsOrEmpty(rows, 'No till shifts yet. Open one on the Till.')}</section>`;
+  }
+  function showShift(s) {
+    const open = s.kind === 'shift_open' ? s : stepOf(s.shift);
+    const close = s.kind === 'shift_close' ? s : closeOf(s);
+    const row = (a, b) => `<div class="bz-mrow"><span>${a}</span><span>${b}</span></div>`;
+    const ids = [...new Set([...(open?.opening || []).map((x) => x.method), ...(close ? [...close.expected, ...close.counted].map((x) => x.method) : [])])];
+    const amt = (list, id) => (list || []).find((x) => x.method === id)?.amount || 0;
+    const body = `<div class="bz-docview">
+      ${row('Till', esc(name(open?.till)))}${row('Cashier', esc(name(open?.user)))}
+      ${row('Opened', `${esc(day(open?.date))} ${esc(open?.time?.slice(0, 5) || '')}`)}${close ? row('Closed', `${esc(day(close.date))} ${esc(close.time?.slice(0, 5) || '')}`) : row('Status', '<span class="bz-st warn">Open</span>')}
+      ${close ? `<hr>${row('Sales', qty(close.totals.sales))}${row('Takings', fmt(close.totals.grandTotal))}${row('VAT in it', fmt(close.totals.vat))}
+        ${close.totals.owed ? row('Left on customers\' accounts', fmt(close.totals.owed)) : ''}${close.totals.paidOut ? row('Paid out', fmt(close.totals.paidOut)) : ''}` : ''}
+      </div>
+      <div class="bz-lines"><div class="bz-ln c bz-lh" role="row"><span>Payment method</span><span class="n">${close ? 'Expected' : 'Opening'}</span><span class="n">${close ? 'Counted' : ''}</span><span class="n">${close ? 'Difference' : ''}</span></div>
+      ${ids.map((id) => {
+        if (!close) return `<div class="bz-ln c" role="row"><span>${esc(name(id))}</span><span class="n">${fmt(amt(open?.opening, id))}</span><span></span><span></span></div>`;
+        const e = amt(close.expected, id), c = amt(close.counted, id), d = Math.round((c - e) * 100) / 100;
+        return `<div class="bz-ln c" role="row"><span>${esc(name(id))}</span><span class="n">${fmt(e)}</span><span class="n">${fmt(c)}</span>
+          <span class="n">${d ? `<span class="bz-st ${d < 0 ? 'bad' : 'warn'}">${d < 0 ? '−' : '+'}${fmt(Math.abs(d))}</span>` : '<span class="bz-st ok">0</span>'}</span></div>`;
+      }).join('')}</div>`;
+    // undo: a close opens the shift again; an opening only while nothing was sold in it (the server checks)
+    const target = close && !close.undone ? close : open && !open.undone && !close ? open : null;
+    const m = modal({ title: `Shift ${open?.id || s.id}`, sub: close ? 'Closed' : 'Open', icon: I.sell, wide: true, body,
+      actions: [...(target && rights.undo ? [{ label: close ? 'Undo the close' : 'Undo the opening', danger: true, value: 'undo' }] : []), { label: 'Close', pri: true, value: false }] });
+    m.done.then(async (v) => {
+      if (v !== 'undo') return;
+      if (!(await confirmBox({ title: `Undo ${target.id}?`, text: close ? 'The shift opens again so it can be counted again.' : 'Only while nothing was sold in it.', ok: 'Undo', danger: true }))) return;
+      try { await kit.api.undoStep(target.id); kit.toast('Undone ✓'); reload(); } catch (e) { kit.toast(errText(e)); }
+    });
   }
 
   // ---------- selling documents (quotations, orders, delivery notes)
@@ -311,10 +364,11 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     const s = stepOf(id);
     if (!s) return;
     if (['quotation', 'sales_order', 'delivery_note'].includes(s.kind)) return showSellDoc(s);
+    if (s.kind === 'shift_open' || s.kind === 'shift_close') return showShift(s);
     const inv = invoices().find((i) => i.step === id);
     const row = (a, b) => `<div class="bz-mrow"><span>${a}</span><span>${b}</span></div>`;
     const lines = (s.lines || []).map((l) => row(l.item === OPENING ? 'Opening balance' : `${qty(l.qty)} × ${esc(name(l.item))}${l.discount ? ` <small class="bz-muted">${qty(l.discount)}% off ${fmt(l.rate)}</small>` : ''}`, fmt(lineRate(l) * l.qty))).join('');
-    const paidBy = (s.payments || []).map((p) => row(`Paid · ${esc(accName(p.account))}`, fmt(p.amount))).join('');
+    const paidBy = (s.payments || []).map((p) => row(`Paid · ${esc(p.method ? name(p.method) : accName(p.account))}${p.reference ? ` <small class="bz-muted">${esc(p.reference)}</small>` : ''}`, fmt(p.amount))).join('');
     const jrows = (s.rows || []).map((r) => row(`${esc(name(r.account) || r.role)}${r.party ? ` · ${esc(name(r.party))}` : ''}`, r.debit ? `Dr ${fmt(r.debit)}` : `Cr ${fmt(r.credit)}`)).join('');
     const body = `<div class="bz-docview">
       ${row('Date', esc(day(s.date)))}
@@ -401,8 +455,9 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     const act = side === 'customer' ? 'receive' : 'pay';
     const m = modal({ title: name(party), sub: side === 'customer' ? 'Open invoices' : 'Open bills', icon: I.money, body,
       actions: [{ label: 'Close', value: false }, ...(mayDo(kit, 'match') && open.length && creditsOf(party).length ? [{ label: 'Match credit', value: 'match' }] : []),
+        ...(mayDo(kit, 'payback') && !open.length && creditsOf(party).length ? [{ label: side === 'customer' ? 'Pay them back' : 'They pay us back', value: 'payback' }] : []),
         ...(mayDo(kit, act) && open.length ? [{ label: side === 'customer' ? 'Receive payment' : 'Pay', pri: true, value: 'pay' }] : [])] });
-    m.done.then((v) => { if (v === 'pay') open2(act, { party }); if (v === 'match') open2('match', { party, side }); });
+    m.done.then((v) => { if (v === 'pay') open2(act, { party }); if (v === 'match') open2('match', { party, side }); if (v === 'payback') open2('payback', { party, side }); });
   }
 
   /** Credit a party has: payments, returns or journals whose amount is not linked to an invoice (negative rows against
@@ -413,7 +468,7 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       if (s.undone || s.kind === 'cancel') continue;
       const inv = invoices().find((i) => i.step === s.id);
       if (s.kind === 'credit_note' && inv && inv.party === party && inv.outstanding < -0.004) out.push({ step: s.id, left: -inv.outstanding, label: 'Return' });
-      if (s.kind === 'payment' && s.party === party) {
+      if (s.kind === 'payment' && s.party === party && (s.direction === 'in') === (partyType(party) === 'customer')) {
         const linked = (s.allocate || []).reduce((a, x) => a + x.amount, 0) + steps.filter((m) => m.kind === 'reconcile' && !m.undone && m.party === party)
           .flatMap((m) => m.allocations).filter((a) => a.from === s.id).reduce((a, x) => a + x.amount, 0);
         const ded = (s.deductions || []).reduce((a, d) => a + d.amount, 0);
@@ -428,7 +483,11 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
         if (credit - linked > 0.004) out.push({ step: s.id, left: Math.round((credit - linked) * 100) / 100, label: 'Journal' });
       }
     }
-    return out;
+    // money paid back without naming a return uses up their credit, oldest first
+    let back = steps.filter((s) => !s.undone && s.kind === 'payment' && s.party === party && (s.direction === 'in') !== (partyType(party) === 'customer'))
+      .reduce((a, s) => a + s.amount - (s.allocate || []).reduce((b, x) => b + x.amount, 0), 0);
+    for (const c of out) { const u = Math.min(c.left, back); c.left = Math.round((c.left - u) * 100) / 100; back -= u; }
+    return out.filter((c) => c.left > 0.004);
   }
 
   /** Match credit (payments or returns not linked to an invoice) to the party's open invoices, oldest first. */
@@ -476,9 +535,11 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
   function open(kind) { return open2(kind, {}); }
   function open2(kind, pre) {
     if (!mayDo(kit, kind)) return kit.toast('Your role cannot record this');
+    if (kind === 'till') return kit.nav('till');
     if (kind === 'sale' || kind === 'bill' || kind === 'quote' || kind === 'order' || kind === 'dnote') return docDialog(kind, pre);
     if (kind === 'return') return returnDialog(pre);
     if (kind === 'receive' || kind === 'pay') return payDialog(kind, pre);
+    if (kind === 'payback') return paybackDialog(pre);
     if (kind === 'move') return moveDialog();
     if (kind === 'journal') return journalDialog();
     if (kind === 'match') return matchDialog(pre);
@@ -521,6 +582,7 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       ${sw('bzMVat', sale ? 'Prices include VAT' : 'VAT on this bill', sale, sale ? '' : '')}
       ${sale ? sw('bzMNoVat', 'Sell without VAT (exempt customer, export)', false, '') : ''}
       ${sale ? '' : sw('bzMIncl', 'Bill prices include VAT', false, '')}
+      ${sale ? `<div class="bz-fld wide bz-scan"><input class="bz-in" id="bzMScan" autocomplete="off" placeholder="Scan a barcode or type a product code, then Enter" aria-label="Scan a barcode or product code"></div>` : ''}
       <div class="bz-lines wide" id="bzMLines" role="table"><div class="bz-ln bz-lh" role="row"><span>Product</span><span class="n">Qty</span><span class="n">Price</span><span class="n">Off %</span><span class="n">Amount</span><span></span></div></div>
       <button type="button" class="tbtn wide bz-addln" id="bzMAdd">${svg(I.plus)}Add a product</button>
       ${field('bzMDisc', `Discount on the whole ${sale ? 'sale' : 'bill'} (TZS)`, '<input class="bz-in n" id="bzMDisc" inputmode="decimal" placeholder="0">')}
@@ -558,7 +620,7 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       const row = document.createElement('div');
       row.className = 'bz-ln'; row.setAttribute('role', 'row');
       const prod = makeField({ key: 'item', label: 'Product', type: 'link', to: 'product', required: true, filter: sale ? { active: true, can_sell: true } : { active: true, can_buy: true } }, item, {
-        api: kit.api, defs: kit.defs, titleOf: kit.titleOf, compact: true, onPick: () => { line.ri.value = ''; priceOf(line); accountFor(line); preview(); } });
+        api: kit.api, defs: kit.defs, titleOf: kit.titleOf, compact: true, onPick: () => { line.ri.value = ''; priceOf(line); accountFor(line); stockOf(line); preview(); } });
       row.append(prod.el);
       row.insertAdjacentHTML('beforeend', `<input class="bz-in n" aria-label="Quantity" inputmode="decimal" value="${esc(q)}"><input class="bz-in n" aria-label="Price" inputmode="decimal" value="${esc(rate)}"><input class="bz-in n" aria-label="Discount %" inputmode="decimal" value="${esc(disc)}" placeholder="0"><span class="n bz-lamt"></span>
         <button type="button" class="ibtn" aria-label="Remove">${svg(I.trash)}</button>`);
@@ -573,6 +635,42 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       return line;
     }
     $d('#bzMAdd').onclick = () => addLine().prod.focus();
+    // what is in stock for a selling line: in the store the goods leave from, in all stores, and free after open orders
+    async function stockOf(line) {
+      line.row.querySelector('.bz-lstock')?.remove();
+      const item = sale && line.prod.get();
+      if (!item) return;
+      // services keep no stock
+      if ((await kit.api.doc('product', item).then((x) => x?.doc).catch(() => null))?.is_stock === false || line.prod.get() !== item) return;
+      line.row.querySelector('.bz-lstock')?.remove();
+      const bal = (result?.balances || []).filter((b) => b.item === item);
+      const store = $d('#bzMStore')?.value;
+      const all = bal.reduce((a, b) => a + b.qty, 0);
+      const held = (result?.reserved || []).filter((r) => r.item === item && (!store || r.warehouse === store)).reduce((a, r) => a + r.qty, 0);
+      const here = store ? bal.filter((b) => b.warehouse === store).reduce((a, b) => a + b.qty, 0) : all;
+      line.row.insertAdjacentHTML('beforeend', `<small class="bz-lstock bz-muted">${store ? `In ${esc(stores.find((x) => x.id === store)?.title || 'this store')}: ${qty(here)} · ` : ''}All stores: ${qty(all)}${held ? ` · Free after open orders: ${qty(here - held)}` : ''}</small>`);
+    }
+    $d('#bzMStore')?.addEventListener('change', () => lines.forEach(stockOf));
+    // scanning: an exact barcode or code adds the product (one more if it is already on a line)
+    $d('#bzMScan')?.addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const code = e.target.value.trim();
+      if (!code) return;
+      const found = await kit.api.options('product', code, { active: true, can_sell: true }).catch(() => []);
+      const hit = found.length === 1 ? found[0] : found.find((o) => String(o.subtitle ?? '').toLowerCase() === code.toLowerCase());
+      if (!hit) return kit.toast(found.length ? `${found.length} products match “${code}”: pick one in a line` : `Nothing found for “${code}”`);
+      e.target.value = '';
+      const same = lines.find((l) => l.prod.get() === hit.id);
+      if (same) { same.qi.value = String(num(same.qi.value) + 1); if (same.auto) ruleAgain(same); preview(); return; }
+      const empty = lines.find((l) => !l.prod.get());
+      const line = empty || addLine();
+      line.prod.set(hit.id);
+      line.ri.value = '';
+      await priceOf(line);
+      stockOf(line);
+      preview();
+    });
     // a service on a bill (rent, transport, fuel) is booked to an expense account: the product's own, which can be changed here
     async function accountFor(line) {
       if (sale) return;
@@ -673,10 +771,11 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       const i = pays.length;
       const row = document.createElement('div');
       row.className = 'bz-payrow';
-      row.innerHTML = `${methodSel(`bzMPm${i}`, i ? 'And' : 'Paid with', methods.find((m) => m.type === 'Cash')?.id)}${field(`bzMPa${i}`, 'Amount', `<input class="bz-in n" id="bzMPa${i}" inputmode="decimal">`)}`;
+      row.innerHTML = `${methodSel(`bzMPm${i}`, i ? 'And' : 'Paid with', methods.find((m) => m.type === 'Cash')?.id)}${field(`bzMPa${i}`, 'Amount', `<input class="bz-in n" id="bzMPa${i}" inputmode="decimal">`)}
+        ${field(`bzMPr${i}`, 'Code', `<input class="bz-in" id="bzMPr${i}" placeholder="M-Pesa code or slip number" maxlength="60">`)}`;
       $d('#bzMPays').append(row);
       enhanceSelects(row);
-      const p = { row, sel: row.querySelector('select'), amt: row.querySelector('input') };
+      const p = { row, sel: row.querySelector('select'), amt: row.querySelector(`#bzMPa${i}`), ref: row.querySelector(`#bzMPr${i}`) };
       if (!i && totals) p.amt.value = fmt(totals.roundedTotal);
       p.amt.oninput = () => drawTotals();
       p.sel.addEventListener('change', drawChange);
@@ -705,7 +804,7 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       if (!(d.customer || d.supplier)) { party.error(`Choose the ${sale ? 'customer' : 'supplier'}`); return party.focus(); }
       if (!d.lines.length) return showErr(m, 'Add at least one product');
       if (paying && !$d('#bzMPays').hidden) {
-        d.payments = pays.map((p) => ({ method: p.sel.value, amount: num(p.amt.value) })).filter((p) => p.amount > 0);
+        d.payments = pays.map((p) => ({ method: p.sel.value, amount: num(p.amt.value), reference: p.ref.value.trim() || undefined })).filter((p) => p.amount > 0);
         if (writeOff() && !$d('#bzMWo').hidden) d.write_off = true;
       }
       if (allowOver) d.allow_over_limit = true;
@@ -819,6 +918,59 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       if (chg > 0 && !chgAcc.get()) return showErr(m, 'Choose the account the charges are booked to');
       save({ kind: 'payment', direction: into ? 'in' : 'out', party: party.get(), method: $d('#bzMPm').value, amount, allocate, date: $d('#bzMDate').value,
         ...(chg > 0 ? { deductions: [{ account: chgAcc.get(), amount: chg }] } : {}),
+        reference: $d('#bzMRef').value.trim() || undefined, remarks: $d('#bzMNote').value.trim() || undefined, client_id: clientId }, m, btn);
+    }
+  }
+
+  /** Paying a customer back (their credit from a return, or money paid twice) or a supplier paying us back (an
+   *  advance they return). A customer's returns with credit left are settled oldest first. */
+  function paybackDialog(pre) {
+    const clientId = uid();
+    const body = document.createElement('form');
+    body.className = 'bz-grid c2 bz-money'; body.noValidate = true;
+    let side = pre.side === 'supplier' ? 'supplier' : 'customer';
+    body.innerHTML = `${field('bzMSide', 'Who', `<select id="bzMSide"><option value="customer"${side === 'customer' ? ' selected' : ''}>We pay a customer back</option><option value="supplier"${side === 'supplier' ? ' selected' : ''}>A supplier pays us back</option></select>`)}
+      ${dateIn('bzMDate')}<div id="bzMWho"></div>${methodSel('bzMPm', 'Paid by', methods.find((x) => x.type === 'Cash')?.id)}
+      ${field('bzMAmt', 'Amount (TZS)', '<input class="bz-in n" id="bzMAmt" inputmode="decimal">')}${textIn('bzMRef', 'Reference', '', 'M-Pesa code, cheque or bank slip number')}
+      ${textIn('bzMNote', 'Note', 'wide')}<div class="wide" id="bzMCred"></div><div class="bz-formerr wide" role="alert" hidden></div>`;
+    const m = modal({ title: 'Pay back', sub: 'Money back for credit they have: a return, an advance, a payment made twice', icon: I.undo, wide: true, body,
+      actions: [{ label: 'Cancel', value: false }, { label: 'Save', pri: true, onClick: (_, btn) => go(btn) }] });
+    m.kind = 'payback';
+    const $d = (q) => m.box.querySelector(q);
+    enhanceSelects(body);
+    let party, returns = [];
+    function who() {
+      side = $d('#bzMSide').value;
+      $d('#bzMWho').innerHTML = '';
+      party = makeField({ key: 'party', label: side === 'customer' ? 'Customer' : 'Supplier', type: 'link', to: side, required: true }, pre.party && pre.side === side ? pre.party : null,
+        { api: kit.api, defs: kit.defs, titleOf: kit.titleOf, onPick: () => draw(true) });
+      $d('#bzMWho').append(party.el);
+      draw(true);
+    }
+    function draw(fill) {
+      const p = party.get();
+      const credit = p ? creditsOf(p).reduce((a, c) => a + c.left, 0) : 0;
+      returns = p && side === 'customer' ? invoices().filter((i) => i.party === p && i.outstanding < -0.004) : [];
+      $d('#bzMCred').innerHTML = !p ? '' : `<p class="bz-note">${credit > 0.004 ? `${side === 'customer' ? 'Their credit with us' : 'What they hold of ours'}: <b>${fmt(credit)}</b>` : 'No credit on record; the amount is still recorded.'}</p>
+        ${returns.length ? `<div class="bz-lines"><div class="bz-ln p bz-lh" role="row"><span>Return</span><span>Date</span><span class="n">Credit</span><span class="n">Paid back now</span></div>
+          ${returns.map((i, k) => `<div class="bz-ln p" role="row"><span>${esc(i.step)}</span><span>${esc(day(stepOf(i.step)?.date))}</span><span class="n">${fmt(-i.outstanding)}</span><input class="bz-in n" data-k="${k}" inputmode="decimal" aria-label="Paid back for ${esc(i.step)}"></div>`).join('')}</div>` : ''}`;
+      if (fill && credit > 0.004 && !$d('#bzMAmt').value) $d('#bzMAmt').value = fmt(credit);
+      spread();
+    }
+    function spread() {
+      let left = num($d('#bzMAmt').value);
+      m.box.querySelectorAll('#bzMCred input').forEach((inp) => { const c = -returns[+inp.dataset.k].outstanding; const a = Math.min(c, Math.max(0, left)); inp.value = a ? fmt(a) : ''; left -= a; });
+    }
+    $d('#bzMSide').onchange = () => { $d('#bzMAmt').value = ''; who(); };
+    $d('#bzMAmt').oninput = () => spread();
+    who();
+    function go(btn) {
+      showErr(m, '');
+      const amount = num($d('#bzMAmt').value);
+      if (!party.get()) { party.error(`Choose the ${side}`); return party.focus(); }
+      if (!(amount > 0)) return showErr(m, 'Enter the amount');
+      const allocate = [...m.box.querySelectorAll('#bzMCred input')].map((inp) => ({ invoice: returns[+inp.dataset.k].step, amount: num(inp.value) })).filter((a) => a.amount > 0);
+      save({ kind: 'payment', direction: side === 'customer' ? 'out' : 'in', party: party.get(), method: $d('#bzMPm').value, amount, allocate, date: $d('#bzMDate').value,
         reference: $d('#bzMRef').value.trim() || undefined, remarks: $d('#bzMNote').value.trim() || undefined, client_id: clientId }, m, btn);
     }
   }
