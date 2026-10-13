@@ -63,8 +63,11 @@ async function stamp() {
 }
 stamp().catch(() => {});
 
-export async function check() {
-  if (state.checking) return state;
+// A check already running (the automatic one, or a second click) is joined, not answered early: answering early
+// said "You're up to date" while the running check was about to find an update.
+let checking = null;
+export function check() { return (checking ??= runCheck().finally(() => { checking = null; })); }
+async function runCheck() {
   state.checking = true; state.error = null;
   try {
     if (MODE === "repo") {

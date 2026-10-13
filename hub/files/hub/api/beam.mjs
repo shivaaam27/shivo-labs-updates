@@ -2,7 +2,7 @@
 // to the iPhone; this is its PC screen. It uses the same folders as beam/app/beam/beam.py:
 //   send list  %APPDATA%\Beam\outbox   (the iPhone pulls from here)
 //   received   Downloads\Beam
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch } from "node:fs";
 import { readFile, readdir, stat, link, rename, unlink, writeFile, copyFile, mkdir } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import dgram from "node:dgram";
@@ -162,7 +162,16 @@ export const beamEngine = { python: PYW, host: HOST_PY };
 export function superviseBeam() {
   managing = true;
   setTimeout(() => startBeam().then(addToExplorer).catch(() => {}), 1500);
-  setInterval(() => { startBeam().catch(() => {}); addToExplorer().catch(() => {}); }, 60000);
+  setInterval(() => { startBeam().catch(() => {}); addToExplorer(true).catch(() => {}); }, 60000);
+  // a new phone, or a new name: into the right-click menu at once (it used to wait for the next minute)
+  let soon = 0;
+  try {
+    mkdirSync(HOME, { recursive: true });
+    watch(HOME, (_, file) => {
+      if (!/^(devices|device-names).json$/.test(String(file))) return;
+      clearTimeout(soon); soon = setTimeout(() => addToExplorer().catch(() => {}), 800);
+    }).on("error", () => {});
+  } catch {}
 }
 // ---------- Explorer (any PC, this user only, no admin; on Windows 11 under "Show more options"). Selecting several
 // files runs the command once per file; beam_host.py combines them into one notice.
@@ -173,13 +182,18 @@ export function superviseBeam() {
 let explorerQueue = Promise.resolve();
 const regSig = (key) => new Promise((ok) => execFile("reg.exe", ["query", key, "/v", "ShivoSig"], { windowsHide: true },
   (e, out) => ok((String(out || "").match(/ShivoSig\s+REG_SZ\s+(\S+)/) || [])[1] || "")));
-function addToExplorer() {
+// verify: also compare with what Windows has (every minute); otherwise only when the devices or names changed
+let explorerLast = "";
+function addToExplorer(verify = false) {
   if (!managing) return Promise.resolve();
-  return (explorerQueue = explorerQueue.then(writeExplorer, writeExplorer));
+  const go = () => writeExplorer(verify);
+  return (explorerQueue = explorerQueue.then(go, go));
 }
-async function writeExplorer() {
+async function writeExplorer(verify) {
   const list = await deviceList().catch(() => []);
   const sig = createHash("sha256").update(JSON.stringify([PYW, HOST_PY, list.map((d) => [d.id, d.name])])).digest("hex").slice(0, 16);
+  if (!verify && sig === explorerLast) return;
+  explorerLast = sig;
   if ((await regSig("HKCU\\Software\\Classes\\*\\shell\\ShivoLabsBeam")) === sig &&
       (await regSig("HKCU\\Software\\Classes\\Directory\\shell\\ShivoLabsBeam")) === sig) return;
   const ico = join(here, "..", "shivo-labs.ico");

@@ -1,14 +1,14 @@
 {
- "version": "1.0.94",
- "build": 94,
- "built": "2026-10-13T19:42:12.066Z",
+ "version": "1.0.95",
+ "build": 95,
+ "built": "2026-10-13T19:47:56.100Z",
  "notes": [
+  "Beam: a new phone is in the right-click menu at once; Settings no longer says \"up to date\" when it isn't",
   "Beam many devices: fixes from the first real try with two iPhones",
   "Merge remote-tracking branch 'origin/main' into claude/strange-poitras-51c08e",
   "Business: check against every ERPNext document type; fill the gaps found in phases 0-3",
   "Beam: many devices. Each phone or tablet gets its own card and waiting list",
-  "Business phase 3: money screens and referee for money; 25/25 stories match ERPNext",
-  "Business phase 3: money engine (VAT and totals, sales/purchase invoices, payments, credit notes, transfers, journals) and money documents on the database"
+  "Business phase 3: money screens and referee for money; 25/25 stories match ERPNext"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11207,12 +11207,12 @@
   "hub/api/airplay/playfair-tables.mjs": "3126bbbdcb0286cf2dbacac46a6b8c6e63c5940bf68d01870ab2a776e69c4d7a",
   "hub/api/airplay/playfair.mjs": "443d285fa13bd758947ccbc5fdace0f8b98556f7559d112977bbb687ae4b39d5",
   "hub/api/airplay/receiver.mjs": "ce5ab6ece5fd198884aa111c793b229da82f89e1e32824609dc4122049eb34d0",
-  "hub/api/beam.mjs": "8cc1cf11ef9fe7657e0534747263485d3bb727722b5cebe5fbc3258f1d062abb",
+  "hub/api/beam.mjs": "c1f69611655193b51f0962f8e49baf64cdaf212b422326b65b6b587c290e23dd",
   "hub/api/business.mjs": "5ccdc7ff105194767706cc375c8dc0ba7684ccc32a800fe577f67fd6663f3bc8",
   "hub/api/idevice.mjs": "fed616f37489100c65e685b5635c50bfc0ea86d94c7f5fb0d2e014b4232b33a4",
   "hub/api/mirror.mjs": "687bfbcc85a5b89249cba4c8d7f57007127d3e580f3bcecd4baa96773d16c404",
   "hub/api/settings.mjs": "f4970f9230cc5e85d3181fc03b0dc3e0a918aa87ca583ee7776ef0dc8237d1eb",
-  "hub/api/update.mjs": "e46b5c0e5fbe38a6bb8bb58fb416b5ca28e87fcce85c3030fd9d0c2251819eb9",
+  "hub/api/update.mjs": "312781bb09be06dc9d18ff918d67cb3410dbb9ce67f76e64ec7755d5b78fbdc7",
   "hub/api/xtools-bridge.ps1": "067078185b5d6d092ac93bbea5e5b3df7b7feb31795834e107761d5742a4caf7",
   "hub/api/xtools.mjs": "bf48fcfdc22bf28441615c5ccad0da88130621e79d5e5d3a064551cf4f74e721",
   "hub/engines/beam_host.py": "b91639a2e7e8649dbe44b593b9a3fe5295f11235d1fb16dc1f8d542b56cbad2e",
@@ -11232,7 +11232,7 @@
   "hub/www/modules/mirror-player.js": "1d6faed94d7dd992a76bab69e17a716feda019ad8ad8ae09d7c2b600bc19f911",
   "hub/www/modules/mirror.js": "a9104345f27832f592b5afc690d2cd013a4f5d9a6c0c727600d593a16015415d",
   "hub/www/modules/quiet.js": "242dd7b138aa98516e17052278e47326849185a4da6c57b0f3a9eeaf46c8ef90",
-  "hub/www/modules/settings.js": "27305f460505a567e5d5c71364485239761db0053de87cfcf687d2a8f2a693d9",
+  "hub/www/modules/settings.js": "724244a73c9d2553d4cd50ccdead7e5704aa036d9fe2d528c6b57850272ee4e0",
   "hub/www/modules/xtools.js": "b16d50f369acdbd2457fb8d9316a3a9dda6faa044d8cf6b452c3a321ef97cc35",
   "shared/biz/api.js": "f8e7c51da651186408517b69649a1318bd66618e85d779bf206a2c3a1ca139a5",
   "shared/biz/biz.css": "dcf199047de9df195f4ca4c84fc0784fd2c1bbcda9896cba9e348030afd7b0a3",

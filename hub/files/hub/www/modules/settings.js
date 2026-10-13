@@ -57,7 +57,7 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
       <section class="set-foot"><button class="tbtn" id="restart">Restart Shivo Labs</button></section>`;
 
     $('#openAi')?.addEventListener('click', () => openModule('ai'));
-    $('#chk').onclick = async () => { s.update.checking = true; paint(); s.update = await post('/api/settings/check'); paint(); toast(s.update.available ? 'An update is ready' : s.update.error ? "Couldn't check" : "You're up to date"); };
+    $('#chk').onclick = async () => { s.update.checking = true; paint(); s.update = await post('/api/settings/check'); paint(); toast(s.update.installing ? 'Installing the update…' : s.update.available ? 'An update is ready' : s.update.error ? "Couldn't check" : "You're up to date"); };
     const inst = $('#inst');
     if (inst) inst.onclick = async () => {
       inst.disabled = true; inst.textContent = 'Installing…';
