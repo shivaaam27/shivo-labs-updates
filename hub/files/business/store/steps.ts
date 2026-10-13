@@ -8,14 +8,18 @@ import { now, tx } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
 import { loadSingle, nextSeries, titlesOf, writeLog } from './docs.ts';
+import { cleanMoneyStep, partiesOf } from './money.ts';
+import { MONEY_KINDS } from '../core/money/books.ts';
+import { invoiceTotals } from '../core/money/taxes.ts';
 
 interface StepRow { seq: number; id: string; kind: string; data: string; created: string; by: string | null }
 const MOVING = ['receipt', 'issue', 'transfer', 'count', 'purchase_receipt', 'delivery'] as const;
 const NEEDS_RATE = new Set(['receipt', 'purchase_receipt', 'count', 'delivery']);
-const KINDS = new Set<string>([...MOVING, 'landed_cost']);
+const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS]);
 export const STEP_LABELS: Record<string, string> = {
   receipt: 'Stock in', issue: 'Damaged or own use', transfer: 'Move stock', count: 'Stock count',
   purchase_receipt: 'Goods arrived', delivery: 'Delivered to customer', landed_cost: 'Landed cost', cancel: 'Undo',
+  sales_invoice: 'Sale', purchase_invoice: 'Supplier bill', payment: 'Payment', credit_note: 'Return', money_transfer: 'Money moved', journal: 'Journal',
 };
 
 const parse = (s: string): Step | null => { try { return JSON.parse(s) as Step; } catch { return null; } };
@@ -29,14 +33,17 @@ export function loadSteps(db: DB): Step[] {
   return (db.prepare('SELECT * FROM steps ORDER BY seq').all() as unknown as StepRow[]).map((r) => parse(r.data)).filter((s): s is Step => !!s);
 }
 
-function idsIn(steps: Step[]): { items: Set<string>; stores: Set<string> } {
-  const items = new Set<string>(), stores = new Set<string>();
+function idsIn(steps: Step[]): { items: Set<string>; stores: Set<string>; parties: Set<string> } {
+  const items = new Set<string>(), stores = new Set<string>(), parties = new Set<string>();
   for (const s of steps) {
-    if ('lines' in s) for (const l of s.lines) items.add(l.item);
-    if ('warehouse' in s) stores.add(s.warehouse);
+    if ('lines' in s && Array.isArray(s.lines)) for (const l of s.lines) items.add(l.item);
+    if ('warehouse' in s && typeof s.warehouse === 'string') stores.add(s.warehouse);
     if (s.kind === 'transfer') { stores.add(s.from); stores.add(s.to); }
+    if (s.kind === 'sales_invoice') parties.add(s.customer);
+    if (s.kind === 'purchase_invoice') parties.add(s.supplier);
+    if (s.kind === 'payment') parties.add(s.party);
   }
-  return { items, stores };
+  return { items, stores, parties };
 }
 
 /** The engine's scenario for these steps: each product with its own valuation method; the company's negative-stock rule. */
@@ -56,6 +63,7 @@ export function scenarioOf(db: DB, steps: Step[], allowNegativeOverride?: boolea
     }),
     warehouses: [...stores],
     allowNegativeStock: allowNegative,
+    parties: partiesOf(db, steps),
     steps,
   };
 }
@@ -64,8 +72,8 @@ export function scenarioOf(db: DB, steps: Step[], allowNegativeOverride?: boolea
 export function computeStock(db: DB): Result & { titles: Record<string, string> } {
   const steps = loadSteps(db);
   const result = runScenario(scenarioOf(db, steps));
-  const { items, stores } = idsIn(steps);
-  const titles = titlesOf(db, [...items, ...stores]);
+  const { items, stores, parties } = idsIn(steps);
+  const titles = titlesOf(db, [...items, ...stores, ...parties]);
   return { ...result, errors: result.errors.map((e) => ({ ...e, message: plain(e.message, titles, null) })), titles };
 }
 
@@ -112,6 +120,8 @@ function cleanStep(db: DB, input: Data, id: string): Step {
   const time = input.time === undefined || input.time === '' ? stamp.time : String(input.time);
   if (!realDate(date)) bad('Date must be a real date like 2026-10-13');
   if (!/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(time)) bad('Time must be like 14:30:00');
+
+  if (MONEY_KINDS.has(kind)) return cleanMoneyStep(db, input, kind, id, date, time);
 
   if (kind === 'landed_cost') {
     const receipt = String(input.receipt ?? '');
@@ -161,6 +171,10 @@ function writeStep(db: DB, step: Step, by: string | null, clientId: string | nul
   const ins = db.prepare("INSERT INTO links (from_type, from_id, field, to_type, to_id) VALUES ('step', ?, ?, ?, ?)");
   for (const id of items) ins.run(step.id, 'item', 'product', id);
   for (const id of stores) ins.run(step.id, 'warehouse', 'store', id);
+  for (const id of idsIn([step]).parties) {
+    const t = db.prepare("SELECT type FROM docs WHERE id = ?").get(id) as { type: string } | undefined;
+    if (t) ins.run(step.id, 'party', t.type, id);   // a customer or supplier with documents cannot be deleted
+  }
   writeLog(db, 'step', step.id, step.kind === 'cancel' ? 'undo' : 'create', by, null, step);
 }
 
@@ -172,8 +186,8 @@ function postIfAccepted(db: DB, step: Step, by: string | null, clientId: string 
   const result = runScenario(scenarioOf(db, all));
   const err = result.errors.find((e) => e.step === step.id);
   if (err) {
-    const { items, stores } = idsIn(all);
-    fail(422, plain(err.message, titlesOf(db, [...items, ...stores, ...all.map((s) => s.id)]), step.date));
+    const { items, stores, parties } = idsIn(all);
+    fail(422, plain(err.message, titlesOf(db, [...items, ...stores, ...parties, ...all.map((s) => s.id)]), step.date));
   }
   writeStep(db, step, by, clientId);
   return step;
@@ -190,6 +204,17 @@ function already(db: DB, clientId: string | null): Step | null {
   if (!clientId) return null;
   const r = db.prepare('SELECT data FROM steps WHERE client_id = ?').get(clientId) as { data: string } | undefined;
   return r ? parse(r.data) : null;
+}
+
+/** Totals of a sale or bill being typed (nothing is saved): the engine's own VAT rules, so screen and books agree. */
+export function previewMoney(db: DB, input: Data) {
+  const kind = String(input?.kind ?? '');
+  if (kind !== 'sales_invoice' && kind !== 'purchase_invoice') bad('Only sales and bills have a preview');
+  const { date, time } = darNow();
+  const step = cleanMoneyStep(db, input, kind, 'preview', date, time) as Extract<Step, { kind: 'sales_invoice' | 'purchase_invoice' }>;
+  const t = invoiceTotals(step.lines, step.tax, scenarioOf(db, []).rounding !== false);
+  return { netTotal: t.netTotal, vat: t.vat, grandTotal: t.grandTotal, roundedTotal: t.roundedTotal, roundingAdjustment: t.roundingAdjustment,
+    lines: t.lines.map((l) => ({ item: l.item, amount: l.amount, net: l.net, vatRate: l.vatRate, vat: l.vat })) };
 }
 
 export function addStep(db: DB, input: Data, by: string | null): Step {
@@ -218,8 +243,8 @@ export function listSteps(db: DB, limit: unknown, offset: unknown) {
   const undoneBy = new Map<string, string>();
   for (const r of db.prepare("SELECT id, json_extract(data, '$.target') AS target FROM steps WHERE kind = 'cancel'").all() as { id: string; target: string }[]) undoneBy.set(r.target, r.id);
   const steps = rows.map((r) => ({ step: parse(r.data), row: r })).filter((x) => x.step);
-  const { items, stores } = idsIn(steps.map((x) => x.step!));
-  const titles = titlesOf(db, [...items, ...stores, ...steps.map((x) => x.row.by ?? '')]);
+  const { items, stores, parties } = idsIn(steps.map((x) => x.step!));
+  const titles = titlesOf(db, [...items, ...stores, ...parties, ...steps.map((x) => x.row.by ?? '')]);
   return {
     total,
     titles,

@@ -9,13 +9,14 @@ import { mountList, importCsv } from './list.js';
 import { mountDoc, quickCreate } from './form.js';
 import { mountSetup } from './setup.js';
 import { mountStock, STOCK_ACTIONS } from './stock.js';
+import { mountMoney, MONEY_ACTIONS } from './money.js';
 
 export const MODULES = [
   { id: 'home', label: 'Home', icon: I.home, sub: 'Everything in one place' },
-  { id: 'sell', label: 'Sell', icon: I.sell, phase: 4, sub: 'Till, orders, deliveries, invoices and returns', extra: ['customer', 'price_list', 'item_price'] },
-  { id: 'buy', label: 'Buy', icon: I.buy, phase: 5, sub: 'Orders to suppliers, goods arrived and supplier bills', extra: ['supplier', 'price_list'] },
+  { id: 'sell', label: 'Sell', icon: I.sell, sub: 'Sales on credit or paid now, returns', extra: ['customer', 'price_list', 'item_price'] },
+  { id: 'buy', label: 'Buy', icon: I.buy, sub: 'Supplier bills for goods and expenses', extra: ['supplier', 'price_list'] },
   { id: 'stock', label: 'Stock', icon: I.stock, sub: 'What is in each store and van, and every movement', extra: ['store', 'unit', 'product'] },
-  { id: 'money', label: 'Money', icon: I.money, phase: 3, sub: 'Payments, expenses, who owes what, VAT and the books', extra: ['payment_method', 'tax'] },
+  { id: 'money', label: 'Money', icon: I.money, sub: 'Payments in and out, who owes what, moving money', extra: ['payment_method', 'tax'] },
   { id: 'products', label: 'Products', icon: I.products, sub: 'Products, groups, brands and prices' },
   { id: 'customers', label: 'Customers', icon: I.customers, sub: 'Who you sell to, their groups and salesmen' },
   { id: 'suppliers', label: 'Suppliers', icon: I.suppliers, sub: 'Who you buy from' },
@@ -23,9 +24,6 @@ export const MODULES = [
   { id: 'setup', label: 'Setup', icon: I.setup, sub: 'Company, stores, units, taxes, payment methods and users' },
 ];
 const PHASE_TEXT = {
-  sell: 'Sales, orders, deliveries, invoices and returns come in phase 4. Until then, record a sale of stock under Stock → Sell.',
-  buy: 'Purchase orders, supplier bills and import costs come in phase 5. Until then, record deliveries under Stock → Goods arrived.',
-  money: 'Payments, expenses, customer and supplier balances and VAT come in phase 3.',
   reports: 'The owner dashboard and reports (sales, stock value, profit, VAT summary) come in phase 7.',
 };
 const MOBILE_MAIN = ['home', 'sell', 'stock', 'products'];
@@ -174,7 +172,7 @@ export function mountShell(root, ctx = {}) {
     host.className = 'bz-view';
     void host.offsetWidth; host.classList.add('in');
     const [a, b, c] = route.split('/');
-    const mod = a === 'home' ? 'home' : a === 'm' ? b : a === 'stock' ? 'stock' : defs[b]?.module ? modOfDef(defs[b]) : 'home';
+    const mod = a === 'home' ? 'home' : a === 'm' ? b : a === 'stock' ? 'stock' : a === 'money' ? (MONEY_ACTIONS.find((x) => x.kind === b)?.mod || 'money') : defs[b]?.module ? modOfDef(defs[b]) : 'home';
     root.querySelectorAll('.bz-rb[data-m]').forEach((x) => x.classList.toggle('on', x.dataset.m === mod));
     root.querySelector('#bzMore')?.classList.toggle('on', !MOBILE_MAIN.includes(mod));
     scrollTo({ top: 0 });
@@ -184,6 +182,14 @@ export function mountShell(root, ctx = {}) {
       setTitle('Stock', MODULES.find((m) => m.id === 'stock').sub);
       const h = mountStock(host, kit, { action: a === 'stock' ? b : null, tab: extra?.tab, records: (el) => recordCards(el, 'stock') });
       if (a === 'stock') { route = 'm/stock'; history.replaceState(null, '', '#business/m/stock'); }
+      return (view = h);
+    }
+    if ((a === 'm' && ['sell', 'buy', 'money'].includes(b)) || a === 'money') {
+      const act = a === 'money' ? MONEY_ACTIONS.find((x) => x.kind === b) : null;
+      const mod = act ? act.mod : b;
+      setTitle(MODULES.find((m) => m.id === mod).label, MODULES.find((m) => m.id === mod).sub);
+      const h = mountMoney(host, kit, { module: mod, action: act?.kind ?? null, records: (el) => recordCards(el, mod) });
+      if (a === 'money') { route = 'm/' + mod; history.replaceState(null, '', '#business/m/' + mod); }
       return (view = h);
     }
     if (a === 'm') return (view = paintModule(host, b));
@@ -210,6 +216,7 @@ export function mountShell(root, ctx = {}) {
     const name = session?.user?.name?.split(' ')[0] || '';
     setTitle(`${hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'}${name ? ', ' + name : ''}`, session?.company?.name || session?.company || 'Shivo Labs Business');
     const quick = [
+      ...MONEY_ACTIONS.filter((x) => ['sale', 'receive'].includes(x.kind) && (!kit.stepRights || kit.stepRights.write)).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}` })),
       ...STOCK_ACTIONS.filter((x) => ['purchase_receipt', 'delivery', 'count'].includes(x.kind) && (!kit.stepRights || kit.stepRights.write)).map((x) => ({ label: x.label, sub: x.hint, icon: x.icon, go: `stock/${x.kind}`, need: 'stock' })),
       ...['product', 'customer', 'supplier'].filter((t) => defs[t] && can(t, 'write')).map((t) => ({ label: `New ${defs[t].label.toLowerCase()}`, sub: defs[t].plural, icon: defs[t].icon, go: `n/${t}` })),
     ];
@@ -296,6 +303,8 @@ export function mountShell(root, ctx = {}) {
     if (kit.stepRights ? kit.stepRights.write : can('product', 'read')) {
       items.push({ head: 'Stock' });
       STOCK_ACTIONS.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `stock/${x.kind}` }));
+      items.push({ head: 'Sell, buy and money' });
+      MONEY_ACTIONS.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `money/${x.kind}` }));
     }
     for (const m of MODULES) {
       const ds = Object.values(defs).filter((d) => modOfDef(d) === m.id && !d.child && !d.single && can(d.type, 'write'));
@@ -371,6 +380,7 @@ export function mountShell(root, ctx = {}) {
       out.push({ kind: 'action', title: d.single ? d.label : d.plural, sub: d.single ? 'Open' : 'Open the list', icon: d.icon, go: d.single ? `d/${d.type}` : `l/${d.type}`, words: 'open list ' + d.label + ' ' + d.plural });
       if (!d.single && can(d.type, 'write')) out.push({ kind: 'action', title: `Import ${d.plural.toLowerCase()}`, sub: 'From a CSV file', icon: I.upload, imp: d.type, words: 'import csv excel upload ' + d.plural });
     }
+    if (!kit.stepRights || kit.stepRights.write) MONEY_ACTIONS.forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}`, words: x.words }));
     MODULES.forEach((m) => out.push({ kind: 'action', title: m.label, sub: m.sub, icon: m.icon, go: m.id === 'home' ? 'home' : 'm/' + m.id, words: 'go module ' + m.label }));
     out.push({ kind: 'action', title: 'Switch user', sub: 'With a PIN', icon: I.user, fn: () => askPin(false), words: 'user pin login change' });
     return out;

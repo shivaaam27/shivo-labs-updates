@@ -10,9 +10,11 @@ const ROLE_ORDER: AccountRole[] = [
   'stock', 'stock_adjustment', 'stock_received_not_billed', 'cost_of_goods_sold', 'expenses_in_valuation', 'other',
 ];
 
-export function ledgerTotals(book: StockLedger): LedgerTotal[] {
+/** `skip`: steps whose ledger rows another part writes (invoices that move goods: money/books.ts). */
+export function ledgerTotals(book: StockLedger, skip?: Set<string>): LedgerTotal[] {
   const out: LedgerTotal[] = [];
   for (const id of book.order) {
+    if (skip?.has(id)) continue;
     const p = book.posted.get(id)!;
     // A cancelled step's rows and their mirrors are both flagged cancelled, so it posts nothing;
     // the cancel step itself posts nothing either (01 §2.6 default mode).

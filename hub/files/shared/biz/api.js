@@ -87,6 +87,8 @@ export const api = {
   // a movement can be undone once, so its undo has a fixed id: a retry after a timeout returns the same undo
   undoStep: (id) => call('POST', '/steps/undo', { id, client_id: `undo-${id}` }),
   run: (body = {}) => call('POST', '/run', body),
+  /** Totals of a sale or bill being typed (nothing saved). */
+  preview: (step) => call('POST', '/preview', { step }),
 };
 
 /** Normalise the different shapes a list of definitions may come in to {type: def}. */

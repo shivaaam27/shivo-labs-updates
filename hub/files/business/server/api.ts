@@ -10,7 +10,7 @@ import type { Data } from '../store/docs.ts';
 import { defOrFail, deleteDoc, getDoc, history, listDocs, loadSingle, optionsFor, saveDoc, searchAll } from '../store/docs.ts';
 import { importCsv } from '../store/import.ts';
 import { setupBusiness } from '../store/seed.ts';
-import { addStep, computeStock, listSteps, undoStep } from '../store/steps.ts';
+import { addStep, computeStock, listSteps, previewMoney, undoStep } from '../store/steps.ts';
 import type { User } from '../store/users.ts';
 import { activeOwners, activeUser, activeUserCount, allowedRoles, can, checkPinShape, findByPin, hasPin, newPinHash, storePin, verifyPin } from '../store/users.ts';
 
@@ -135,6 +135,10 @@ export function createApi(file: string) {
     if (is('POST', 'steps', 1)) {
       needRoles(u, STEP_ROLES.write, 'record stock movements');
       return { step: addStep(db, body.step as Data, u.id) };
+    }
+    if (is('POST', 'preview', 1)) {
+      needRoles(u, STEP_ROLES.write, 'record sales and bills');
+      return previewMoney(db, body.step as Data);
     }
     if (is('POST', 'steps', 2) && a === 'undo') {
       needRoles(u, STEP_ROLES.undo, 'undo stock movements');

@@ -485,3 +485,31 @@ input.bz-in[type=date]{min-height:2.95rem}
 .bz-usedrow{display:flex;align-items:center;gap:.2rem}
 .bz-usedrow .bz-used{flex:1;min-width:0}
 .bz-used:disabled{cursor:default;background:none}
+
+/* ---------- money (money.js): document lines, totals, status tags; same tokens and spacing as every screen ---------- */
+.bz-money{align-items:start}
+.bz-lines{display:flex;flex-direction:column;gap:.35rem}
+.bz-ln{display:grid;grid-template-columns:minmax(0,2.4fr) 5.5rem 7.5rem 7rem 2.4rem;gap:.5rem;align-items:center}
+.bz-ln.r{grid-template-columns:minmax(0,2fr) 6rem 8rem}
+.bz-ln.p{grid-template-columns:minmax(0,1fr) 8rem 8rem 9rem}
+.bz-ln .bz-fld{margin:0}
+.bz-ln .bz-fld .bz-lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap} /* the column header names it */
+.bz-lh{font:600 .78rem var(--body);color:var(--muted);padding:0 .1rem}
+.bz-lamt{font-variant-numeric:tabular-nums;color:var(--muted)}
+.bz-addln{justify-self:start}
+.bz-totals{border-top:1px solid var(--line);padding-top:.8rem}
+.bz-mrow{display:flex;justify-content:space-between;gap:1rem;padding:.3rem 0;font-variant-numeric:tabular-nums}
+.bz-mrow>span:first-child{color:var(--muted)}
+.bz-mrow.big{font:500 1.25rem var(--display);letter-spacing:-.01em;padding-top:.5rem}.bz-mrow.big>span:first-child{color:var(--text)}
+.bz-docview hr{border:0;border-top:1px solid var(--line);margin:.6rem 0}
+.bz-payrow{display:grid;grid-template-columns:1fr 10rem;gap:.6rem;margin-bottom:.5rem}
+.bz-st{display:inline-block;font:600 .74rem var(--body);padding:.2rem .55rem;border-radius:99px;background:var(--soft);color:var(--muted);white-space:nowrap}
+.bz-st.ok{background:var(--sage-soft);color:var(--sage)}
+.bz-st.warn{background:color-mix(in srgb,#B7791F 14%,transparent);color:#B7791F}
+.bz-st.bad{background:var(--bz-err-soft);color:var(--err)}
+.bz-empty-row{padding:1.2rem;color:var(--muted);font-size:.92rem}
+@media (max-width:40rem){
+  .bz-ln{grid-template-columns:minmax(0,1fr) 4.5rem 6rem 2.4rem}.bz-ln .bz-lamt{display:none}.bz-ln.bz-lh>span:nth-child(4){display:none}
+  .bz-ln.p{grid-template-columns:minmax(0,1fr) 7rem}.bz-ln.p>span:nth-child(2),.bz-ln.p>span:nth-child(3){display:none}
+  .bz-payrow{grid-template-columns:1fr}
+}

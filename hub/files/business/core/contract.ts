@@ -20,7 +20,38 @@ export type Step =
   | { id: string; kind: 'purchase_receipt'; date: string; time: string; warehouse: string; lines: Required<Line>[] } // goods arrived from the scenario supplier
   | { id: string; kind: 'delivery'; date: string; time: string; warehouse: string; lines: Required<Line>[] }     // goods delivered to the scenario customer (rate = selling price)
   | { id: string; kind: 'landed_cost'; date: string; time: string; receipt: string; amount: number; distribute: 'qty' | 'amount' } // extra cost on an earlier purchase_receipt step
-  | { id: string; kind: 'cancel'; date: string; time: string; target: string };                                 // cancel an earlier step by id
+  | { id: string; kind: 'cancel'; date: string; time: string; target: string }                                  // cancel an earlier step by id
+  | MoneyStep;
+
+// ---- money (phase 3; pos/blueprint/01-accounting-core.md) -------------------------------------------------------
+
+/** Where money is kept. Each maps to one account per system (cash, bank, mobile money). */
+export type MoneyAccount = 'cash' | 'bank' | 'mobile_money';
+
+/** VAT on a document: `inclusive` = the line rates already include VAT (shelf prices); else VAT is added on top. */
+export interface TaxSpec { rate: number; inclusive: boolean }
+
+/** A line of an invoice. `vatRate` overrides the document's VAT rate for this item (e.g. 0 for exempt goods). */
+export interface MoneyLine { item: string; qty: number; rate: number; vatRate?: number }
+
+export type MoneyStep =
+  // sale to a customer. updateStock: goods leave `warehouse` now (cost of goods sold). payments: paid at the till
+  // (several methods allowed; cash above the total is change). Unpaid remainder is owed (outstanding).
+  | { id: string; kind: 'sales_invoice'; date: string; time: string; customer: string; dueDate?: string; lines: MoneyLine[];
+      tax?: TaxSpec; updateStock?: boolean; warehouse?: string; payments?: { account: MoneyAccount; amount: number }[]; writeOff?: boolean }
+  // bill from a supplier. receipt: the purchase_receipt step it bills (stock already in: Dr stock received not billed);
+  // without it, lines are expenses (non-stock) unless updateStock (goods come in now into `warehouse`).
+  | { id: string; kind: 'purchase_invoice'; date: string; time: string; supplier: string; dueDate?: string; lines: MoneyLine[];
+      tax?: TaxSpec; receipt?: string; updateStock?: boolean; warehouse?: string }
+  // money received from a customer (in) or paid to a supplier (out); allocate: which invoices it settles (the rest stays as credit)
+  | { id: string; kind: 'payment'; date: string; time: string; direction: 'in' | 'out'; party: string; account: MoneyAccount; amount: number;
+      allocate?: { invoice: string; amount: number }[] }
+  // a full or partial return of an earlier sales invoice (lines default to all of it); its own balance is negative credit
+  | { id: string; kind: 'credit_note'; date: string; time: string; against: string; lines?: MoneyLine[]; updateStock?: boolean }
+  // move money between own accounts (cash to bank deposit)
+  | { id: string; kind: 'money_transfer'; date: string; time: string; from: MoneyAccount; to: MoneyAccount; amount: number }
+  // a journal: rows must balance (total debit = total credit), else refused
+  | { id: string; kind: 'journal'; date: string; time: string; rows: { role: AccountRole; debit?: number; credit?: number; party?: string; invoice?: string }[] };
 
 /** Any step may carry `negativeOk: true`: it was recorded while negative stock was allowed, so its own rows may
  *  go below zero even if the scenario no longer allows it (the setting was switched off later). */
@@ -32,6 +63,8 @@ export interface Scenario {
   items: { key: string; valuation: ValuationMethod }[];
   warehouses: string[];  // scenario keys, e.g. ["Stores", "Van"]
   allowNegativeStock?: boolean; // default false
+  parties?: { key: string; type: 'customer' | 'supplier' }[]; // money scenarios: customers and suppliers
+  rounding?: boolean;    // money: round grand totals to whole shillings (default true, ERPNext's default)
   steps: Step[];
 }
 
@@ -49,7 +82,8 @@ export interface StockRow {
 }
 
 /** Ledger rows summed per account role, per step. Account names differ between systems, roles do not. */
-export type AccountRole = 'stock' | 'stock_adjustment' | 'stock_received_not_billed' | 'cost_of_goods_sold' | 'expenses_in_valuation' | 'other';
+export type AccountRole = 'stock' | 'stock_adjustment' | 'stock_received_not_billed' | 'cost_of_goods_sold' | 'expenses_in_valuation'
+  | 'receivable' | 'payable' | 'income' | 'expense' | 'vat' | 'cash' | 'bank' | 'mobile_money' | 'round_off' | 'write_off' | 'capital' | 'other';
 export interface LedgerTotal { step: string; role: AccountRole; debit: number; credit: number }
 
 export interface Result {
@@ -60,6 +94,21 @@ export interface Result {
   /** Final position per item+warehouse (from the last non-cancelled row). */
   balances: { item: string; warehouse: string; qty: number; value: number; valuationRate: number }[];
   errors: { step: string; message: string }[]; // a step the system refused (e.g. negative stock not allowed)
+  /** Money scenarios: every sales/purchase invoice and credit note with its totals and what is still owed on it. */
+  invoices?: InvoiceResult[];
+  /** Money scenarios: balance per party (customer: what they owe us; supplier: what we owe them; negative = credit). */
+  parties?: { party: string; balance: number }[];
+}
+
+export interface InvoiceResult {
+  step: string;
+  party: string;
+  netTotal: number;      // before VAT
+  vat: number;           // total VAT
+  grandTotal: number;    // net + VAT (before rounding to whole shillings)
+  roundedTotal: number;  // what is charged (grand total rounded; = grand total when rounding is off)
+  outstanding: number;   // still owed on it (negative on a credit note = credit to the customer)
+  status: string;        // Paid, Unpaid, Partly Paid, Overdue, Return, Credit Note Issued, Cancelled
 }
 
 /** Amounts compare equal within this tolerance (TZS); rates within RATE_TOLERANCE. */
