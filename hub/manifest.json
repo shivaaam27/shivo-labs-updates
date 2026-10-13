@@ -1,14 +1,14 @@
 {
- "version": "1.0.112",
- "build": 112,
- "built": "2026-10-13T21:56:22.597Z",
+ "version": "1.0.113",
+ "build": 113,
+ "built": "2026-10-13T22:03:33.979Z",
  "notes": [
+  "X Tools: Renew uses a newer file of the same app found on the PC",
   "Merge remote-tracking branch 'origin/main' into claude/strange-poitras-51c08e",
   "Business phase 4c: the till on our own engine, shifts and the cash count",
   "Beam: \"Open in Shivo Labs\" from the Share menu (no extra signed piece); Send-to-PC piece switched off",
   "Send to PC: one published value per line (Swift rule)",
-  "Beam: \"Send to PC\" in the iPhone's Share menu, our own screen instead of the Shortcut",
-  "Merge remote-tracking branch 'origin/main' into claude/strange-poitras-51c08e"
+  "Beam: \"Send to PC\" in the iPhone's Share menu, our own screen instead of the Shortcut"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11273,7 +11273,7 @@
   "shared/select.js": "39774f9d7f0dfcead4d729806e9b4503e80de270f750447db40d08fa39fc819b",
   "shared/tokens.css": "d7b3795c8214efee088c74497c7d7b9779e779bfe9cce859ac9275a8c2f622d3",
   "x-tools/installer/src/Engine/provision.sh": "90a45f23aa6b227adacf8edd416918af4ace6d4c7a578acd44a871ec3b836208",
-  "x-tools/installer/src/host/Engine.ps1": "84adaf48c2ea049cc8239143d0c43b8c05af2cc7bdb32afda1c63af6a85d38c1",
+  "x-tools/installer/src/host/Engine.ps1": "8485700a3acb0bcd2240a8c8f627e296766f571d34a236bd515f000a284ce3a5",
   "x-tools/installer/src/host/update-key.xml": "ca38621b5cadbbaca3d748c766b0b706acadc2da00628cea574e7bd40afec7b7",
   "x-tools/installer/src/version.txt": "7fbd210ebec11f65a97190ef900795c4b8da3805af3f5a1b8d1d272556b292ca"
  }

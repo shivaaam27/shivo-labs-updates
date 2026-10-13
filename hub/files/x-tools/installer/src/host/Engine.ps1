@@ -577,6 +577,12 @@ function Invoke-EngineCommand([string]$Cmd, $A) {
             $script:TargetUdid = [string]$A.udid
             $app = (Get-Store).Apps | Where-Object { $_.BundleId -eq $A.bundleId } | Select-Object -First 1
             if (-not $app) { throw 'App not found.' }
+            # a newer file of the same app on this PC (e.g. a new build in Downloads) is used instead of the kept copy;
+            # before, Renew kept reinstalling the old copy and new builds never reached the phone
+            $kept = if (Test-Path -LiteralPath $app.File) { (Get-Item -LiteralPath $app.File).LastWriteTime } else { [datetime]::MinValue }
+            $newer = @(Find-Ipas) | Where-Object { $_.bundleId -eq $app.BundleId -and (Get-Item -LiteralPath $_.path).LastWriteTime -gt $kept } |
+                Sort-Object { (Get-Item -LiteralPath $_.path).LastWriteTime } -Descending | Select-Object -First 1
+            if ($newer) { return Invoke-Install $newer.path }
             return Invoke-Install $app.File
         }
         'forget' {
