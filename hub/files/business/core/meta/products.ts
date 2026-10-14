@@ -150,7 +150,8 @@ export const price_rule: DocDef = {
     { key: 'product', label: 'Product', type: 'link', to: 'product', help: 'When it applies to a product.' },
     { key: 'product_group', label: 'Product group', type: 'link', to: 'product_group', help: 'When it applies to a group (and the groups under it).' },
     { key: 'brand', label: 'Brand', type: 'link', to: 'brand', help: 'When it applies to a brand.' },
-    { key: 'for', label: 'For', type: 'select', options: ['Any customer', 'Customer', 'Customer group'], required: true, default: 'Any customer' },
+    { key: 'for', label: 'For', type: 'select', options: ['Any customer', 'Customer', 'Customer group', 'Route'], required: true, default: 'Any customer' },
+    { key: 'route', label: 'Route', type: 'link', to: 'route', help: 'Customers of this route and the routes inside it.' },
     { key: 'customer', label: 'Customer', type: 'link', to: 'customer' },
     { key: 'customer_group', label: 'Customer group', type: 'link', to: 'customer_group', help: 'The group and the groups under it.' },
     { key: 'price_list', label: 'Only on price list', type: 'link', to: 'price_list', filter: { type: 'Selling' }, help: 'Empty: any price list.' },
@@ -166,7 +167,7 @@ export const price_rule: DocDef = {
   sections: [
     { label: 'Pricing rule', fields: ['name', 'active', 'priority'], columns: 3 },
     { label: 'What', fields: ['applies_to', 'product', 'product_group', 'brand'], columns: 2 },
-    { label: 'Who', fields: ['for', 'customer', 'customer_group', 'price_list'], columns: 2 },
+    { label: 'Who', fields: ['for', 'customer', 'customer_group', 'route', 'price_list'], columns: 2 },
     { label: 'When', fields: ['min_qty', 'max_qty', 'valid_from', 'valid_to'], columns: 2 },
     { label: 'Gives', fields: ['action', 'value'], columns: 2 },
   ],

@@ -14,6 +14,7 @@ import { addStep, computeStock, listSteps, previewMoney, stepLabel, undoStep } f
 import { priceFor, ruleFor } from '../store/money.ts';
 import { shiftsNow, tillStart } from '../store/till.ts';
 import { accountLedger, trialBalance } from '../store/books.ts';
+import { printView } from '../store/print.ts';
 /** Who may read the books per account (trial balance, account history): like ERPNext's Accounts User. */
 const BOOK_ROLES: Role[] = ['manager', 'accountant'];
 import type { Step } from '../core/contract.ts';
@@ -142,6 +143,11 @@ export function createApi(file: string) {
       const kind = String((body.step as Data | undefined)?.kind ?? '');
       needRoles(u, STEP_ROLES.kinds[kind] ?? STEP_ROLES.kinds.receipt, `record a ${stepLabel({ kind } as Step).toLowerCase()}`);
       return { step: addStep(db, body.step as Data, u.id, u.role) };
+    }
+    if (is('GET', 'print', 2)) {
+      // a document's printed page: everything it shows, worked out by the server (store/print.ts)
+      needRoles(u, STEP_ROLES.read, 'print documents');
+      return printView(db, a!);
     }
     if (is('GET', 'till', 1)) {
       needRoles(u, STEP_ROLES.kinds.shift_open, 'use the till');

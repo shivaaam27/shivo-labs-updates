@@ -4,6 +4,7 @@
 // payment methods, whether prices and discounts may change, credit, write-off limit) are checked again by the server.
 import { esc, svg, I, modal, fmt, num, qty, debounce, errText } from './ui.js';
 import { makeField } from './fields.js';
+import { PRINT_ICON, printDoc } from './print.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const MANAGERS = ['owner', 'manager'];
@@ -19,6 +20,8 @@ export function mountTill(el, kit) {
   let writeOff = false, codes = new Map(), invoices = [];
   const manager = MANAGERS.includes(kit.user?.role);
   const $ = (q) => el.querySelector(q);
+  /** The last sale made at this till on this computer: its receipt can be printed again. */
+  const lastSale = () => (till ? keep.get(`biz-last-sale-${till.id}`) : null);
   el.innerHTML = '<div class="bz-loading"><span class="bz-spin"></span></div>';
 
   async function load() {
@@ -57,7 +60,7 @@ export function mountTill(el, kit) {
           : shift ? `<span class="bz-st ok">Shift ${esc(shift.id)} · ${esc(shift.userTitle)} · since ${esc(shift.time?.slice(0, 5) || '')}</span>
             <small class="bz-muted">${qty(shift.totals?.sales || 0)} sales · ${fmt(shift.totals?.grandTotal || 0)}</small>`
           : '<span class="bz-st warn">No shift open</span>'}</span>
-        <span class="bz-tacts">${ready ? '<button class="tbtn" id="bzTMoney">Money in / out</button>' : ''}${needShift && !shift ? '<button class="btn sm" id="bzTOpen">Open shift</button>' : ''}
+        <span class="bz-tacts">${ready ? `<button class="tbtn" id="bzTPrint"${lastSale() ? '' : ' disabled'} title="Print the receipt of the last sale here">${svg(PRINT_ICON)}Print receipt</button>` : ''}${ready ? '<button class="tbtn" id="bzTMoney">Money in / out</button>' : ''}${needShift && !shift ? '<button class="btn sm" id="bzTOpen">Open shift</button>' : ''}
           ${needShift && shift && (shift.mine || manager) ? '<button class="tbtn" id="bzTClose">Close shift</button>' : ''}</span>
       </div>
       ${!ready ? `<div class="bz-empty card"><b>${shift ? `The open shift here is ${esc(shift.userTitle)}'s` : 'Open a shift to start selling'}</b>
@@ -82,6 +85,7 @@ export function mountTill(el, kit) {
     $('#bzTOpen')?.addEventListener('click', openShift);
     $('#bzTClose')?.addEventListener('click', closeShift);
     $('#bzTMoney')?.addEventListener('click', moneyInOut);
+    $('#bzTPrint')?.addEventListener('click', () => { if (lastSale()) printDoc(kit, lastSale()); });
     if (!ready) return;
     // customer: the till's walk-in customer unless another is chosen
     customer = makeField({ key: 'customer', label: 'Customer', type: 'link', to: 'customer', required: true, filter: { active: true } }, till.customer || null,
@@ -261,6 +265,12 @@ export function mountTill(el, kit) {
         ...(writeOff && canWriteOff(left0) ? { write_off: true } : {}), client_id: clientId });
       const total = totals?.roundedTotal ?? 0, paid = payments.reduce((a, p) => a + p.amount, 0);
       kit.toast(`Sale ${r?.step?.id || ''} ✓${paid > total ? ` · change ${fmt(paid - total)}` : ''}`);
+      // the receipt: printed at once when the till says so (ERPNext POS print_receipt_on_order_complete), else on request
+      if (r?.step?.id) {
+        keep.set(`biz-last-sale-${till.id}`, r.step.id);
+        const pb = $('#bzTPrint'); if (pb) pb.disabled = false;
+        if (till.print_receipt === true) printDoc(kit, r.step.id, { auto: true });
+      }
       // what left the store (services keep no stock)
       for (const l of cart) { const k = `${l.item} ${till.store}`; if (stock.has(k) || products.find((p) => p.id === l.item)?.is_stock !== false) stock.set(k, (stock.get(k) ?? 0) - l.qty); }
       tiles($('#bzTQ')?.value || '');

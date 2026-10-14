@@ -121,6 +121,9 @@ export async function setupBusiness(db: DB, body: Data): Promise<string> {
     save('customer_group', { name: 'All Customers' });
     save('supplier_group', { name: 'All Suppliers' });
     const store = save('store', { name: 'Main Store', type: 'Store' }).id;
+    // print headings people often need (phase 4e); more can be added in Setup
+    save('print_heading', { name: 'Proforma invoice', description: 'A quotation the customer pays before the goods are delivered.' });
+    save('print_heading', { name: 'Cash sale', description: 'A sale paid in full at once.' });
 
     prefixed('company', () => save('company', {
         ...company, default_store: store, selling_price_list: retail, buying_price_list: buying,

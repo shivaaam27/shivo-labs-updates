@@ -15,20 +15,25 @@ import { SELL_KINDS } from '../core/sell/orders.ts';
 import { cleanSellStep } from './sell.ts';
 import { invoiceTotals } from '../core/money/taxes.ts';
 import { SHIFT_KINDS, applyTill, cleanShiftStep } from './till.ts';
+import { TRIP_KINDS, cleanTripStep, undoTripCheck } from './trips.ts';
+/** Steps that book nothing (till shifts, delivery trips): kept by the store, never run by the engine. */
+const STORE_ONLY = new Set<string>([...SHIFT_KINDS, ...TRIP_KINDS]);
+import { addPrintInputs } from './print.ts';
 
 interface StepRow { seq: number; id: string; kind: string; data: string; created: string; by: string | null }
 const MOVING = ['receipt', 'issue', 'transfer', 'count', 'purchase_receipt', 'delivery'] as const;
 const NEEDS_RATE = new Set(['receipt', 'purchase_receipt', 'count', 'delivery']);
-const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS, ...SELL_KINDS, ...SHIFT_KINDS]);
+const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS, ...SELL_KINDS, ...SHIFT_KINDS, ...TRIP_KINDS]);
 export const STEP_LABELS: Record<string, string> = {
   receipt: 'Stock in', issue: 'Damaged or own use', transfer: 'Move stock', count: 'Stock count',
   purchase_receipt: 'Goods arrived', delivery: 'Delivered to customer', landed_cost: 'Landed cost', cancel: 'Undo',
   sales_invoice: 'Sale', purchase_invoice: 'Supplier bill', payment: 'Payment', credit_note: 'Return', money_transfer: 'Money moved', journal: 'Journal',
   quotation: 'Quotation', sales_order: 'Sales order', delivery_note: 'Delivery note', set_status: 'Status change', reconcile: 'Credit matched',
-  shift_open: 'Shift opened', shift_close: 'Shift closed',
+  shift_open: 'Shift opened', shift_close: 'Shift closed', pick_list: 'Pick list', delivery_trip: 'Delivery trip', trip_visit: 'Stop visited',
 };
 /** A step's label for people (an opening balance is a sale or bill underneath). */
-export const stepLabel = (s: Step): string => ('opening' in s && s.opening === true ? 'Opening balance' : STEP_LABELS[s.kind] ?? s.kind);
+export const stepLabel = (s: Step): string => ('opening' in s && s.opening === true ? 'Opening balance' : s.kind === 'delivery_note' && s.returnOf ? 'Delivery return'
+  : STEP_LABELS[s.kind] ?? s.kind);
 
 const parse = (s: string): Step | null => { try { return JSON.parse(s) as Step; } catch { return null; } };
 const docData = (db: DB, type: string, id: string): Data | null => {
@@ -62,8 +67,8 @@ function idsIn(steps: Step[]): { items: Set<string>; stores: Set<string>; partie
  *  the company's negative-stock rule. */
 export function scenarioOf(db: DB, all: Step[], allowNegativeOverride?: boolean): Scenario {
   // shifts book nothing: they and their undo stay out of the engine
-  const shiftIds = new Set(all.filter((s) => SHIFT_KINDS.has(s.kind)).map((s) => s.id));
-  const steps = all.filter((s) => !SHIFT_KINDS.has(s.kind) && !(s.kind === 'cancel' && shiftIds.has(s.target)));
+  const shiftIds = new Set(all.filter((s) => STORE_ONLY.has(s.kind)).map((s) => s.id));
+  const steps = all.filter((s) => !STORE_ONLY.has(s.kind) && !(s.kind === 'cancel' && shiftIds.has(s.target)));
   const { items, stores } = idsIn(steps);
   const company = loadSingle(db, 'company');
   let allowNegative = false;
@@ -76,6 +81,10 @@ export function scenarioOf(db: DB, all: Step[], allowNegativeOverride?: boolean)
     ...(Number(co.over_delivery) > 0 ? { overDelivery: Number(co.over_delivery) } : {}),
     ...(Number(co.over_billing) > 0 ? { overBilling: Number(co.over_billing) } : {}),
     ...(co.no_sale_below_cost === true ? { noSaleBelowCost: true } : {}),
+    ...(co.stock_reservation === true ? { stockReservation: true } : {}),
+    ...(co.partial_reservation === false ? { partialReservation: false } : {}),
+    ...(Number(co.over_picking) > 0 ? { overPicking: Number(co.over_picking) } : {}),
+    ...(co.no_hold_on_return === true ? { noHoldOnReturn: true } : {}),
     items: [
       ...[...items].map((key) => {
         const r = db.prepare('SELECT data FROM docs WHERE id = ?').get(key) as { data: string } | undefined;
@@ -152,6 +161,7 @@ function cleanStep(db: DB, input: Data, id: string, role = '', by: string | null
 
   if (SELL_KINDS.has(kind)) return cleanSellStep(db, input, kind, id, date, time, role);
   if (SHIFT_KINDS.has(kind)) return withRemarks(cleanShiftStep(db, input, kind, id, date, time, by, role), input);
+  if (TRIP_KINDS.has(kind)) return withRemarks(cleanTripStep(db, input, kind, id, date, time), input);
   if (MONEY_KINDS.has(kind)) {
     const step = cleanMoneyStep(db, input, kind, id, date, time, role);
     // made at a till: its shift, payment methods, prices and write-off limit (store/till.ts)
@@ -286,7 +296,8 @@ export function previewMoney(db: DB, input: Data) {
 
 export function addStep(db: DB, input: Data, by: string | null, role = ''): Step {
   const clientId = clientIdOf(input?.client_id);
-  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, cleanStep(db, input, nextSeries(db, 'ST-', 5), role, by), by, clientId));
+  // printing (heading, letter head, terms...) is checked after the step itself (store/print.ts)
+  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, addPrintInputs(db, cleanStep(db, input, nextSeries(db, 'ST-', 5), role, by), input), by, clientId));
 }
 
 export function undoStep(db: DB, target: unknown, by: string | null, client?: unknown): Step {
@@ -299,6 +310,7 @@ export function undoStep(db: DB, target: unknown, by: string | null, client?: un
   if (row!.kind === 'cancel') bad('An undo cannot be undone');
   if (db.prepare("SELECT 1 FROM steps WHERE kind = 'cancel' AND json_extract(data, '$.target') = ?").get(target as string)) fail(409, 'This movement is already undone');
   if (row!.kind === 'shift_open' || row!.kind === 'shift_close') undoShiftCheck(db, row!.kind, target as string);
+  if (row!.kind === 'delivery_trip' || row!.kind === 'delivery_note') undoTripCheck(db, row!.kind, target as string);
   return tx(db, () => postIfAccepted(db, { id: nextSeries(db, 'ST-', 5), kind: 'cancel', ...darNow(), target: target as string }, by, clientId));
 }
 
@@ -333,7 +345,8 @@ export function listSteps(db: DB, limit: unknown, offset: unknown) {
   const more: string[] = [];
   for (const { step } of steps) {
     const x = step as unknown as Record<string, unknown>;
-    for (const k of ['till', 'user', 'method']) if (typeof x[k] === 'string') more.push(x[k] as string);
+    for (const k of ['till', 'user', 'method', 'driver', 'vehicle', 'salesman', 'transporter']) if (typeof x[k] === 'string') more.push(x[k] as string);
+    if (Array.isArray(x.stops)) for (const st of x.stops as { customer?: unknown }[]) if (typeof st?.customer === 'string') more.push(st.customer);
     // rows of money per payment method (a shift's opening, count and expected; a sale's payments); `opening` may also
     // be true on an opening balance
     for (const k of ['opening', 'counted', 'expected', 'payments']) {

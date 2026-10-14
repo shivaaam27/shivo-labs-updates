@@ -574,3 +574,93 @@ input.bz-in[type=date]{min-height:2.95rem}
 .bz-tpr.code{grid-template-columns:minmax(0,1fr) 7.5rem 9rem}
 .bz-scan .bz-in{border-style:dashed}
 .bz-lstock{grid-column:1/-1;margin-top:-.2rem}
+.bz-ln.t{grid-template-columns:1.6rem minmax(0,1fr) minmax(8rem,14rem);padding:.35rem 0}
+.bz-more>summary{cursor:pointer;color:var(--sage);font:600 .9rem/1.4 var(--body);padding:.3rem 0}
+.bz-more>.bz-grid{margin-top:.5rem}
+
+/* ---------- printed pages (shared/biz/print.js, phase 4e): a preview over the screen, then the browser's print window.
+   The paper is always white with black ink, in light and dark; sizes in mm and pt so they do not follow --ui-scale. */
+.bz-veil.bz-printwrap{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;place-items:stretch;padding:0;z-index:90;overflow:hidden}
+.bz-pbar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.7rem 1rem;background:var(--panel);border-bottom:.5px solid var(--g-rim2);color:var(--text);font:500 .95rem/1.2 var(--body)}
+.bz-pbar>b{font:500 1rem/1.2 var(--display)}
+.bz-pbar .btn svg{width:1.05rem;height:1.05rem}
+.bz-pgrow{flex:1}
+.bz-printwrap .seg{display:inline-flex;gap:.25rem;background:var(--soft);padding:.25rem;border-radius:.8rem}
+.bz-printwrap .seg button{flex:none;padding:.45rem .8rem;border-radius:.6rem;font:600 .82rem/1 var(--body);color:var(--muted)}
+.bz-printwrap .seg button.on{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line)}
+.bz-pchk{display:inline-flex;gap:.4rem;align-items:center;font:500 .88rem/1 var(--body)}
+.bz-pscroll{flex:1;overflow:auto;padding:1.5rem 1rem 3rem;display:flex;justify-content:center;align-items:flex-start}
+.bz-sheet{background:#fff;color:#111;box-shadow:0 10px 40px rgba(0,0,0,.35);font:400 10pt/1.4 var(--body);position:relative;flex:none;box-sizing:border-box;text-align:left}
+.bz-sheet.a4{width:210mm;min-height:297mm;padding:14mm 14mm 16mm}
+.bz-sheet.roll{padding:4mm 3mm;font-size:9pt;line-height:1.3}
+.bz-sheet.r80{width:80mm}
+.bz-sheet.r58{width:58mm;font-size:8pt}
+.bz-sheet small{font-size:.85em;color:#555}
+.bz-sheet .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bz-ph{display:flex;justify-content:space-between;gap:8mm;align-items:flex-start;border-bottom:1.5px solid #111;padding-bottom:4mm;margin-bottom:4mm}
+.bz-pco span,.bz-pparty span{display:block}
+.bz-pname{font:600 15pt/1.2 var(--display);display:block;margin-bottom:1mm}
+.bz-ptitle{text-align:right;margin-left:auto}
+.bz-ptitle h1{font:600 18pt/1.1 var(--display);margin:0 0 2mm;color:#111}
+.bz-pmeta{display:grid;grid-template-columns:auto auto;gap:.5mm 3mm;justify-content:end;margin:0}
+.bz-pmeta dt{color:#555}
+.bz-pmeta dd{margin:0;font-weight:600}
+.bz-plh{margin:0 0 4mm;color:#333}
+.bz-pparty{display:flex;gap:8mm;margin-bottom:5mm}
+.bz-pparty>div{flex:1}
+.bz-pparty small,.bz-pwords small{display:block;color:#666;text-transform:uppercase;font-size:7.5pt;letter-spacing:.05em;margin-top:1mm}
+.bz-pparty b{display:block;font-size:11pt}
+.bz-plines{width:100%;border-collapse:collapse;margin-bottom:4mm}
+.bz-plines th{text-align:left;border-bottom:1px solid #111;padding:1.5mm 2mm;font-weight:600;font-size:8.5pt;background:#f1f1f1;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.bz-plines td{padding:1.5mm 2mm;border-bottom:.5px solid #ccc;vertical-align:top}
+.bz-plines th.n{text-align:right}
+.bz-plines tfoot td{border-bottom:0;border-top:1px solid #111;font-weight:600}
+.bz-plines tr{break-inside:avoid}
+.bz-psum{display:flex;gap:8mm;justify-content:space-between;align-items:flex-start;break-inside:avoid}
+.bz-psum>div:first-child{flex:1}
+.bz-ptot{border-collapse:collapse;min-width:70mm;margin-left:auto}
+.bz-ptot th{text-align:left;font-weight:400;padding:.8mm 2mm;color:#333}
+.bz-ptot td{text-align:right;padding:.8mm 2mm;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bz-ptot tr.big th,.bz-ptot tr.big td{font-weight:700;font-size:11.5pt;border-top:1.5px solid #111;padding-top:1.5mm;color:#111}
+.bz-ppaid{margin-top:2mm}
+.bz-pwords{margin:0 0 3mm;font-weight:600}
+.bz-pnote{color:#555;margin:0 0 3mm;font-size:8.5pt}
+.bz-pvat{border-collapse:collapse;margin-bottom:3mm;font-size:8.5pt}
+.bz-pvat th,.bz-pvat td{padding:.8mm 2.5mm;border-bottom:.5px solid #ccc;text-align:left}
+.bz-pvat th{font-weight:600}
+.bz-pvat .n{text-align:right}
+.bz-pterms{margin-top:5mm;break-inside:avoid}
+.bz-pterms h4{margin:0 0 1mm;font-size:9pt;color:#111}
+.bz-pterms p{margin:0;color:#333;font-size:8.5pt}
+.bz-psign{display:flex;gap:10mm;margin-top:16mm;break-inside:avoid}
+.bz-psign span{flex:1;border-top:1px solid #111;padding-top:1mm;font-size:8.5pt;color:#444}
+.bz-pfoot{margin-top:8mm;padding-top:3mm;border-top:.5px solid #999;text-align:center;color:#444;font-size:8pt}
+.bz-pfoot p{margin:.5mm 0}
+.bz-pvoid{position:absolute;top:35%;left:0;right:0;text-align:center;font:700 44pt/1 var(--display);color:rgba(200,0,0,.2);transform:rotate(-18deg);pointer-events:none}
+.bz-rhead{text-align:center}
+.bz-rhead b{display:block;font-size:11pt}
+.bz-rhead span{display:block}
+.bz-rtitle{text-align:center;font:700 11pt/1.2 var(--display);margin:2mm 0;color:#111}
+.bz-rr{display:flex;justify-content:space-between;gap:2mm}
+.bz-rr>span:last-child{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.bz-rr.big{font-weight:700;font-size:10.5pt}
+.bz-rl{margin-bottom:1mm}
+.bz-rl>span{display:block;font-weight:600}
+.bz-sheet hr{border:0;border-top:1px dashed #111;margin:2mm 0}
+.bz-rcenter{text-align:center;margin:2mm 0}
+.bz-rcenter.small{font-size:7.5pt}
+/* the "Printing" part of the selling forms (money.js), closed until needed */
+.bz-printopts{border:.5px solid var(--line);border-radius:1rem;padding:.2rem .9rem}
+.bz-printopts>summary{cursor:pointer;padding:.6rem 0;font:600 .9rem/1.2 var(--body);color:var(--muted)}
+.bz-printopts[open]>summary{color:var(--text)}
+.bz-printopts>.bz-grid{padding-bottom:.8rem}
+.bz-printopts textarea.bz-in{min-height:5rem;resize:vertical}
+@media print{
+  html.bz-printing,html.bz-printing body{background:#fff!important;height:auto!important;overflow:visible!important}
+  html.bz-printing body>*:not(#bzPrint){display:none!important}
+  html.bz-printing #bzPrint{position:static;display:block;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;padding:0;overflow:visible}
+  html.bz-printing .bz-pbar{display:none}
+  html.bz-printing .bz-pscroll{display:block;padding:0;overflow:visible}
+  html.bz-printing .bz-sheet{box-shadow:none;margin:0}
+  html.bz-printing .bz-sheet.a4{width:auto;min-height:0;padding:0}
+}

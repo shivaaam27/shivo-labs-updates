@@ -26,7 +26,7 @@ test('quotation, order, deliveries and invoices', async () => {
     const doc = (id: string) => run.documents.find((x: any) => x.step === id);
     assert.equal(doc(q).status, 'Ordered');
     assert.deepEqual([doc(o).status, doc(o).perDelivered, doc(o).perBilled], ['To Deliver and Bill', 60, 60]);
-    assert.deepEqual(doc(o).lines, [{ delivered: 12, billed: 12000 }]);
+    assert.deepEqual(doc(o).lines, [{ delivered: 12, billed: 12000, picked: 0, returned: 0 }]);
     assert.equal(doc(d).status, 'Completed');
     assert.deepEqual(run.reserved, [{ item: soap, warehouse: main, qty: 8 }]);
     assert.equal(run.balances.find((b: any) => b.item === soap).qty, 88);

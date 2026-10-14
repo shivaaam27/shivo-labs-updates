@@ -18,6 +18,12 @@ const titleOf = (db: DB, id: unknown): string => {
 
 /** Runs after the field checks; may fill derived values and add or clear errors. */
 export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | null, errors: Errors): void {
+  // a new customer with no route gets the company's default route (ERPNext Selling Settings territory)
+  if (def.type === 'customer' && !prev && (data.route === undefined || data.route === null || data.route === '')) {
+    const co = db.prepare("SELECT data FROM docs WHERE type = 'company' AND deleted = 0 LIMIT 1").get() as { data: string } | undefined;
+    const r = co ? parse(co.data).default_route : undefined;
+    if (typeof r === 'string' && r) data.route = r;
+  }
   // a credit limit may not be set below what the customer already owes (03 §5.2, CU:350)
   if (def.type === 'customer' && prev && Number(data.credit_limit) > 0 && Number(data.credit_limit) !== Number(prev.data.credit_limit)) {
     const owed = owedBy(db, prev.id);

@@ -40,6 +40,8 @@ function stepAmounts(book: StockLedger, id: string): Map<AccountRole, number> {
 
   switch (step.kind) {
     case 'receipt':
+      if (step.cogs) { add('stock', stockChange); add('cost_of_goods_sold', -stockChange); break; }
+    // falls through
     case 'issue':
     case 'count':
       // Dr/Cr Stock by the value change; the other side is Stock Adjustment (02 §6.1, §6.3; R6, R20), or Temporary

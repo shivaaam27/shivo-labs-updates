@@ -16,7 +16,9 @@ export function runScenario(s: Scenario): Result {
   const sales = new SalesBook(s, book, () => money.invoiceViews(), (c, adds) => money.creditFor(c, adds));
   money.sales = sales;
   sales.atInvoice = (c) => money.checksAtInvoice(c);
+  sales.creditNotes = () => money.creditNoteViews();
   sales.belowCost = (...a) => money.belowCost(...a);
+  book.firmHeld = (item, wh, orders) => sales.firmHeld(item, wh, orders);
   for (const step of s.steps) {
     if (MONEY_KINDS.has(step.kind)) money.post(step as MoneyStep);
     else if (SELL_KINDS.has(step.kind)) sales.post(step as SellStep);
@@ -63,6 +65,6 @@ export function runScenario(s: Scenario): Result {
   ];
   const out: Result = { scenario: s.id, system: 'shivo', stock, ledger, balances, errors, entries };
   if (hasMoney) { out.invoices = money.invoiceResults(); out.parties = money.partyBalances(); out.credit = money.creditPositions(); }
-  if (sales.order.length || sales.errors.length) { out.documents = sales.documents(); out.reserved = sales.reserved(); }
+  if (sales.order.length || sales.errors.length) { out.documents = sales.documents(); out.reserved = sales.reserved(); out.firm = sales.firm(); }
   return out;
 }

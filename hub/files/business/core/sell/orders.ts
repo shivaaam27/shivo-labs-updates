@@ -8,9 +8,9 @@ import { roundMoney } from '../money.ts';
 import type { StockLedger } from '../stock/ledger.ts';
 import { invoiceTotals, lineRate } from '../money/taxes.ts';
 
-export const SELL_KINDS = new Set<string>(['quotation', 'sales_order', 'delivery_note', 'set_status']);
+export const SELL_KINDS = new Set<string>(['quotation', 'sales_order', 'delivery_note', 'pick_list', 'set_status']);
 type Doc = Exclude<SellStep, { kind: 'set_status' }>;
-interface Posted { step: Doc; cancelled: boolean; manual?: 'Closed' | 'On Hold' | 'Lost' }
+interface Posted { step: Doc; cancelled: boolean; manual?: 'Closed' | 'On Hold' | 'Lost'; firm?: number[] }   // firm: qty held firmly per line (reserve)
 /** What the selling side needs to know about invoices (money/books.ts). */
 export interface InvoiceView { id: string; customer: string; lines: MoneyLine[]; updateStock: boolean; date: string }
 
@@ -33,6 +33,7 @@ export class SalesBook {
   /** Set by run.ts: whether a customer is checked at the delivery and invoice instead of at the order, and the
    *  below-cost check (money/books.ts). */
   atInvoice: (customer: string) => boolean = () => false;
+  creditNotes: () => { returnOf: string; lines: MoneyLine[] }[] = () => [];
   belowCost: (lines: MoneyLine[], tax: Doc['tax'], discount: number | undefined, warehouse: string | undefined, date: string, time: string) => string | null = () => null;
   private billing: InvoiceView | null = null;   // an invoice being checked for credit, counted as if posted
 
@@ -52,6 +53,8 @@ export class SalesBook {
     if (step.kind === 'set_status') return this.setStatus(step);
     const bad = this.check(step);
     if (bad) return this.fail(step.id, bad);
+    if (step.kind === 'pick_list') { this.posted.set(step.id, { step, cancelled: false }); this.order.push(step.id); return; }
+    if (step.kind === 'delivery_note' && step.returnOf) return this.deliveryReturn(step);
     const low = this.belowCost(step.lines, step.tax, step.discountAmount, step.kind === 'quotation' ? undefined : step.warehouse, step.date, step.time);
     if (low) return this.fail(step.id, low);
     // credit (03 §5.2): an order always; a delivery note only for lines not made from an order. A customer checked at
@@ -70,10 +73,49 @@ export class SalesBook {
       const goods = step.lines.filter((l) => !this.services.has(l.item)).map((l) => ({ item: l.item, qty: l.qty, rate: lineRate(l) }));
       if (goods.length) {
         const before = this.stock.errors.length;
-        this.stock.post({ id: step.id, kind: 'delivery', date: step.date, time: step.time, warehouse: step.warehouse, lines: goods } as Step);
+        const orders = [...new Set(step.lines.map((l) => l.from?.step).filter((x): x is string => !!x))];
+        this.stock.post({ id: step.id, kind: 'delivery', date: step.date, time: step.time, warehouse: step.warehouse, lines: goods } as Step, orders);
         const err = this.stock.errors.slice(before).find((e) => e.step === step.id);
         if (err) return this.fail(step.id, err.message);
       }
+    }
+    const posted: Posted = { step, cancelled: false };
+    // an order that holds its goods firmly: what is free in the store now, all of it or (partial allowed) what there is
+    if (step.kind === 'sales_order' && step.reserve) {
+      if (!this.scenario.stockReservation) return this.fail(step.id, 'Holding stock for orders is switched off (Stock settings)');
+      const firm: number[] = [];
+      for (const [i, l] of step.lines.entries()) {
+        if (this.services.has(l.item)) { firm.push(0); continue; }
+        const have = this.stock.lastActive(l.item, step.warehouse, '9999-12-31 23:59:59')?.qtyAfter ?? 0;
+        const free = Math.max(0, have - this.firmHeld(l.item, step.warehouse, []) - firm.reduce((a, q, k) => a + (step.lines[k].item === l.item ? q : 0), 0));
+        if (free < l.qty && this.scenario.partialReservation === false) return this.fail(step.id, `Line ${i + 1}: only ${free} of ${l.item} free to hold`);
+        firm.push(Math.min(l.qty, free));
+      }
+      if (!firm.some((q) => q > 0)) return this.fail(step.id, 'Nothing free in the store to hold for this order');
+      posted.firm = firm;
+    }
+    this.posted.set(step.id, posted);
+    this.order.push(step.id);
+  }
+
+  /** Goods back on a delivery not yet invoiced (ERPNext return Delivery Note, 03 §6): in at the cost they left with,
+   *  Dr stock / Cr cost of goods sold; the delivery's lines count as returned and the order's as delivered less. */
+  private deliveryReturn(step: Extract<Doc, { kind: 'delivery_note' }>): void {
+    const dn = this.posted.get(step.returnOf!)!.step;
+    // ERPNext takes them back at the store's valuation rate at the time of the return (referee P09); with nothing in
+    // the store, at the cost they left with
+    const goods = step.lines.filter((l) => !this.services.has(l.item)).map((l) => {
+      const now = this.stock.lastActive(l.item, step.warehouse, `${step.date} ${step.time}`);
+      if (now && now.qtyAfter > 0) return { item: l.item, qty: l.qty, rate: now.valuationRate };
+      const rows = this.stock.rowsOf(dn.id).filter((r) => r.line === l.from!.line);
+      const qty = rows.reduce((a, r) => a - r.qty, 0), value = rows.reduce((a, r) => a - r.valueChange, 0);
+      return { item: l.item, qty: l.qty, rate: qty ? value / qty : 0 };
+    });
+    if (goods.length) {
+      const before = this.stock.errors.length;
+      this.stock.post({ id: step.id, kind: 'receipt', cogs: true, date: step.date, time: step.time, warehouse: step.warehouse, lines: goods } as Step);
+      const err = this.stock.errors.slice(before).find((e) => e.step === step.id);
+      if (err) return this.fail(step.id, err.message);
     }
     this.posted.set(step.id, { step, cancelled: false });
     this.order.push(step.id);
@@ -87,6 +129,8 @@ export class SalesBook {
     const child = this.childrenOf(target)[0];
     if (child) return this.fail(cancelId, `Cancel ${child} first: it was made from ${target}`);
     if (p.step.kind === 'delivery_note' && this.stock.posted.has(target)) this.stock.post({ id: `${cancelId}:stock`, kind: 'cancel', date, time, target } as Step);
+    // a delivery return cancelled takes its goods back out: refused when they were already used (the stock ledger says)
+    if (this.stock.errors.some((e) => e.step === `${cancelId}:stock`)) return this.fail(cancelId, this.stock.errors.find((e) => e.step === `${cancelId}:stock`)!.message);
     p.cancelled = true;
     this.order.push(cancelId);
   }
@@ -94,7 +138,7 @@ export class SalesBook {
   /** Live documents with a line made from this one. */
   private childrenOf(id: string): string[] {
     const out = new Set<string>();
-    for (const p of this.posted.values()) if (!p.cancelled && p.step.lines.some((l) => l.from?.step === id)) out.add(p.step.id);
+    for (const p of this.posted.values()) if (!p.cancelled && p.step.lines.some((l) => l.from?.step === id || (l as { pick?: string }).pick === id)) out.add(p.step.id);
     for (const inv of this.inv()) if (inv.lines.some((l) => l.from?.step === id)) out.add(inv.id);
     return [...out];
   }
@@ -127,6 +171,20 @@ export class SalesBook {
     if (!this.scenario.parties?.some((p) => p.key === step.customer && p.type === 'customer')) return `Unknown customer ${step.customer}`;
     if (!step.lines.length) return 'No lines';
     if (step.kind !== 'quotation' && !this.scenario.warehouses.includes(step.warehouse)) return 'Choose the store';
+    if (step.kind === 'pick_list' && step.lines.some((l) => !l.from)) return 'A pick list is made from an order';
+    if (step.kind === 'delivery_note' && step.returnOf) {
+      const dn = this.posted.get(step.returnOf);
+      if (!dn || dn.cancelled || dn.step.kind !== 'delivery_note' || (dn.step as { returnOf?: string }).returnOf) return `${step.returnOf} is not a live delivery note`;
+      if (dn.step.customer !== step.customer) return `${step.returnOf} is for another customer`;
+      for (const [i, l] of step.lines.entries()) {
+        if (l.from?.step !== step.returnOf) return `Line ${i + 1}: a return names the delivery note line it brings back`;
+        const dl = dn.step.lines[l.from.line];
+        if (!dl || dl.item !== l.item) return `Line ${i + 1}: no such line ${l.from.line + 1} on ${step.returnOf}`;
+        const left = dl.qty - this.returnedQty(step.returnOf, l.from.line);
+        if (l.qty > left + 1e-9) return `${l.item}: only ${left} left to return on ${step.returnOf}`;
+      }
+      return null;
+    }
     for (const [i, l] of step.lines.entries()) {
       if (!(l.qty > 0) || !(l.rate >= 0)) return `Line ${i + 1}: quantity above 0 and a price of 0 or more`;
       if (l.from) {
@@ -142,7 +200,7 @@ export class SalesBook {
   /** A line made from another document: the right kind, the same customer, still open, not more than is left. */
   private lineSource(step: Doc, l: MoneyLine, i: number): string | null {
     const src = this.posted.get(l.from!.step);
-    const want = step.kind === 'sales_order' ? 'quotation' : step.kind === 'delivery_note' ? 'sales_order' : null;
+    const want = step.kind === 'sales_order' ? 'quotation' : step.kind === 'delivery_note' || step.kind === 'pick_list' ? 'sales_order' : null;
     if (!src || src.cancelled || src.step.kind !== want) return `Line ${i + 1}: ${l.from!.step} is not a live ${want ?? 'source'}`;
     if (src.step.customer !== step.customer) return `Line ${i + 1}: ${l.from!.step} is for another customer`;
     const sl = src.step.lines[l.from!.line];
@@ -151,6 +209,27 @@ export class SalesBook {
     if (st === 'Closed' || st === 'On Hold' || st === 'Lost') return `${src.step.id} is ${st.toLowerCase()}`;
     // an expired quotation cannot become an order (ERPNext's default, 03 §3.3)
     if (src.step.kind === 'quotation' && src.step.validTill && src.step.validTill < step.date) return `${src.step.id} expired on ${src.step.validTill}`;
+    if (step.kind === 'pick_list') {
+      // picking: not more than is left to deliver and not picked yet (03 §4, over_picking_allowance); an order that
+      // holds its goods firmly is delivered without a pick list (ERPNext refuses it)
+      if (src.firm?.some((q) => q > 0)) return `${src.step.id} holds its goods firmly; deliver it without a pick list`;
+      // ERPNext adds up the whole order: everything picked on it (this pick list too) against everything ordered (P10)
+      const allow = 1 + (this.scenario.overPicking ?? 0) / 100;
+      const ordered = src.step.lines.reduce((a, x) => a + x.qty, 0);
+      const picked = src.step.lines.reduce((a, _, k) => a + this.pickedQty(src.step.id, k), 0)
+        + step.lines.filter((x) => x.from?.step === src.step.id).reduce((a, x) => a + x.qty, 0);
+      if (picked > ordered * allow + 1e-9) return `Total picked ${picked} is more than the ${ordered} ordered on ${src.step.id}`;
+      return null;
+    }
+    const pick = (l as { pick?: string }).pick;
+    if (pick) {
+      const pl = this.posted.get(pick);
+      if (!pl || pl.cancelled || pl.step.kind !== 'pick_list') return `Line ${i + 1}: ${pick} is not a live pick list`;
+      const pr = pl.step.lines.findIndex((x) => x.from?.step === l.from!.step && x.from.line === l.from!.line);
+      if (pr < 0) return `Line ${i + 1}: ${pick} did not pick that line`;
+      const done = this.pickDelivered(pick, pr);
+      if (done + l.qty > pl.step.lines[pr].qty + 1e-9) return `${l.item}: only ${pl.step.lines[pr].qty - done} picked and not delivered on ${pick}`;
+    }
     if (want === 'sales_order') {
       const allow = 1 + (this.scenario.overDelivery ?? 0) / 100;
       const done = this.deliveredQty(src.step.id, l.from!.line);
@@ -186,11 +265,66 @@ export class SalesBook {
   private orderedQty(q: string, line: number): number {
     return this.liveDocs('sales_order').reduce((s, o) => s + o.lines.filter((l) => l.from?.step === q && l.from.line === line).reduce((x, l) => x + l.qty, 0), 0);
   }
+  /** Delivered on an order line: delivery notes and stock-moving invoices made from it, less goods returned on those
+   *  delivery notes (ERPNext delivered_qty goes down with a delivery return). */
   deliveredQty(so: string, line: number): number {
     let q = 0;
-    for (const d of this.liveDocs('delivery_note')) for (const l of d.lines) if (l.from?.step === so && l.from.line === line) q += l.qty;
+    for (const d of this.liveDocs('delivery_note')) {
+      if ((d as { returnOf?: string }).returnOf) continue;
+      d.lines.forEach((l, i) => { if (l.from?.step === so && l.from.line === line) q += l.qty - this.returnedQty(d.id, i); });
+    }
     for (const inv of this.inv()) if (inv.updateStock) for (const l of inv.lines) if (l.from?.step === so && l.from.line === line) q += l.qty;
     return q;
+  }
+  /** Returned on a delivery note line (live delivery returns made from it). */
+  returnedQty(dn: string, line: number): number {
+    let q = 0;
+    for (const d of this.liveDocs('delivery_note')) if ((d as { returnOf?: string }).returnOf === dn) for (const l of d.lines) if (l.from?.line === line) q += l.qty;
+    return q;
+  }
+  /** Returned on an order line through its delivery notes. */
+  private returnedOnOrder(so: string, line: number): number {
+    let q = 0;
+    for (const d of this.liveDocs('delivery_note')) if (!(d as { returnOf?: string }).returnOf) d.lines.forEach((l, i) => { if (l.from?.step === so && l.from.line === line) q += this.returnedQty(d.id, i); });
+    return q;
+  }
+  /** Picked on an order line (live pick lists made from it). */
+  pickedQty(so: string, line: number): number {
+    let q = 0;
+    for (const p of this.liveDocs('pick_list')) for (const l of p.lines) if (l.from?.step === so && l.from.line === line) q += l.qty;
+    return q;
+  }
+  /** Delivered from a pick list line (delivery notes whose line names the pick list and the same order line). */
+  private pickDelivered(pick: string, line: number): number {
+    const pl = this.live(pick)!;
+    const f = pl.lines[line].from!;
+    let q = 0;
+    for (const d of this.liveDocs('delivery_note')) d.lines.forEach((l, i) => { if ((l as { pick?: string }).pick === pick && l.from?.step === f.step && l.from.line === f.line) q += l.qty - this.returnedQty(d.id, i); });
+    return q;
+  }
+  /** Goods still held firmly per order line: what was held, less what was delivered since (a closed or cancelled order
+   *  holds nothing). */
+  private firmLeft(p: Posted, i: number): number {
+    if (!p.firm || p.cancelled || p.manual === 'Closed') return 0;
+    return Math.max(0, Math.min(p.firm[i], p.step.lines[i].qty - this.deliveredQty(p.step.id, i)));
+  }
+  /** Goods held firmly in a store for orders other than `orders` (the stock ledger asks before goods leave). */
+  firmHeld(item: string, warehouse: string, orders: string[]): number {
+    let q = 0;
+    for (const p of this.posted.values()) {
+      if (!p.firm || p.step.warehouse !== warehouse || orders.includes(p.step.id)) continue;
+      p.step.lines.forEach((l, i) => { if (l.item === item) q += this.firmLeft(p, i); });
+    }
+    return q;
+  }
+  /** Goods held firmly per item + store (Bin reserved_stock). */
+  firm(): { item: string; warehouse: string; qty: number }[] {
+    const sum = new Map<string, number>();
+    for (const p of this.posted.values()) p.step.lines.forEach((l, i) => {
+      const q = this.firmLeft(p, i);
+      if (q > 0) sum.set(`${l.item}|${p.step.warehouse}`, (sum.get(`${l.item}|${p.step.warehouse}`) ?? 0) + q);
+    });
+    return [...sum].map(([k, qty]) => { const [item, warehouse] = k.split('|'); return { item, warehouse, qty }; });
   }
   /** Billed amount of the order or delivery note line an invoice line points at. */
   billedFor(ref: { step: string; line: number }): number {
@@ -219,6 +353,16 @@ export class SalesBook {
     const dl = d.lines[line];
     let direct = 0;
     for (const inv of this.inv()) for (const l of inv.lines) if (l.from?.step === dn && l.from.line === line) direct += amountOf(l);
+    // a return on an invoice made from this line lowers what the delivery note shows as billed (ERPNext, referee P12;
+    // the order's billed amount stays)
+    for (const cn of this.creditNotes()) {
+      const inv = this.inv().find((x) => x.id === cn.returnOf);
+      if (!inv) continue;
+      for (const r of cn.lines) {
+        const il = inv.lines.find((l) => l.item === r.item && l.from?.step === dn && l.from.line === line);
+        if (il) direct -= Math.min(amountOf(r), amountOf(il));
+      }
+    }
     if (!dl.from) return roundMoney(direct);
     // invoices made from the order line itself (not through a delivery note)
     let pool = 0;
@@ -247,10 +391,24 @@ export class SalesBook {
     const d = this.live(so)!;
     return pct(d.lines.reduce((s, l, i) => s + Math.min(this.deliveredQty(so, i), l.qty), 0), d.lines.reduce((s, l) => s + l.qty, 0));
   }
+  private perPicked(so: string): number {
+    const d = this.live(so)!;
+    return pct(d.lines.reduce((s, l, i) => s + Math.min(this.pickedQty(so, i), l.qty), 0), d.lines.reduce((s, l) => s + l.qty, 0));
+  }
+  private perReturned(dn: string): number {
+    const d = this.live(dn)!;
+    return pct(d.lines.reduce((s, l, i) => s + Math.min(this.returnedQty(dn, i), l.qty), 0), d.lines.reduce((s, l) => s + l.qty, 0));
+  }
+  private pickPerDelivered(pick: string): number {
+    const d = this.live(pick)!;
+    return pct(d.lines.reduce((s, l, i) => s + Math.min(this.pickDelivered(pick, i), l.qty), 0), d.lines.reduce((s, l) => s + l.qty, 0));
+  }
   private perBilled(id: string): number {
     const d = this.live(id)!;
     const billed = (i: number) => (d.kind === 'delivery_note' ? this.dnBilled(id, i) : this.billedAmount({ step: id, line: i }));
-    return pct(d.lines.reduce((s, l, i) => s + Math.min(billed(i), amountOf(l)), 0), d.lines.reduce((s, l) => s + amountOf(l), 0));
+    // what came back on a delivery return is not to be billed (ERPNext, referee P09)
+    const due = (l: MoneyLine, i: number) => (d.kind === 'delivery_note' ? roundMoney(lineRate(l) * Math.max(0, l.qty - this.returnedQty(id, i))) : amountOf(l));
+    return pct(d.lines.reduce((s, l, i) => s + Math.min(billed(i), due(l, i)), 0), d.lines.reduce((s, l, i) => s + due(l, i), 0));
   }
 
   private status(p: Posted): string {
@@ -264,7 +422,10 @@ export class SalesBook {
       return d.validTill && d.validTill < today() ? 'Expired' : 'Open';
     }
     if (p.manual) return p.manual;
+    if (d.kind === 'pick_list') { const pd = this.pickPerDelivered(d.id); return pd >= FULL ? 'Completed' : pd > 0 ? 'Partly Delivered' : 'Open'; }
     if (d.kind === 'delivery_note') {
+      if (d.returnOf) return 'Return';
+      if (this.perReturned(d.id) >= FULL) return 'Return Issued';
       const b = this.perBilled(d.id);
       return b >= FULL ? 'Completed' : b > 0 ? 'Partially Billed' : 'To Bill';
     }
@@ -284,13 +445,16 @@ export class SalesBook {
       // a cancelled document counts nothing (ERPNext shows 0 %, referee P05)
       const live = !p.cancelled;
       if (p.step.kind === 'quotation' && live) r.perOrdered = this.orderedPct(id);
-      if (p.step.kind === 'sales_order') { r.perDelivered = live ? this.perDelivered(id) : 0; r.perBilled = live ? this.perBilled(id) : 0; }
-      if (p.step.kind === 'delivery_note') r.perBilled = live ? this.perBilled(id) : 0;
+      if (p.step.kind === 'sales_order') { r.perDelivered = live ? this.perDelivered(id) : 0; r.perBilled = live ? this.perBilled(id) : 0; r.perPicked = live ? this.perPicked(id) : 0; }
+      if (p.step.kind === 'delivery_note') { r.perBilled = live && !p.step.returnOf ? this.perBilled(id) : 0; if (!p.step.returnOf) r.perReturned = live ? this.perReturned(id) : 0; }
+      if (p.step.kind === 'pick_list') r.perDelivered = live ? this.pickPerDelivered(id) : 0;
       const t = invoiceTotals(p.step.lines, p.step.tax, this.scenario.rounding !== false, p.step.discountAmount);
       r.totals = { netTotal: t.netTotal, vat: t.vat, grandTotal: t.grandTotal, roundedTotal: t.roundedTotal, discount: t.discount };
       if (live) r.lines = p.step.lines.map((_, i) => p.step.kind === 'quotation' ? { ordered: this.orderedQty(id, i) }
-        : p.step.kind === 'sales_order' ? { delivered: this.deliveredQty(id, i), billed: this.billedAmount({ step: id, line: i }) }
-        : { billed: this.dnBilled(id, i) });
+        : p.step.kind === 'sales_order' ? { delivered: this.deliveredQty(id, i), billed: this.billedAmount({ step: id, line: i }), picked: this.pickedQty(id, i),
+          returned: this.returnedOnOrder(id, i), ...(p.firm ? { held: this.firmLeft(p, i) } : {}) }
+        : p.step.kind === 'pick_list' ? { delivered: this.pickDelivered(id, i) }
+        : p.step.returnOf ? {} : { billed: this.dnBilled(id, i), returned: this.returnedQty(id, i) });
       out.push(r);
     }
     return out;
@@ -304,7 +468,8 @@ export class SalesBook {
       const so = p.step;
       so.lines.forEach((l, i) => {
         if (this.services.has(l.item)) return;
-        const left = Math.max(0, l.qty - this.deliveredQty(so.id, i));
+        // goods returned on a delivery are held for the order again unless the setting says not to
+        const left = Math.max(0, l.qty - this.deliveredQty(so.id, i) - (this.scenario.noHoldOnReturn ? this.returnedOnOrder(so.id, i) : 0));
         const k = `${l.item}|${so.warehouse}`;
         sum.set(k, (sum.get(k) ?? 0) + left);
       });
@@ -328,7 +493,7 @@ export class SalesBook {
         if (p.manual === 'Closed') continue;
         const t = invoiceTotals(d.lines, d.tax, this.scenario.rounding !== false, d.discountAmount);
         total += t.roundedTotal * (100 - this.perBilled(d.id)) / 100;
-      } else if (d.kind === 'delivery_note' && d.lines.every((l) => !l.from)) {
+      } else if (d.kind === 'delivery_note' && !d.returnOf && d.lines.every((l) => !l.from)) {
         const t = invoiceTotals(d.lines, d.tax, this.scenario.rounding !== false, d.discountAmount);
         total += t.grandTotal * (100 - this.perBilled(d.id)) / 100;
       }

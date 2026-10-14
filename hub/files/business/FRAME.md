@@ -73,6 +73,7 @@ Role = 'owner' | 'manager' | 'cashier' | 'storekeeper' | 'salesman' | 'accountan
 | `POST /api/business/steps` {step} | add a stock movement (Step without id; date/time default to now in Dar). Kept only if the engine accepts it, else 422 {error:'Not enough Rice 5kg in Main Store: 32 short'} → {step} |
 | `POST /api/business/steps/undo` {id} | undo a movement (adds a cancel step; refused like any step) → {step} |
 | `POST /api/business/preview` {step} | totals of a sale or bill being typed (VAT, discounts, rounding; nothing saved); for a sale also {credit:{owed, limit}} |
+| `GET /api/business/print/:id` | a document's printed page (phase 4e, `store/print.ts`): business and letter head, customer, lines (grouped if asked), the engine's totals, VAT per rate, amount in words (English/Swahili), payments, change, still owed, instalments, terms, footer; drawn by `shared/biz/print.js` (A4, 80/58 mm receipts). Sales, returns, quotations, orders, deliveries, payments, journals; 422 for other kinds |
 | `GET /api/business/books` | trial balance on real accounts {accounts:[{id,title,number,root_type,debit,credit,balance}], debit, credit, unset} (owner, manager, accountant) |
 | `GET /api/business/books/:account` | one account's entries, oldest first, with the running balance |
 | `GET /api/business/price?item=&party=&side=sell\|buy&date=` | {price:{rate, price_list} \| null}: the party's list, else its group's, else the company default; valid on the date |

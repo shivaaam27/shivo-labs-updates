@@ -97,6 +97,8 @@ export const api = {
   shifts: () => call('GET', '/shifts'),
   /** The till screen's start: {tills (full settings), products (codes, barcodes), methods}. */
   tillStart: () => call('GET', '/till'),
+  /** Everything a document's printed page shows (print.js lays it out). */
+  print: (id) => call('GET', `/print/${seg(id)}`),
 };
 
 /** Normalise the different shapes a list of definitions may come in to {type: def}. */

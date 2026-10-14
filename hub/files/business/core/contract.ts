@@ -13,7 +13,7 @@ export interface Line {
 
 /** A stock step. Dates are 'YYYY-MM-DD', times 'HH:MM:SS' (Africa/Dar_es_Salaam). */
 export type Step =
-  | { id: string; kind: 'receipt'; date: string; time: string; warehouse: string; lines: Line[] }                 // stock in without a supplier (opening, found stock)
+  | { id: string; kind: 'receipt'; date: string; time: string; warehouse: string; lines: Line[]; cogs?: boolean }   // stock in without a supplier (opening, found stock); cogs: goods a customer brought back on a delivery return (other side Cost of Goods Sold)
   | { id: string; kind: 'issue'; date: string; time: string; warehouse: string; lines: Line[] }                   // stock out to an expense (damage, own use)
   | { id: string; kind: 'transfer'; date: string; time: string; from: string; to: string; lines: Line[] }         // between stores/vans
   | { id: string; kind: 'count'; date: string; time: string; warehouse: string; lines: Required<Line>[]; opening?: boolean } // stock count: qty = counted, rate = valuation to use; opening: opening stock (Cr Temporary Opening, not Stock Adjustment)
@@ -23,7 +23,19 @@ export type Step =
   | { id: string; kind: 'cancel'; date: string; time: string; target: string }                                  // cancel an earlier step by id
   | MoneyStep
   | SellStep
-  | ShiftStep;
+  | ShiftStep
+  | TripStep;
+
+/** A delivery trip (phase 4d): a driver and a vehicle take delivery notes out, one stop each; stops are marked visited
+ *  as the van goes. Ours only: it books nothing, so the engine never sees it (store/trips.ts). */
+export type TripStep =
+  | { id: string; kind: 'delivery_trip'; date: string; time: string; driver: string; vehicle: string; distance?: number;
+      stops: { delivery_note: string; customer: string; address?: string; contact?: string; total?: number; note?: string }[] }
+  | { id: string; kind: 'trip_visit'; date: string; time: string; trip: string; stop: number; visited: boolean };
+
+/** Who sold a selling document (one salesman, 03 §1.2) and how a delivery travelled (driver, vehicle, transporter and
+ *  its receipt number, ERPNext Delivery Note transport fields). Ours: the engine ignores them. */
+export type SellExtras = { salesman?: string; driver?: string; vehicle?: string; transporter?: string; lrNo?: string; lrDate?: string };
 
 /** A till shift (phase 4c): opened with the money in the drawer, closed with a count per payment method. Ours only:
  *  it books nothing, so the engine never sees it (store/steps.ts leaves shifts and their undo out of the scenario).
@@ -100,19 +112,37 @@ export type MoneyStep = (
 // customer; a sales invoice line may bill an order line or a delivery note line (`from`). Counters (ordered,
 // delivered, billed) are always re-summed from the live documents, never added onto (03 §3.2).
 export type SellStep =
-  | { id: string; kind: 'quotation'; date: string; time: string; customer: string; validTill?: string; lines: MoneyLine[]; tax?: TaxSpec; discountAmount?: number }
+  | ({ id: string; kind: 'quotation'; date: string; time: string; customer: string; validTill?: string; lines: MoneyLine[]; tax?: TaxSpec; discountAmount?: number } & SellExtras)
+  // reserve: hold the goods firmly for this order (ERPNext Stock Reservation Entry): nothing else may take them
   | { id: string; kind: 'sales_order'; date: string; time: string; customer: string; deliveryDate?: string; warehouse: string; lines: MoneyLine[];
-      tax?: TaxSpec; creditOk?: boolean; discountAmount?: number }
-  | { id: string; kind: 'delivery_note'; date: string; time: string; customer: string; warehouse: string; lines: MoneyLine[]; tax?: TaxSpec; creditOk?: boolean;
-      discountAmount?: number }
+      tax?: TaxSpec; creditOk?: boolean; discountAmount?: number; reserve?: boolean } & SellExtras
+  // returnOf: goods coming back on a delivery not yet invoiced (ERPNext return Delivery Note); its lines point at the
+  // delivery note's lines (`from`). pick: a line delivered from a pick list (the pick list's id).
+  | { id: string; kind: 'delivery_note'; date: string; time: string; customer: string; warehouse: string; lines: (MoneyLine & { pick?: string })[]; tax?: TaxSpec; creditOk?: boolean;
+      discountAmount?: number; returnOf?: string } & SellExtras
+  // picking an order in the store (ERPNext Pick List): no stock moves, the order's lines count as picked
+  | { id: string; kind: 'pick_list'; date: string; time: string; customer: string; warehouse: string; lines: MoneyLine[] }
   // a user action on a quotation (Lost, Open) or a sales order / delivery note (Closed, On Hold, Open = reopen)
   | { id: string; kind: 'set_status'; date: string; time: string; target: string; status: 'Closed' | 'On Hold' | 'Open' | 'Lost' };
 
+// ---- printing (phase 4e; ours only: the engine and the referee ignore these) ----------------------------------------
+/** What a quotation, order, delivery note, sale, return, payment or journal may carry for its printed page
+ *  (store/print.ts checks and adds them; shared/biz/print.js prints them). Record ids are ours: `printHeading` a
+ *  print_heading, `letterHead` a letter_head, `terms` a terms record whose text was copied into `termsText` (and may
+ *  have been changed for this document). `language`: the print language (from the customer unless chosen). `contact`:
+ *  one of the customer's contact people by name; `shipTo`: where the goods go, when not the customer's own address.
+ *  `printWithoutAmount` (delivery notes): prices and totals are left off the paper. `groupSameItems`: lines of the same
+ *  product at the same price are printed as one. */
+export interface PrintExtra {
+  printHeading?: string; letterHead?: string; terms?: string; termsText?: string; language?: 'English' | 'Swahili';
+  contact?: string; shipTo?: string; printWithoutAmount?: boolean; groupSameItems?: boolean;
+}
+
 /** Status and progress of a selling document (ERPNext: status, per_ordered, per_delivered, per_billed). */
 export interface DocResult {
-  step: string; kind: string; status: string; perOrdered?: number; perDelivered?: number; perBilled?: number;
+  step: string; kind: string; status: string; perOrdered?: number; perDelivered?: number; perBilled?: number; perPicked?: number; perReturned?: number;
   /** Ours only (not compared): per line, how much was ordered / delivered (quantities) and billed (amount). */
-  lines?: { ordered?: number; delivered?: number; billed?: number }[];
+  lines?: { ordered?: number; delivered?: number; billed?: number; picked?: number; returned?: number; held?: number }[];
   /** Ours only (not compared): the document's totals (net, VAT, after the discount on the whole). */
   totals?: { netTotal: number; vat: number; grandTotal: number; roundedTotal: number; discount: number };
 }
@@ -134,6 +164,10 @@ export interface Scenario {
   oursDiffers?: { why: string; diffs: string[] }; // a deliberate difference from ERPNext: the exact difference lines expected
   overDelivery?: number; // % a delivery may go over the ordered quantity (ERPNext Stock Settings over_delivery_receipt_allowance, default 0)
   overBilling?: number;  // % billing may go over the ordered or delivered amount (Accounts Settings over_billing_allowance, default 0)
+  stockReservation?: boolean;   // orders may hold goods firmly (Stock Settings enable_stock_reservation, default off)
+  partialReservation?: boolean; // hold what there is when an order wants more (allow_partial_reservation, default on)
+  overPicking?: number;         // % a pick list may pick over the ordered quantity (over_picking_allowance, default 0)
+  noHoldOnReturn?: boolean;     // goods returned on a delivery are not held for the order again (Selling Settings dont_reserve_sales_order_qty_on_sales_return)
   noSaleBelowCost?: boolean; // refuse selling below the last purchase rate or the valuation rate (Selling Settings validate_selling_price, default off)
   steps: Step[];
 }
@@ -173,6 +207,8 @@ export interface Result {
   documents?: DocResult[];
   /** Stock held for open sales orders per item + store (ERPNext Bin reserved qty). */
   reserved?: { item: string; warehouse: string; qty: number }[];
+  /** Goods held firmly for orders per item + store (ERPNext Bin reserved_stock, Stock Reservation Entries). */
+  firm?: { item: string; warehouse: string; qty: number }[];
   /** Ours only (the referee does not compare it): every ledger row of every live step, with the account the document
    *  named (`ref`) and the party, so the books can be shown per real account. */
   entries?: Entry[];

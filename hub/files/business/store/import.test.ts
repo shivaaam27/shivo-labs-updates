@@ -25,8 +25,8 @@ test('parser: semicolon files (Excel in some languages) and no final newline', (
 test('headers map by label or key, in any case; duplicates and unknown columns are left out', () => {
   const cols = mapHeaders(getDef('product')!, ['CODE', 'Name', 'stock unit', 'Cost method', 'Colour', 'code']);
   assert.deepEqual(cols.map((c) => c.field), ['code', 'name', 'stock_unit', 'valuation_method', null, null]);
-  const cust = mapHeaders(getDef('customer')!, ['ID', 'Name', 'Area / route']);
-  assert.deepEqual(cust.map((c) => c.field), ['_name', 'name', 'area']);
+  const cust = mapHeaders(getDef('customer')!, ['ID', 'Name', 'Area', 'Route']);
+  assert.deepEqual(cust.map((c) => c.field), ['_name', 'name', 'area', 'route']);
 });
 
 let k: Kit;

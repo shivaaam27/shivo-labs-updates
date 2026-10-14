@@ -7,7 +7,7 @@ import type { AccountRole, MoneyAccount, MoneyLine, Step, TaxSpec } from '../cor
 import type { DB } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
-import { lineSources } from './sell.ts';
+import { lineSources, salesmanOf } from './sell.ts';
 
 const bad = (message: string): never => fail(422, message);
 const parse = (s: string): Data => { try { return JSON.parse(s) ?? {}; } catch { return {}; } };
@@ -273,6 +273,7 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
       if (sched) step.schedule = sched;
       lineSources(db, 'sales_invoice', input.lines, lines);
       checkSameRate(db, lines, role);
+      Object.assign(step, salesmanOf(db, input, c.data));
       const fromDelivery = lines.some((l) => l.from && (db.prepare('SELECT kind FROM steps WHERE id = ?').get(l.from.step) as { kind: string } | undefined)?.kind === 'delivery_note');
       const disc = wholeDiscount(db, input, lines);
       if (disc) step.discountAmount = disc;
@@ -501,12 +502,13 @@ export function ruleFor(db: DB, q: { item: unknown; party?: unknown; qty?: unkno
     for (let g = typeof id === 'string' ? id : null, n = 0; g && n < 20; n++) { out.push(g); g = (dataOf(db, type, g)?.parent as string | undefined) ?? null; }
     return out;
   };
-  const productGroups = groupsUp('product_group', product.group), customerGroups = groupsUp('customer_group', cust?.group);
+  const productGroups = groupsUp('product_group', product.group), customerGroups = groupsUp('customer_group', cust?.group), routes = groupsUp('route', cust?.route);
   const rules = (db.prepare("SELECT id, title, data FROM docs WHERE type = 'price_rule' AND deleted = 0").all() as { id: string; title: string; data: string }[])
     .map((r) => ({ id: r.id, title: r.title, d: parse(r.data) }))
     .filter(({ d }) => d.active !== false && (!given(d.valid_from) || String(d.valid_from) <= date) && (!given(d.valid_to) || String(d.valid_to) >= date)
       && (!given(d.price_list) || d.price_list === q.price_list) && qty >= (Number(d.min_qty) || 0) && (!given(d.max_qty) || Number(d.max_qty) === 0 || qty <= Number(d.max_qty))
-      && (d.for === 'Customer' ? d.customer === q.party : d.for === 'Customer group' ? customerGroups.includes(String(d.customer_group)) : true));
+      && (d.for === 'Customer' ? d.customer === q.party : d.for === 'Customer group' ? customerGroups.includes(String(d.customer_group))
+        : d.for === 'Route' ? routes.includes(String(d.route)) : true));
   const levels = [
     rules.filter(({ d }) => d.applies_to === 'Product' && d.product === q.item),
     rules.filter(({ d }) => d.applies_to === 'Product group' && productGroups.includes(String(d.product_group))),

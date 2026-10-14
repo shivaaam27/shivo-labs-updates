@@ -545,6 +545,18 @@ export class MoneyBook {
     return best === null ? null : (best as { rate: number }).rate;
   }
 
+  /** Live returns of sales invoices (credit notes): which invoice and which lines came back. */
+  creditNoteViews(): { returnOf: string; lines: MoneyLine[] }[] {
+    const out: { returnOf: string; lines: MoneyLine[] }[] = [];
+    for (const id of this.order) {
+      const p = this.posted.get(id);
+      if (!p || p.cancelled || p.step.kind !== 'credit_note') continue;
+      const orig = this.posted.get(p.step.against)?.step as Extract<MoneyStep, { kind: 'sales_invoice' }> | undefined;
+      out.push({ returnOf: p.step.against, lines: p.step.lines ?? orig?.lines ?? [] });
+    }
+    return out;
+  }
+
   /** Live sales invoices as the selling side sees them (for ordered / delivered / billed counters). */
   invoiceViews(): InvoiceView[] {
     const out: InvoiceView[] = [];
@@ -567,7 +579,8 @@ export class MoneyBook {
   private moveStock(id: string, step: { date: string; time: string }, dir: 'in' | 'out', warehouse: string | undefined, lines: MoneyLine[] | { item: string; qty: number; rate: number }[], t?: Totals): boolean {
     const before = this.stock.errors.length;
     const stockLines = lines.map((l, i) => ({ item: l.item, qty: l.qty, rate: t ? t.lines[i].net / l.qty : l.rate }));
-    this.stock.post({ id, kind: dir === 'out' ? 'delivery' : 'receipt', date: step.date, time: step.time, warehouse: warehouse!, lines: stockLines } as Step);
+    const orders = 'lines' in step ? [...new Set(((step as { lines: MoneyLine[] }).lines).map((l) => l.from?.step).filter((x): x is string => !!x))] : [];
+    this.stock.post({ id, kind: dir === 'out' ? 'delivery' : 'receipt', date: step.date, time: step.time, warehouse: warehouse!, lines: stockLines } as Step, orders);
     const err = this.stock.errors.slice(before).find((e) => e.step === id);
     if (err) { this.fail(id, err.message); return false; }
     return true;
