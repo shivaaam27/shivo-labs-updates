@@ -13,7 +13,7 @@ import {
 import { relayFor } from "./relay.mjs";
 import { cloudTurn, followCloud } from "./cloud.mjs";
 import { cliStatus, loginState, startWebLogin, cancelWebLogin, tokenLogin, logout as ghLogout, setIdentity } from "./cli.mjs";
-import { initSecrets, secretsReady, secretNames, listSecrets, setSecret, envFor, scrub, secretValue } from "./secrets.mjs";
+import { initSecrets, secretsReady, secretNames, listSecrets, setSecret, envFor, scrub, secretValue, protectValues, unprotectValues } from "./secrets.mjs";
 import { loadRules, decide, runHooks, settingsFiles } from "./rules.mjs";
 import { makeConnectors } from "./mcp.mjs";
 import { gitInfo, prStatus, fileDiff, addWorktree, removeWorktree } from "./git.mjs";
@@ -27,12 +27,51 @@ const dataDir = process.env.FABRA_DATA || join(homedir(), ".fabra-labs-ai");
 const sessionsDir = join(dataDir, "sessions");
 mkdirSync(sessionsDir, { recursive: true });
 
-// The key can be saved from the app's Settings; it lives only in this
-// Windows user's folder and is never sent back to the page in full.
+// The keys can be saved from the app's Settings; they live only in this Windows user's folder,
+// each one encrypted with Windows DPAPI (stored as "dpapi:<base64>", only this user on this PC can
+// unlock it), and are never sent back to the page in full. While the app runs they are kept unlocked in memory.
 const configFile = join(dataDir, "config.json");
-function loadConfig() {
+const SEALED = "dpapi:";
+const unlocked = new Map(); // "dpapi:..." -> key
+const keyPaths = (cfg) => [["apiKey"], ["research", "braveKey"], ...Object.keys(cfg.providers || {}).map((p) => ["providers", p, "key"])];
+const getAt = (o, path) => path.reduce((x, k) => x?.[k], o);
+const setAt = (o, path, v) => { const last = path.at(-1), parent = path.slice(0, -1).reduce((x, k) => x?.[k], o); if (parent) parent[last] = v; };
+function readRawConfig() {
   try { return JSON.parse(readFileSync(configFile, "utf8").replace(/^﻿/, "")); } catch { return {}; } // (a BOM from Notepad/PowerShell is fine)
 }
+function loadConfig() {
+  const cfg = readRawConfig();
+  for (const p of keyPaths(cfg)) { const v = getAt(cfg, p); if (typeof v === "string" && v.startsWith(SEALED)) setAt(cfg, p, unlocked.get(v) || ""); }
+  return cfg;
+}
+// Writes config.json with every key encrypted. If Windows can't encrypt (very unusual), the key is kept as before so nothing breaks.
+async function saveConfig(cfg) {
+  const out = JSON.parse(JSON.stringify(cfg)), todo = {};
+  const known = new Map([...unlocked].map(([sealed, plain]) => [plain, sealed]));
+  for (const [i, p] of keyPaths(out).entries()) {
+    const v = getAt(out, p);
+    if (typeof v !== "string" || !v || v.startsWith(SEALED)) continue;
+    if (known.has(v)) setAt(out, p, known.get(v)); else todo[i] = v;
+  }
+  if (Object.keys(todo).length) {
+    try {
+      const enc = await protectValues(todo), paths = keyPaths(out);
+      for (const [i, plain] of Object.entries(todo)) if (enc[i]) { const sealed = SEALED + enc[i]; unlocked.set(sealed, plain); setAt(out, paths[+i], sealed); }
+    } catch (e) { console.error("Keys couldn't be encrypted, kept as they were:", e.message); }
+  }
+  writeFileSync(configFile, JSON.stringify(out, null, 2));
+}
+// On start: unlock the saved keys, and encrypt any key an older version saved in plain text.
+await (async () => {
+  const raw = readRawConfig(), sealed = {};
+  for (const [i, p] of keyPaths(raw).entries()) { const v = getAt(raw, p); if (typeof v === "string" && v.startsWith(SEALED)) sealed[i] = v.slice(SEALED.length); }
+  if (Object.keys(sealed).length) {
+    try { const out = await unprotectValues(sealed); for (const [i, b64] of Object.entries(sealed)) if (typeof out[i] === "string") unlocked.set(SEALED + b64, out[i]); }
+    catch (e) { console.error("Saved keys couldn't be unlocked:", e.message); }
+  }
+  const plain = keyPaths(raw).some((p) => { const v = getAt(raw, p); return typeof v === "string" && v && !v.startsWith(SEALED); });
+  if (plain) await saveConfig(loadConfig());
+})();
 let apiKey = loadConfig().apiKey || process.env.ANTHROPIC_API_KEY || "";
 const maskKey = (k) => (k ? `sk-ant-…${k.slice(-4)}` : null);
 
@@ -264,7 +303,7 @@ app.post("/api/key", async (req, res) => {
   const key = String(req.body.key || "").trim();
   if (!key) {
     const cfg = loadConfig(); delete cfg.apiKey;
-    writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+    await saveConfig(cfg);
     apiKey = process.env.ANTHROPIC_API_KEY || "";
     return res.json({ ok: true, key: maskKey(apiKey) });
   }
@@ -278,7 +317,7 @@ app.post("/api/key", async (req, res) => {
       return res.status(400).json({ error: "Couldn't reach Anthropic to check the key. Are you online?" });
   }
   const cfg = loadConfig(); cfg.apiKey = key;
-  writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+  await saveConfig(cfg);
   apiKey = key;
   res.json({ ok: true, key: maskKey(apiKey) });
 });
@@ -328,7 +367,7 @@ app.get("/api/research", (_req, res) => res.json({
   depths: Object.fromEntries(Object.entries(DEPTHS).map(([k, v]) => [k, { label: v.label, note: v.note, uses: v.uses }])),
   brave: researchCfg().braveKey ? "…" + researchCfg().braveKey.slice(-4) : null,
 }));
-app.post("/api/research", (req, res) => {
+app.post("/api/research", async (req, res) => {
   const cfg = loadConfig(); cfg.research ||= {};
   if (req.body.depth !== undefined) {
     if (!DEPTHS[req.body.depth]) return res.status(400).json({ error: "Unknown depth." });
@@ -339,7 +378,7 @@ app.post("/api/research", (req, res) => {
     if (k && !/^[\w.\-]{16,200}$/.test(k)) return res.status(400).json({ error: "That doesn't look like a Brave Search key." });
     if (k) cfg.research.braveKey = k; else delete cfg.research.braveKey;
   }
-  writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+  await saveConfig(cfg);
   res.json({ ok: true });
 });
 const geminiLimits = makeGeminiLimits(join(dataDir, "gemini-limits.json"), { readFileSync, writeFileSync });
@@ -363,10 +402,10 @@ app.post("/api/providers", async (req, res) => {
   if (req.body.favorites) { // which of its models show in the model menu
     if (!cfg.providers[id]) return res.status(400).json({ error: "Add the key first." });
     cfg.providers[id].favorites = (Array.isArray(req.body.favorites) ? req.body.favorites : []).map(String).filter((m) => cfg.providers[id].models.includes(m)).slice(0, 12);
-    writeFileSync(configFile, JSON.stringify(cfg, null, 2)); return res.json({ ok: true });
+    await saveConfig(cfg); return res.json({ ok: true });
   }
   const key = String(req.body.key || "").trim();
-  if (!key) { delete cfg.providers[id]; writeFileSync(configFile, JSON.stringify(cfg, null, 2)); return res.json({ ok: true }); }
+  if (!key) { delete cfg.providers[id]; await saveConfig(cfg); return res.json({ ok: true }); }
   if (!/^[\w.\-:]{16,300}$/.test(key)) return res.status(400).json({ error: "That doesn't look like an API key." });
   let models;
   try { models = await listModels(id, key); } catch (e) { return res.status(400).json({ error: String(e.message || e) }); }
@@ -374,7 +413,7 @@ app.post("/api/providers", async (req, res) => {
   const old = cfg.providers[id]?.favorites || [];
   const keep = old.filter((m) => models.includes(m));
   cfg.providers[id] = { key, models, favorites: keep.length ? keep : id === "gemini" ? geminiDefaults(models) : [] };
-  writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+  await saveConfig(cfg);
   res.json({ ok: true, models });
 });
 

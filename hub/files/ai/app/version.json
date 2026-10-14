@@ -1,10 +1,6 @@
 {
-    "version":  "2.0.1",
-    "notes":  [
-                  "Cloud tasks: if the app closes, the PC sleeps or the connection drops while a cloud task works, it now picks the task up again by itself and shows everything it did, with its files.",
-                  "Cloud tasks: a task that stopped at its spending cap continues when you send a message (the cap is raised for you). Errors Anthropic is still retrying no longer stop the task, and running out of API credits says so plainly.",
-                  "Cloud tasks: every file the task makes is now downloaded (before, files that appeared a few seconds late were missed), and files with the same name no longer overwrite each other.",
-                  "Fixed: cloud chats that changed files could fail to open. Fixed: with no Claude key, cloud mode no longer quietly runs on the PC instead.",
-                  "Inside Shivo Labs, the hub\u0027s Settings can open these settings directly."
-              ]
+    "version": "2.0.2",
+    "notes": [
+        "Your AI keys (Claude, Gemini, OpenRouter, Groq, Brave) are now stored encrypted with Windows' own protection, like your other secrets. Keys saved by older versions are encrypted the first time this version starts; nothing to do."
+    ]
 }

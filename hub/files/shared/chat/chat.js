@@ -660,6 +660,16 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     m.querySelector('[data-n]').onclick = closeModal;
     m.querySelector('[data-y]').onclick = () => { closeModal(); fn(); };
   }
+  // for what cannot be undone: the button works only after typing DELETE
+  function typedConfirm(text, yes, fn) {
+    const m = modal(`<h3>${esc(text)}</h3><label class="ch-f"><span>Type DELETE to confirm</span><input id="chDelTxt" autocomplete="off" autocapitalize="characters"></label>
+      <div class="ch-acts"><button class="btn" data-n>Cancel</button><button class="btn pri danger" data-y disabled>${esc(yes)}</button></div>`, 'sm');
+    const inp = m.querySelector('#chDelTxt'), go = m.querySelector('[data-y]');
+    inp.oninput = () => (go.disabled = inp.value.trim().toUpperCase() !== 'DELETE');
+    m.querySelector('[data-n]').onclick = closeModal;
+    go.onclick = () => { const v = inp.value.trim(); closeModal(); fn(v); };
+    setTimeout(() => inp.focus(), 50);
+  }
   function lightbox(src, name) {
     const v = $('#chVeil'); v.hidden = false;
     v.innerHTML = `<div class="ch-light"><img src="${esc(src)}" alt=""><div class="ch-light-bar"><span>${esc(name)}</span><a class="ch-ib" href="${esc(src)}" download="${esc(name)}" target="_blank">${svg('down')}</a><button class="ch-ib" data-x>${svg('x')}</button></div></div>`;
@@ -805,6 +815,11 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
         <div class="ch-srow"><span class="ch-s-ic">${svg('arrow')}</span><span class="ch-row-l"><b>Server</b><small>${esc(base())}</small></span></div>
         <button class="ch-srow" id="chOut"><span class="ch-s-ic">${svg('out')}</span><span class="ch-row-l"><b>Sign out here</b></span>${svg('chev', 'ch-chev')}</button>
         <button class="ch-srow danger" id="chOutAll"><span class="ch-s-ic">${svg('out')}</span><span class="ch-row-l"><b>Sign out everywhere</b><small>Every device needs a new invite code</small></span>${svg('chev', 'ch-chev')}</button>
+      </div>
+      <div class="ch-sub">YOUR DATA</div>
+      <div class="ch-group">
+        ${owner ? `<button class="ch-srow danger" id="chClose"><span class="ch-s-ic">${svg('trash')}</span><span class="ch-row-l"><b>Close the team</b><small>Deletes every message, file and account for everyone. Cannot be undone</small></span>${svg('chev', 'ch-chev')}</button>`
+          : `<button class="ch-srow danger" id="chDelMe"><span class="ch-s-ic">${svg('trash')}</span><span class="ch-row-l"><b>Delete my account</b><small>Deletes your messages, files and profile. Cannot be undone</small></span>${svg('chev', 'ch-chev')}</button>`}
       `}
       </div>`, 'wide');
     const segVal = (id) => m.querySelector(`#${id} .on`)?.dataset.v;
@@ -814,6 +829,8 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     m.querySelector('#chNotify').onchange = (e) => { store.set('shivoChatNotify', e.target.checked); if (e.target.checked && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission(); };
     m.querySelector('#chOut').onclick = () => demo ? (closeModal(), signedOut()) : confirmBox('Sign out on this device?', 'Sign out', () => { closeModal(); signedOut(); });
     if (m.querySelector('#chOutAll')) m.querySelector('#chOutAll').onclick = () => confirmBox('Sign out on every device? You will need a new invite code to sign in again.', 'Sign out everywhere', async () => { await tryAct('signout'); signedOut(); });
+    if (m.querySelector('#chDelMe')) m.querySelector('#chDelMe').onclick = () => typedConfirm('Delete your account? Your messages, photos, files and profile are deleted for everyone. This cannot be undone.', 'Delete my account', async (confirm) => { if (await tryAct('account.delete', { confirm })) signedOut(); });
+    if (m.querySelector('#chClose')) m.querySelector('#chClose').onclick = () => typedConfirm('Close the team? Every message, file and account is deleted for everyone, and everyone is signed out. This cannot be undone.', 'Close and delete everything', async (confirm) => { if (await tryAct('team.close', { confirm })) signedOut(); });
     if (!admin) return;
     const showInv = async () => {
       try {
@@ -832,11 +849,12 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     m.querySelector('#chPeople').onclick = (e) => {
       const b = e.target.closest('[data-pu]'); if (!b) return;
       const u = user(b.dataset.pu);
-      const p = popup(b, `${owner ? `<button data-k="role">${svg('star')}${u.role === 'admin' ? 'Remove as admin' : 'Make admin'}</button>` : ''}<button data-k="rm" class="danger">${svg('trash')}Remove from the team</button>`, 'ch-menu');
+      const p = popup(b, `${owner ? `<button data-k="role">${svg('star')}${u.role === 'admin' ? 'Remove as admin' : 'Make admin'}</button>` : ''}<button data-k="rm" class="danger">${svg('trash')}Remove from the team</button><button data-k="erase" class="danger">${svg('trash')}Remove and delete their data</button>`, 'ch-menu');
       p.onclick = (ev) => {
         const k = ev.target.closest('[data-k]')?.dataset.k; if (!k) return; closePop();
         if (k === 'role') tryAct('user.role', { user: u.id, role: u.role === 'admin' ? 'member' : 'admin' }, 'Done').then(() => setTimeout(openSettings, 400));
         if (k === 'rm') confirmBox(`Remove ${u.name} from the team? They are signed out and leave every group. Their messages stay.`, 'Remove', () => tryAct('user.remove', { user: u.id }, `${u.name} removed`));
+        if (k === 'erase') typedConfirm(`Remove ${u.name} and delete their messages, photos and files for everyone? Use this when they ask for their data to be deleted. This cannot be undone.`, 'Remove and delete', () => tryAct('user.remove', { user: u.id, erase: true }, `${u.name} removed and their data deleted`));
       };
     };
   }

@@ -22,6 +22,10 @@ function ps(script, input) {
 const PROTECT = `Add-Type -AssemblyName System.Security; $j = [Console]::In.ReadToEnd() | ConvertFrom-Json; $o = @{}; foreach ($p in $j.PSObject.Properties) { $b = [Text.Encoding]::UTF8.GetBytes([string]$p.Value); $o[$p.Name] = [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect($b, $null, 'CurrentUser')) }; $o | ConvertTo-Json -Compress`;
 const UNPROTECT = `Add-Type -AssemblyName System.Security; $j = [Console]::In.ReadToEnd() | ConvertFrom-Json; $o = @{}; foreach ($p in $j.PSObject.Properties) { try { $b = [Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String([string]$p.Value), $null, 'CurrentUser'); $o[$p.Name] = [Text.Encoding]::UTF8.GetString($b) } catch { } }; $o | ConvertTo-Json -Compress`;
 
+// The same Windows protection for other values (the AI provider keys in config.json): {name: text} <-> {name: base64}.
+export const protectValues = async (obj) => JSON.parse((await ps(PROTECT, JSON.stringify(obj))).trim() || "{}");
+export const unprotectValues = async (obj) => JSON.parse((await ps(UNPROTECT, JSON.stringify(obj))).trim() || "{}");
+
 const readStore = () => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } };
 
 export function initSecrets(path) {
