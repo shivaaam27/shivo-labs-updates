@@ -288,12 +288,16 @@ export function mountStock(el, kit, { action = null, tab: tab0 = null, records =
       const a = s.kind === 'cancel' ? UNDONE : ACT[s.kind] || { label: s.label || s.kind, icon: I.file };
       const my = rows.filter((r) => r.step === s.id);
       const where = s.kind === 'transfer' ? `${storeTitle(s.from)} → ${storeTitle(s.to)}` : s.warehouse ? storeTitle(s.warehouse) : '';
-      const lines = s.kind === 'landed_cost' ? `Extra cost ${fmt(s.amount)} on ${esc(s.receipt)}, shared by ${s.distribute === 'qty' ? 'quantity' : 'amount'}` : s.lines ? s.lines.map((l) => `${qty(l.qty)} × ${esc(itemTitle(l.item))}${l.rate && s.kind !== 'count' ? ` @ ${fmt(l.rate)}` : ''}`).join(', ')
+      const lines = s.kind === 'landed_cost' ? (s.charges?.length ? `${s.charges.length} cost line${s.charges.length === 1 ? '' : 's'}, ${fmt(s.amount)} into the goods of ${esc((s.receipts || [s.receipt]).join(', '))}`
+        : `Extra cost ${fmt(s.amount)} on ${esc(s.receipt)}, shared by ${s.distribute === 'qty' ? 'quantity' : 'amount'}`) : s.lines ? s.lines.map((l) => `${qty(l.qty)} × ${esc(itemTitle(l.item))}${l.rate && s.kind !== 'count' ? ` @ ${fmt(l.rate)}` : ''}`).join(', ')
         : `${esc(ACT[target?.kind]?.label || target?.label || 'Movement')}${target ? ` of ${esc(stamp(target))}` : ''}`;
       const gone = cancelled.has(s.id);
+      // goods arrived (or a bill with goods) with extra cost on it: the landed cost per unit of each line
+      const landed = (result?.landed || []).filter((x) => x.receipt === s.id);
+      const lc = landed.length ? `<div class="bz-asl">${landed.map((x) => `<span>${esc(itemTitle(x.item))}: landed cost ${fmt(x.perUnit)} per unit (${fmt(x.rate)} + ${fmt(x.extra)} extra)</span>`).join('')}</div>` : '';
       return `<div class="bz-arow${err ? ' bad' : ''}${gone ? ' gone' : ''}"><span class="bz-ic sm">${svg(a.icon)}</span>
         <div class="bz-am"><b>${esc(a.label)}</b> <small>${[where, s.by ? names.get(s.by) : ''].filter(Boolean).map(esc).join(' · ')}</small><div>${lines}</div>
-          ${err ? `<div class="bz-err">${esc(plain(err.message))}</div>` : my.length ? `<div class="bz-asl">${my.map((r) => `<span>${esc(itemTitle(r.item))} @ ${esc(storeTitle(r.warehouse))}: ${r.qty > 0 ? '+' : ''}${qty(r.qty)} → ${qty(r.qtyAfter)} · ${r.valueChange >= 0 ? '+' : '−'}${fmt(Math.abs(r.valueChange))}</span>`).join('')}</div>` : ''}</div>
+          ${err ? `<div class="bz-err">${esc(plain(err.message))}</div>` : my.length ? `<div class="bz-asl">${my.map((r) => `<span>${esc(itemTitle(r.item))} @ ${esc(storeTitle(r.warehouse))}: ${r.qty > 0 ? '+' : ''}${qty(r.qty)} → ${qty(r.qtyAfter)} · ${r.valueChange >= 0 ? '+' : '−'}${fmt(Math.abs(r.valueChange))}</span>`).join('')}</div>` : ''}${lc}</div>
         <div class="bz-ar"><small>${esc(stamp(s))}</small>${s.kind !== 'cancel' && !err && !gone && canUndo ? `<button class="tbtn" data-undo="${esc(s.id)}">${svg(I.undo)}Undo</button>` : gone ? '<small>undone</small>' : ''}</div></div>`;
     }).join('')}</section>${total > steps.length ? `<p class="bz-note">Showing the latest ${qty(steps.length)} of ${qty(total)} movements.</p>` : ''}`;
   }

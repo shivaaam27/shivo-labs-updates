@@ -31,6 +31,7 @@ const DEFAULTS: Partial<Record<AccountRole, { field?: string; type?: string; nam
   write_off: { field: 'write_off_account', name: 'Write Off' },
   temporary_opening: { field: 'opening_account', type: 'Temporary' },
   capital: { type: 'Equity' },
+  exchange_gain_loss: { field: 'exchange_gain_loss_account', type: 'Exchange Gain/Loss' },   // foreign currency (phase 5b)
 };
 const SALES_SIDE = new Set(['sales_invoice', 'credit_note']);
 
@@ -77,7 +78,7 @@ function resolver(db: DB) {
 const ROLE_WORDS: Record<string, string> = {
   cash: 'cash', bank: 'bank', mobile_money: 'mobile money', receivable: 'debtors', payable: 'creditors', income: 'sales', expense: 'expenses',
   cost_of_goods_sold: 'cost of goods sold', stock: 'stock in hand', stock_adjustment: 'stock adjustment', stock_received_not_billed: 'stock received, not billed',
-  expenses_in_valuation: 'freight and landed costs', round_off: 'round off', write_off: 'write off', temporary_opening: 'opening balances', capital: 'capital', vat: 'VAT', other: 'other',
+  expenses_in_valuation: 'freight and landed costs', round_off: 'round off', write_off: 'write off', temporary_opening: 'opening balances', capital: 'capital', vat: 'VAT', exchange_gain_loss: 'exchange gain or loss', other: 'other',
 };
 export const unsetTitle = (id: string) => `Not set up: ${ROLE_WORDS[id.slice(6)] ?? id.slice(6)} (choose an account in Setup)`;
 

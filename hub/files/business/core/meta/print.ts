@@ -27,18 +27,18 @@ export const terms: DocDef = {
   type: 'terms', label: 'Terms and conditions', plural: 'Terms and conditions', module: 'setup',
   icon: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 12h6M10 15h6M10 18h4"/>',
   title: 'name',
-  description: 'Terms printed at the bottom of quotations, orders, deliveries and invoices: payment, delivery, returns.',
+  description: 'Terms printed at the bottom of quotations, orders, deliveries, invoices and purchase orders: payment, delivery, returns.',
   naming: { by: 'field', field: 'name' },
   fields: [
     { key: 'name', label: 'Name', type: 'text', required: true, unique: true, search: true, help: 'E.g. Wholesale terms, Cash sale terms.' },
     { key: 'text', label: 'Terms', type: 'longtext', required: true,
       help: 'As printed. Copied onto each document when it is made, where it can still be changed for that document.' },
     { key: 'selling', label: 'For selling documents', type: 'check', default: true, help: 'Offered on quotations, orders, deliveries and sales.' },
-    { key: 'buying', label: 'For buying documents', type: 'check', default: false, soon: 'Phase 5 (Buy): terms on purchase orders and supplier bills' },
+    { key: 'buying', label: 'For buying documents', type: 'check', default: false, help: 'Offered on stock requests, supplier quotations, purchase orders, goods arrived and supplier bills.' },
     { key: 'active', label: 'Active', type: 'check', default: true },
   ],
   sections: [{ label: 'Terms and conditions', fields: ['name', 'selling', 'buying', 'active', 'text'], columns: 2 }],
-  list: { columns: ['name', 'selling', 'buying', 'active'], sort: 'name', filters: ['selling', 'active'] },
+  list: { columns: ['name', 'selling', 'buying', 'active'], sort: 'name', filters: ['selling', 'buying', 'active'] },
   roles: { read: ALL, write: ['manager'], delete: ['manager'] },
 };
 

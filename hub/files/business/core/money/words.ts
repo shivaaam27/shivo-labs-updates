@@ -60,10 +60,22 @@ export function swahiliWords(n: number): string {
   return groups.map((g, i) => (i && g.small ? `na ${g.text}` : g.text)).join(', ');
 }
 
-/** An amount of money in words, with cents if any; negative amounts (returns) are said as their size. */
-export function amountInWords(amount: number, language: Language = 'English'): string {
+/** Foreign currencies by name (phase 5b); any other is said by its code. */
+const NAMES: Record<string, { en: string; sw: string }> = {
+  USD: { en: 'US Dollars', sw: 'Dola za Kimarekani' }, EUR: { en: 'Euros', sw: 'Yuro' }, GBP: { en: 'Pounds Sterling', sw: 'Pauni za Uingereza' },
+  KES: { en: 'Kenya Shillings', sw: 'Shilingi za Kenya' }, UGX: { en: 'Uganda Shillings', sw: 'Shilingi za Uganda' },
+};
+
+/** An amount of money in words, with cents if any; negative amounts (returns) are said as their size. `currency`: the
+ *  document's (TZS unless it is in another one). */
+export function amountInWords(amount: number, language: Language = 'English', currency = 'TZS'): string {
   const total = Math.round(Math.abs(Number(amount) || 0) * 100);
   const whole = Math.floor(total / 100), cents = total % 100;
+  if (currency !== 'TZS') {
+    const n = NAMES[currency] ?? { en: currency, sw: currency };
+    if (language === 'Swahili') return `${n.sw} ${swahiliWords(whole)}${cents ? ` na senti ${swahiliWords(cents)}` : ''} tu`;
+    return `${n.en} ${englishWords(whole)}${cents ? ` and ${englishWords(cents)} ${cents === 1 ? 'Cent' : 'Cents'}` : ''} Only`;
+  }
   if (language === 'Swahili') return `Shilingi za Kitanzania ${swahiliWords(whole)}${cents ? ` na senti ${swahiliWords(cents)}` : ''} tu`;
   return `Tanzanian Shillings ${englishWords(whole)}${cents ? ` and ${englishWords(cents)} ${cents === 1 ? 'Cent' : 'Cents'}` : ''} Only`;
 }

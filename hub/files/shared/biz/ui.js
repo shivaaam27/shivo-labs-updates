@@ -50,6 +50,8 @@ const nf0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 const nf2 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const nf3 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
 export const fmt = (n) => (n === null || n === undefined || n === '' || isNaN(n) ? '' : nf0.format(Math.round(Number(n))));
+/** A price: whole shillings stay whole, a price with cents (a USD price) keeps them. */
+export const price = (n) => (n === null || n === undefined || n === '' || isNaN(n) ? '' : nf2.format(Math.round(Number(n) * 100) / 100));
 export const money = (n) => (n === null || n === undefined || n === '' || isNaN(n) ? '' : 'TZS ' + nf2.format(Number(n)));
 export const qty = (n) => (n === null || n === undefined || n === '' || isNaN(n) ? '' : nf3.format(Number(n)));
 export const num = (s) => {

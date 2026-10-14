@@ -4,7 +4,7 @@
 // come from the server's own VAT and discount rules (/preview) and prices from its price rules (/price), so the
 // screen and the books always agree. Same parts as every other screen.
 import { enhanceSelects } from '../select.js';
-import { esc, svg, I, modal, busy, errText, fmt, qty, num, debounce, confirmBox } from './ui.js';
+import { esc, svg, I, modal, busy, errText, fmt, qty, num, debounce, confirmBox, price } from './ui.js';
 import { makeField } from './fields.js';
 import { PRINTABLE, printDoc, printFrom, printOptions } from './print.js';
 
@@ -55,6 +55,29 @@ function wireSwitch(el, onChange) {
 }
 
 /** mountMoney(el, kit, { module, action, records(el) }) → leave() */
+/** Foreign currency (phase 5b): for a customer or supplier kept in another currency, the document's currency and its
+ *  exchange rate (filled from Money > Exchange rates for the date, editable). Hidden for TZS. */
+export function fxBox(kit, box, party, side, dateOf, onChange) {   // also used by buy.js
+  let cur = 'TZS', typed = false, seq = 0;
+  box.innerHTML = '<div class="bz-fld"><label class="bz-lbl" for="bzMFxRate"></label><input class="bz-in n" id="bzMFxRate" inputmode="decimal" autocomplete="off"><small class="bz-muted" id="bzMFxNote"></small></div>';
+  const inp = box.querySelector('input'), lab = box.querySelector('label'), note = box.querySelector('small');
+  inp.oninput = () => { typed = true; onChange(); };
+  async function refresh() {
+    const my = ++seq;
+    await Promise.resolve();   // after the form that uses it is set up
+    const p = party();
+    const r = p ? await kit.api.rate(p, side, dateOf() || undefined).catch(() => null) : null;
+    if (my !== seq) return;
+    cur = r?.currency || 'TZS';
+    box.hidden = cur === 'TZS';
+    lab.textContent = `TZS for 1 ${cur}`;
+    if (!typed) inp.value = r?.rate ? String(r.rate) : '';
+    note.textContent = cur === 'TZS' ? '' : r?.rate ? `Kept in ${cur}: amounts below are in ${cur}. Rate of ${r.date}; change it if the bank's differs.` : `Kept in ${cur}: no rate for this date yet, type it.`;
+    onChange();
+  }
+  return { refresh, currency: () => cur, get: () => (cur === 'TZS' ? {} : { currency: cur, ...(Number(inp.value) > 0 ? { exchange_rate: Number(inp.value) } : {}) }) };
+}
+
 export function mountMoney(el, kit, { module = 'money', action = null, records = null } = {}) {
   let alive = true, tab = TABS[module][0][0], steps = [], result = null, titles = {}, methods = [], stores = [], mainStore = null, books = null, company = {};
   const seeBooks = ['owner', 'manager', 'accountant'].includes(kit.user?.role);   // like the server's BOOK_ROLES
@@ -702,11 +725,11 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     // selling documents: heading, letter head and terms for the printed page (print.js)
     const printing = sale ? printOptions(kit, kind) : null;
     const party = makeField({ key: 'party', label: sale ? 'Customer' : 'Supplier', type: 'link', to: sale ? 'customer' : 'supplier', required: true, filter: { active: true } }, pre.party ?? null,
-      { api: kit.api, defs: kit.defs, titleOf: kit.titleOf, onPick: () => { priceAll(true); if (sale) exemptOf(); printing?.forCustomer(party.get()); preview(); } });
+      { api: kit.api, defs: kit.defs, titleOf: kit.titleOf, onPick: () => { fx.refresh(); if (sale) exemptOf(); printing?.forCustomer(party.get()); } });
     body.append(party.el);
     const receipts = sale ? [] : steps.filter((s) => s.kind === 'purchase_receipt' && !s.undone && !steps.some((b) => b.kind === 'purchase_invoice' && b.receipt === s.id && !b.undone));
     body.insertAdjacentHTML('beforeend', `
-      ${dateIn('bzMDate')}
+      ${dateIn('bzMDate')}<div class="wide" id="bzMFx" hidden></div>
       ${kind === 'quote' ? field('bzMValid', 'Valid till', '<input class="bz-in" type="date" id="bzMValid">') : kind === 'order' ? field('bzMDeliv', 'Deliver by', '<input class="bz-in" type="date" id="bzMDeliv">') : ''}
       ${sale ? `<div id="bzMSm"></div>` : ''}
       ${kind === 'order' && company.stock_reservation === true ? sw('bzMHold', 'Hold the stock firmly for this order', false, '') : ''}
@@ -736,6 +759,11 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     const $d = (s) => m.box.querySelector(s);
     enhanceSelects(body);
     if (printing) { body.querySelector('.bz-formerr').before(printing.el); if (pre.party) printing.forCustomer(pre.party); }
+    // a customer or supplier kept in USD (or another currency): the document is in it, at its rate (fxBox)
+    const fx = fxBox(kit, $d('#bzMFx'), () => party.get(), sale ? 'sell' : 'buy', () => $d('#bzMDate').value, () => {
+      $d('label[for="bzMDisc"]').textContent = `Discount on the whole ${sale ? 'sale' : 'bill'} (${fx.currency()})`;
+      priceAll(true); preview();
+    });
     const vatOn = wireSwitch($d('#bzMVat'), (on) => { if (!sale) $d('#bzMIncl').disabled = !on; preview(); });
     const holdOn = $d('#bzMHold') ? wireSwitch($d('#bzMHold')) : () => false;
     const salesman = sale ? makeField({ key: 'salesman', label: 'Salesman', type: 'link', to: 'salesman', filter: { active: true }, help: 'Empty: the customer\'s own salesman.' }, null,
@@ -754,7 +782,8 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     const inclOn = sale ? vatOn : wireSwitch($d('#bzMIncl'), () => preview());
     if (!sale) $d('#bzMIncl').disabled = true;
     $d('#bzMDisc').oninput = () => preview();
-    $d('#bzMDate').onchange = () => { priceAll(true); preview(); };
+    $d('#bzMDate').onchange = () => fx.refresh();
+    if (pre.party) fx.refresh();
     const lines = [];
     function addLine(item = null, q = 1, rate = '', disc = '') {
       const row = document.createElement('div');
@@ -842,8 +871,9 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       if (!item) return;
       const fillPrice = !line.ri.value || (refresh && line.auto);
       try {
-        const r = await kit.api.price(item, party.get() || undefined, sale ? 'sell' : 'buy', $d('#bzMDate').value || undefined, num(line.qi.value) || 1);
-        if (r?.price && fillPrice) { line.ri.value = fmt(r.price.rate); line.auto = true; line.base = r.price.rate; }
+        const f = fx.get();
+        const r = await kit.api.price(item, party.get() || undefined, sale ? 'sell' : 'buy', $d('#bzMDate').value || undefined, num(line.qi.value) || 1, undefined, f.currency, f.exchange_rate);
+        if (r?.price && fillPrice) { line.ri.value = price(r.price.rate); line.auto = true; line.base = r.price.rate; }
         line.ri.title = r?.price?.last ? `Last paid ${fmt(r.price.last.rate ?? r.price.rate)} on ${day(r.price.last.date)} (${r.price.last.step})` : '';
         // a pricing rule that fits this line; only on lines priced here (a price typed by hand is kept)
         const rule = r?.rule;
@@ -851,12 +881,12 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
         if (sale && rule?.error) line.row.insertAdjacentHTML('beforeend', `<small class="bz-rule bz-ferr">${esc(rule.error)}</small>`);
         if (sale && line.auto && rule && !rule.error) {
           const base = line.base ?? num(line.ri.value);
-          if (rule.action === 'Fixed price') { line.ri.value = fmt(rule.value); line.di.value = ''; }
-          else if (rule.action === 'Discount %') { line.ri.value = fmt(base); line.di.value = String(rule.value); }
-          else { line.ri.value = fmt(Math.max(0, base - rule.value)); line.di.value = ''; }
+          if (rule.action === 'Fixed price') { line.ri.value = price(rule.value); line.di.value = ''; }
+          else if (rule.action === 'Discount %') { line.ri.value = price(base); line.di.value = String(rule.value); }
+          else { line.ri.value = price(Math.max(0, base - rule.value)); line.di.value = ''; }
           line.rule = rule.rule;
           line.row.insertAdjacentHTML('beforeend', `<small class="bz-rule bz-muted">Pricing rule: ${esc(rule.title)}</small>`);
-        } else if (sale && line.auto && line.rule && !rule) { line.ri.value = fmt(line.base ?? num(line.ri.value)); line.di.value = ''; line.rule = null; }
+        } else if (sale && line.auto && line.rule && !rule) { line.ri.value = price(line.base ?? num(line.ri.value)); line.di.value = ''; line.rule = null; }
         preview();
       } catch {}
     }
@@ -865,7 +895,7 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     function draft() {
       const ls = lines.map((l) => ({ item: l.prod.get(), qty: num(l.qi.value), rate: num(l.ri.value), ...(num(l.di.value) ? { discount: num(l.di.value) } : {}),
         ...(l.acc?.get() ? { account: l.acc.get() } : {}) })).filter((l) => l.item);
-      const base = { kind: { sale: 'sales_invoice', quote: 'quotation', order: 'sales_order', dnote: 'delivery_note', bill: 'purchase_invoice' }[kind], lines: ls, date: $d('#bzMDate').value, discount_amount: num($d('#bzMDisc').value) || undefined, remarks: $d('#bzMNote').value.trim() || undefined, ...(printing ? printing.get() : {}) };
+      const base = { kind: { sale: 'sales_invoice', quote: 'quotation', order: 'sales_order', dnote: 'delivery_note', bill: 'purchase_invoice' }[kind], lines: ls, date: $d('#bzMDate').value, discount_amount: num($d('#bzMDisc').value) || undefined, remarks: $d('#bzMNote').value.trim() || undefined, ...(printing ? printing.get() : {}), ...fx.get() };
       const sm = salesman?.get() ? { salesman: salesman.get() } : {};
       if (kind === 'quote') return { ...base, ...sm, customer: party.get(), prices_include_vat: vatOn(), vat: !noVat(), valid_till: $d('#bzMValid').value || undefined };
       if (kind === 'order') return { ...base, ...sm, customer: party.get(), warehouse: $d('#bzMStore').value, prices_include_vat: vatOn(), vat: !noVat(), delivery_date: $d('#bzMDeliv').value || undefined,
@@ -892,7 +922,8 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       const after = credit ? credit.owed + t.roundedTotal - paidNow() : 0;
       $d('#bzMTot').innerHTML = t ? `${t.discount ? `<div class="bz-mrow"><span>Discount on the whole</span><span>− ${cents(t.discount)}</span></div>` : ''}
         <div class="bz-mrow"><span>Before VAT</span><span>${cents(t.netTotal)}</span></div><div class="bz-mrow"><span>VAT</span><span>${cents(t.vat)}</span></div>
-        <div class="bz-mrow big"><span>Total</span><span>${tzs(t.roundedTotal)}</span></div>
+        <div class="bz-mrow big"><span>Total</span><span>${t.currency ? `${esc(t.currency.code)} ${cents(t.roundedTotal)}` : tzs(t.roundedTotal)}</span></div>
+        ${t.currency ? `<div class="bz-mrow"><span>In TZS (1 ${esc(t.currency.code)} = ${fmt(t.currency.rate)})</span><span>${tzs(t.currency.roundedTotal)}</span></div>` : ''}
         ${credit ? `<div class="bz-mrow"><span>Owes now · credit limit</span><span>${fmt(credit.owed)} · ${fmt(credit.limit)}${after > credit.limit + 0.004 && t.roundedTotal - paidNow() > 0.004 ? ' <span class="bz-st bad">over the limit</span>' : ''}</span></div>` : ''}`
         : `<p class="bz-note">${esc(problem || 'Choose who and add products to see the total.')}</p>`;
       if (paying) drawChange();
@@ -1015,9 +1046,9 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     const body = document.createElement('form');
     body.className = 'bz-grid c2 bz-money'; body.noValidate = true;
     const party = makeField({ key: 'party', label: into ? 'Customer' : 'Supplier', type: 'link', to: into ? 'customer' : 'supplier', required: true }, pre.party ?? null,
-      { api: kit.api, defs: kit.defs, titleOf: kit.titleOf, onPick: () => drawOpen(true) });
+      { api: kit.api, defs: kit.defs, titleOf: kit.titleOf, onPick: () => { fx.refresh(); drawOpen(true); } });
     body.append(party.el);
-    body.insertAdjacentHTML('beforeend', `${dateIn('bzMDate')}${methodSel('bzMPm', into ? 'Received by' : 'Paid by', (methods.find((x) => x.name === 'M-Pesa') || methods.find((x) => x.type === 'Mobile money'))?.id)}
+    body.insertAdjacentHTML('beforeend', `${dateIn('bzMDate')}<div class="wide" id="bzMFx" hidden></div>${methodSel('bzMPm', into ? 'Received by' : 'Paid by', (methods.find((x) => x.name === 'M-Pesa') || methods.find((x) => x.type === 'Mobile money'))?.id)}
       ${field('bzMAmt', 'Amount (TZS)', '<input class="bz-in n" id="bzMAmt" inputmode="decimal">')}
       ${textIn('bzMRef', 'Reference', '', 'M-Pesa code, cheque or bank slip number')}${textIn('bzMNote', 'Note')}
       ${field('bzMChg', into ? 'Charges taken off (TZS)' : 'Charges paid on top (TZS)', '<input class="bz-in n" id="bzMChg" inputmode="decimal" placeholder="0">')}<div id="bzMChgAcc"></div>
@@ -1029,6 +1060,14 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
     enhanceSelects(body);
     $d('#bzMAmt').oninput = () => spread();
     $d('#bzMChg').oninput = () => spread();
+    // a party kept in USD: the amount and what it settles are in USD, at the payment day's rate; no charges taken off
+    const fx = fxBox(kit, $d('#bzMFx'), () => party.get(), into ? 'sell' : 'buy', () => $d('#bzMDate').value, () => {
+      const c = fx.currency();
+      $d('label[for="bzMAmt"]').textContent = `Amount (${c})`;
+      $d('#bzMChg').closest('.bz-fld').hidden = c !== 'TZS'; $d('#bzMChgAcc').hidden = c !== 'TZS';
+    });
+    $d('#bzMDate').addEventListener('change', () => fx.refresh());
+    if (pre.party) fx.refresh();
     // bank or mobile-money charges: booked to an expense account (Bank and Mobile Money Charges in the Tanzania template)
     const chgAcc = makeField({ key: 'account', label: 'Charges booked to', type: 'link', to: 'account', filter: { is_group: false, root_type: 'Expense' } }, null,
       { api: kit.api, defs: kit.defs, titleOf: kit.titleOf });
@@ -1058,8 +1097,8 @@ export function mountMoney(el, kit, { module = 'money', action = null, records =
       const allocate = [...m.box.querySelectorAll('#bzMOpen input')].map((inp) => ({ invoice: open[+inp.dataset.k].step, amount: num(inp.value) })).filter((a) => a.amount > 0);
       const chg = num($d('#bzMChg').value);
       if (chg > 0 && !chgAcc.get()) return showErr(m, 'Choose the account the charges are booked to');
-      save({ kind: 'payment', direction: into ? 'in' : 'out', party: party.get(), method: $d('#bzMPm').value, amount, allocate, date: $d('#bzMDate').value,
-        ...(chg > 0 ? { deductions: [{ account: chgAcc.get(), amount: chg }] } : {}),
+      save({ kind: 'payment', direction: into ? 'in' : 'out', party: party.get(), method: $d('#bzMPm').value, amount, allocate, date: $d('#bzMDate').value, ...fx.get(),
+        ...(chg > 0 && fx.currency() === 'TZS' ? { deductions: [{ account: chgAcc.get(), amount: chg }] } : {}),
         reference: $d('#bzMRef').value.trim() || undefined, remarks: $d('#bzMNote').value.trim() || undefined, client_id: clientId }, m, btn);
     }
   }

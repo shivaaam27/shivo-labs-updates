@@ -31,6 +31,8 @@ export interface Row {
   pieces: Layer[];      // out rows: what left, as [qty, rate] pieces
   pos?: Position;       // the item+warehouse position after this row (set by the valuation pass)
   negativeOk?: boolean; // from its step: recorded while negative stock was allowed (contract NegativeOk)
+  rejected?: boolean;   // goods refused on arrival: in at no value, never given landed cost (phase 5)
+  returnSeq?: number;   // goods sent back to a supplier: seq of the row they came in with; out at its incoming rate
 }
 
 /** Ledger order: posting date+time, then creation (02 §4.3). */

@@ -11,11 +11,13 @@ import { mountSetup } from './setup.js';
 import { mountStock, STOCK_ACTIONS } from './stock.js';
 import { mountMoney, MONEY_ACTIONS, mayDo } from './money.js';
 import { mountTill } from './till.js';
+import { mountBuy, BUY_ACTIONS, mayBuy } from './buy.js';
+import './imports.js';   // the import shipment's panel (registers itself on the record view)
 
 export const MODULES = [
   { id: 'home', label: 'Home', icon: I.home, sub: 'Everything in one place' },
   { id: 'sell', label: 'Sell', icon: I.sell, sub: 'Sales on credit or paid now, returns', extra: ['customer', 'price_list', 'item_price'] },
-  { id: 'buy', label: 'Buy', icon: I.buy, sub: 'Supplier bills for goods and expenses', extra: ['supplier', 'price_list'] },
+  { id: 'buy', label: 'Buy', icon: I.buy, sub: 'Orders to suppliers, goods arrived, bills, reorder and supplier prices', extra: ['supplier', 'price_list'] },
   { id: 'stock', label: 'Stock', icon: I.stock, sub: 'What is in each store and van, and every movement', extra: ['store', 'unit', 'product'] },
   { id: 'money', label: 'Money', icon: I.money, sub: 'Payments in and out, who owes what, moving money', extra: ['payment_method', 'tax'] },
   { id: 'products', label: 'Products', icon: I.products, sub: 'Products, groups, brands and prices' },
@@ -176,7 +178,7 @@ export function mountShell(root, ctx = {}) {
     host.className = 'bz-view';
     void host.offsetWidth; host.classList.add('in');
     const [a, b, c] = route.split('/');
-    const mod = a === 'home' ? 'home' : a === 'till' ? 'sell' : a === 'm' ? b : a === 'stock' ? 'stock' : a === 'money' ? (MONEY_ACTIONS.find((x) => x.kind === b)?.mod || 'money') : defs[b]?.module ? modOfDef(defs[b]) : 'home';
+    const mod = a === 'home' ? 'home' : a === 'till' ? 'sell' : a === 'm' ? b : a === 'stock' ? 'stock' : a === 'buy' ? 'buy' : a === 'money' ? (MONEY_ACTIONS.find((x) => x.kind === b)?.mod || 'money') : defs[b]?.module ? modOfDef(defs[b]) : 'home';
     root.querySelectorAll('.bz-rb[data-m]').forEach((x) => x.classList.toggle('on', x.dataset.m === mod));
     root.querySelector('#bzMore')?.classList.toggle('on', !MOBILE_MAIN.includes(mod));
     scrollTo({ top: 0 });
@@ -189,7 +191,14 @@ export function mountShell(root, ctx = {}) {
       if (a === 'stock') { route = 'm/stock'; history.replaceState(null, '', '#business/m/stock'); }
       return (view = h);
     }
-    if ((a === 'm' && ['sell', 'buy', 'money'].includes(b)) || a === 'money') {
+    // the Buy module (phase 5, buy.js); money/bill (older links, search) opens its bill there too
+    if ((a === 'm' && b === 'buy') || a === 'buy' || (a === 'money' && MONEY_ACTIONS.find((x) => x.kind === b)?.mod === 'buy')) {
+      setTitle(MODULES.find((m) => m.id === 'buy').label, MODULES.find((m) => m.id === 'buy').sub);
+      const h = mountBuy(host, kit, { action: a === 'm' ? null : b, records: (el) => recordCards(el, 'buy') });
+      if (a !== 'm') { route = 'm/buy'; history.replaceState(null, '', '#business/m/buy'); }
+      return (view = h);
+    }
+    if ((a === 'm' && ['sell', 'money'].includes(b)) || a === 'money') {
       const act = a === 'money' ? MONEY_ACTIONS.find((x) => x.kind === b) : null;
       const mod = act ? act.mod : b;
       setTitle(MODULES.find((m) => m.id === mod).label, MODULES.find((m) => m.id === mod).sub);
@@ -309,10 +318,15 @@ export function mountShell(root, ctx = {}) {
       items.push({ head: 'Stock' });
       STOCK_ACTIONS.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `stock/${x.kind}` }));
     }
-    const money = MONEY_ACTIONS.filter((x) => mayDo(kit, x.kind));
+    const money = MONEY_ACTIONS.filter((x) => x.mod !== 'buy' && mayDo(kit, x.kind));
     if (money.length) {
-      items.push({ head: 'Sell, buy and money' });
+      items.push({ head: 'Sell and money' });
       money.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `money/${x.kind}` }));
+    }
+    const buy = BUY_ACTIONS.filter((x) => mayBuy(kit, x.kind));
+    if (buy.length) {
+      items.push({ head: 'Buy' });
+      buy.forEach((x) => items.push({ label: x.label, sub: x.hint, icon: x.icon, value: `buy/${x.kind}` }));
     }
     for (const m of MODULES) {
       const ds = Object.values(defs).filter((d) => modOfDef(d) === m.id && !d.child && !d.single && can(d.type, 'write'));
@@ -388,7 +402,8 @@ export function mountShell(root, ctx = {}) {
       out.push({ kind: 'action', title: d.single ? d.label : d.plural, sub: d.single ? 'Open' : 'Open the list', icon: d.icon, go: d.single ? `d/${d.type}` : `l/${d.type}`, words: 'open list ' + d.label + ' ' + d.plural });
       if (!d.single && can(d.type, 'write')) out.push({ kind: 'action', title: `Import ${d.plural.toLowerCase()}`, sub: 'From a CSV file', icon: I.upload, imp: d.type, words: 'import csv excel upload ' + d.plural });
     }
-    MONEY_ACTIONS.filter((x) => mayDo(kit, x.kind)).forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}`, words: x.words }));
+    MONEY_ACTIONS.filter((x) => x.mod !== 'buy' && mayDo(kit, x.kind)).forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `money/${x.kind}`, words: x.words }));
+    BUY_ACTIONS.filter((x) => mayBuy(kit, x.kind)).forEach((x) => out.push({ kind: 'action', title: x.label, sub: x.hint, icon: x.icon, go: `buy/${x.kind}`, words: 'buy ' + x.words }));
     MODULES.forEach((m) => out.push({ kind: 'action', title: m.label, sub: m.sub, icon: m.icon, go: m.id === 'home' ? 'home' : 'm/' + m.id, words: 'go module ' + m.label }));
     out.push({ kind: 'action', title: 'Switch user', sub: 'With a PIN', icon: I.user, fn: () => askPin(false), words: 'user pin login change' });
     return out;

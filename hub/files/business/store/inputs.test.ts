@@ -9,7 +9,7 @@ import { SELL_KINDS } from '../core/sell/orders.ts';
 import { SHIFT_KINDS } from './till.ts';
 import { TRIP_KINDS } from './trips.ts';
 
-const CODE = ['steps.ts', 'money.ts', 'sell.ts', 'till.ts', 'trips.ts', 'print.ts'].map((f) => readFileSync(new URL(`./${f}`, import.meta.url), 'utf8')).join('\n');
+const CODE = ['steps.ts', 'money.ts', 'sell.ts', 'buy.ts', 'till.ts', 'trips.ts', 'print.ts', 'imports.ts', 'fx.ts'].map((f) => readFileSync(new URL(`./${f}`, import.meta.url), 'utf8')).join('\n');
 
 test('every listed input is read by the store', () => {
   const unread: string[] = [];

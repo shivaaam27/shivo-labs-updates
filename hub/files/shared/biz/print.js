@@ -1,5 +1,7 @@
 // Printed pages (phase 4e): sales and invoices, returns, quotations, sales orders, delivery notes (with or without
-// amounts), payment receipts and vouchers, journal vouchers, and 58/80 mm till receipts. The server works out
+// amounts), payment receipts and vouchers, journal vouchers, 58/80 mm till receipts, and (phase 5) stock requests,
+// supplier quotations, purchase orders, goods received notes (refused units, with or without prices), goods returned
+// to suppliers, supplier bills and debit notes. The server works out
 // everything a page shows (GET /print/:id, business/store/print.ts: the engine's totals, VAT per rate, the amount in
 // words, payments, change, what is still owed, instalments, letter head, terms); this file only lays it out, in
 // English or Swahili (the customer's print language). A preview opens over the screen; Print uses the browser's own
@@ -9,7 +11,9 @@ import { makeField } from './fields.js';
 
 export const PRINT_ICON = '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>';
 /** The step kinds that have a printed page (store/print.ts PRINTED). */
-export const PRINTABLE = new Set(['sales_invoice', 'credit_note', 'quotation', 'sales_order', 'delivery_note', 'payment', 'journal']);
+export const PRINTABLE = new Set(['sales_invoice', 'credit_note', 'quotation', 'sales_order', 'delivery_note', 'payment', 'journal',
+  'material_request', 'supplier_quotation', 'purchase_order', 'purchase_receipt', 'purchase_invoice', 'debit_note']);
+const BUYING = new Set(['material_request', 'supplier_quotation', 'purchase_order', 'purchase_receipt', 'purchase_invoice', 'debit_note']);
 
 const WORDS = {
   English: {
@@ -24,6 +28,11 @@ const WORDS = {
     rate: 'VAT rate', net: 'Before VAT', thanks: 'Thank you', cancelled: 'CANCELLED', receivedFrom: 'Received from', paidTo: 'Paid to', method: 'Paid by',
     forInvoice: 'For', charges: 'Charges', account: 'Account', debit: 'Debit', credit: 'Credit', preparedBy: 'Prepared by', approvedBy: 'Approved by',
     exempt: 'Exempt', page: 'Page',
+    purchaseOrder: 'Purchase order', supplierQuotation: 'Supplier quotation', stockRequest: 'Stock request', moveRequest: 'Stock move request',
+    goodsArrived: 'Goods received note', goodsBack: 'Goods returned to supplier', bill: 'Supplier bill', debitNote: 'Debit note',
+    requiredBy: 'Required by', theirNote: 'Supplier delivery note', theirBill: 'Their bill no.', theirCode: 'Their code', accepted: 'Accepted', refused: 'Refused',
+    refusedTo: 'Refused goods kept in', receivedInto: 'Received into', forStore: 'For store', fromStore: 'From store', advance: 'Advance', advancePaid: 'Advance paid',
+    advanceFor: 'Advance for', onHold: 'On hold until', totalRefused: 'Total refused', returnOf2: 'Goods back from', ordersBy: 'Ordered by',
   },
   Swahili: {
     invoice: 'Ankara', taxInvoice: 'Ankara ya kodi', receipt: 'Risiti', opening: 'Salio la mwanzo', creditNote: 'Hati ya marejesho', quotation: 'Nukuu ya bei',
@@ -37,6 +46,11 @@ const WORDS = {
     rate: 'Kiwango cha VAT', net: 'Kabla ya VAT', thanks: 'Asante', cancelled: 'IMEFUTWA', receivedFrom: 'Tumepokea kutoka kwa', paidTo: 'Imelipwa kwa',
     method: 'Njia ya malipo', forInvoice: 'Kwa', charges: 'Makato', account: 'Akaunti', debit: 'Debit', credit: 'Credit', preparedBy: 'Imeandaliwa na',
     approvedBy: 'Imeidhinishwa na', exempt: 'Msamaha', page: 'Ukurasa',
+    purchaseOrder: 'Agizo la ununuzi', supplierQuotation: 'Nukuu ya bei ya msambazaji', stockRequest: 'Ombi la bidhaa', moveRequest: 'Ombi la kuhamisha bidhaa',
+    goodsArrived: 'Hati ya kupokea bidhaa', goodsBack: 'Hati ya kurudisha bidhaa', bill: 'Ankara ya msambazaji', debitNote: 'Hati ya debiti',
+    requiredBy: 'Inahitajika kabla ya', theirNote: 'Hati ya msambazaji', theirBill: 'Namba ya ankara yao', theirCode: 'Namba yao', accepted: 'Zimepokelewa', refused: 'Zimekataliwa',
+    refusedTo: 'Zilizokataliwa ziko', receivedInto: 'Zimepokelewa ghala', forStore: 'Kwa ghala', fromStore: 'Kutoka ghala', advance: 'Malipo ya awali', advancePaid: 'Malipo ya awali',
+    advanceFor: 'Malipo ya awali kwa', onHold: 'Imesimamishwa hadi', totalRefused: 'Jumla zilizokataliwa', returnOf2: 'Zimerudishwa kutoka', ordersBy: 'Imeagizwa na',
   },
 };
 
@@ -52,14 +66,17 @@ export function titleOf(p, w = WORDS[p.language] || WORDS.English) {
     if (p.till) return w.receipt;
     return p.totals?.vatCharged && p.company?.vrn ? w.taxInvoice : w.invoice;
   }
-  return { credit_note: w.creditNote, quotation: w.quotation, sales_order: w.order, delivery_note: w.delivery, journal: w.journal }[p.kind]
+  if (p.kind === 'purchase_receipt') return p.returnOf ? w.goodsBack : w.goodsArrived;
+  if (p.kind === 'material_request') return p.purpose === 'transfer' ? w.moveRequest : w.stockRequest;
+  return { credit_note: w.creditNote, quotation: w.quotation, sales_order: w.order, delivery_note: w.delivery, journal: w.journal,
+    supplier_quotation: w.supplierQuotation, purchase_order: w.purchaseOrder, purchase_invoice: w.bill, debit_note: w.debitNote }[p.kind]
     ?? (p.payment?.direction === 'out' ? w.payOut : w.payIn);
 }
 
 /** The page's HTML: an A4 document, or a till receipt ('80 mm' / '58 mm'). opts.withoutAmount for delivery notes. */
 export function printHtml(p, { paper = 'A4', withoutAmount = p.withoutAmount } = {}) {
   const w = WORDS[p.language] || WORDS.English;
-  const cur = (n) => (p.settings?.hideCurrency ? '' : 'TZS ') + nf2.format(Number(n) || 0);
+  const cur = (n) => (p.settings?.hideCurrency ? '' : (p.currency || 'TZS') + ' ') + nf2.format(Number(n) || 0);
   const m2 = (n) => nf2.format(Number(n) || 0);
   const head = p.heading || titleOf(p, w);
   return paper === 'A4' ? a4(p, w, head, cur, m2, withoutAmount) : receipt(p, w, head, cur, m2, paper);
@@ -81,14 +98,37 @@ function footerBlock(p, w) {
 }
 const meta = (rows) => `<dl class="bz-pmeta">${rows.filter((r) => r && r[1]).map(([a, b]) => `<dt>${esc(a)}</dt><dd>${b}</dd>`).join('')}</dl>`;
 
+const storeLine = (s) => `${esc(s.name)}${s.address ? `, ${lines(s.address)}` : ''}${s.phone ? ` · ${esc(s.phone)}` : ''}`;
+const transportLines = (p, w) => (p.transport ? `<small>${w.transport}</small><span>${[p.transport.driver, p.transport.vehicle, p.transport.transporter].filter(Boolean).map(esc).join(' · ')}</span>
+  ${p.transport.waybill ? `<span>${w.waybill}: ${esc(p.transport.waybill)}${p.transport.waybillDate ? ` · ${esc(day(p.transport.waybillDate))}` : ''}</span>` : ''}${p.transport.trip ? `<span>${w.trip}: ${esc(p.transport.trip)}</span>` : ''}` : '');
+
+/** Buying documents: where the goods go (a purchase order: the store or the address given; goods arrived: the store
+ *  they came into, where refused goods are kept, how they came), or a stock request's stores. */
+function buyingSide(p, w) {
+  if (p.kind === 'material_request') {
+    return p.store || p.fromStore ? `<div>${p.store ? `<small>${w.forStore}</small><span>${storeLine(p.store)}</span>` : ''}
+      ${p.fromStore ? `<small>${w.fromStore}</small><span>${storeLine(p.fromStore)}</span>` : ''}</div>` : '';
+  }
+  if (p.kind === 'purchase_order') {
+    return p.shipTo || p.store ? `<div><small>${w.deliverTo}</small><span>${p.shipTo ? lines(p.shipTo) : storeLine(p.store)}</span></div>` : '';
+  }
+  if (p.kind === 'purchase_receipt' || (p.kind === 'purchase_invoice' && p.store)) {
+    return `<div>${p.store ? `<small>${w.receivedInto}</small><span>${storeLine(p.store)}</span>` : ''}
+      ${p.rejectedStore ? `<small>${w.refusedTo}</small><span>${esc(p.rejectedStore)}</span>` : ''}
+      ${p.supplierNote ? `<small>${w.theirNote}</small><span>${esc(p.supplierNote)}</span>` : ''}${transportLines(p, w)}</div>`;
+  }
+  return '';
+}
+
 function partyBlock(p, w) {
   const x = p.party;
-  if (!x) return '';
+  if (!x) { const side = BUYING.has(p.kind) ? buyingSide(p, w) : ''; return side ? `<section class="bz-pparty">${side}<div></div></section>` : ''; }
   const who = x.type === 'supplier' ? w.supplier : p.kind === 'payment' ? (p.payment?.direction === 'out' ? w.paidTo : w.receivedFrom) : w.customer;
   const left = `<div><small>${esc(who)}</small><b>${esc(x.name)}</b>${x.address ? `<span>${lines(x.address)}</span>` : x.area ? `<span>${esc(x.area)}</span>` : ''}
     ${x.phone ? `<span>${w.phone}: ${esc(x.phone)}</span>` : ''}${x.email ? `<span>${esc(x.email)}</span>` : ''}
     ${x.tin || x.vrn ? `<span>${[x.tin && `TIN: ${esc(x.tin)}`, x.vrn && `VRN: ${esc(x.vrn)}`].filter(Boolean).join(' · ')}</span>` : ''}
     ${p.contact ? `<span>${w.attn}: ${esc(p.contact.name)}${p.contact.role ? ` (${esc(p.contact.role)})` : ''}${p.contact.phone ? ` · ${esc(p.contact.phone)}` : ''}</span>` : ''}</div>`;
+  if (BUYING.has(p.kind)) return `<section class="bz-pparty">${left}${buyingSide(p, w)}</section>`;
   // where the goods go and leave from (orders, deliveries and invoices that move goods)
   const goods = ['sales_order', 'delivery_note', 'sales_invoice'].includes(p.kind) && !p.till;
   const to = p.shipTo || (p.kind === 'delivery_note' ? x.address : null);
@@ -110,33 +150,46 @@ function totalsRows(p, w, cur, m2) {
     else for (const g of p.vatTable) rows.push([`${w.vat} ${nf3.format(g.rate)}%`, m2(g.vat)]);
   }
   if (t.rounding) rows.push([w.rounding, m2(t.rounding)]);
+  // another currency (phase 5b): its exchange rate and the total and VAT in TZS (the books' and TRA's currency)
+  const fx = p.currency && p.currency !== 'TZS' && p.exchangeRate
+    ? `<tr><th>1 ${esc(p.currency)} = TZS ${nf3.format(p.exchangeRate)}</th><td>TZS ${m2(t.roundedTotal * p.exchangeRate)}</td></tr>`
+      + (t.vat ? `<tr><th>${w.vat} (TZS)</th><td>TZS ${m2(t.vat * p.exchangeRate)}</td></tr>` : '') : '';
   return `<table class="bz-ptot">${rows.map(([a, b]) => `<tr><th>${esc(a)}</th><td>${b}</td></tr>`).join('')}
-    <tr class="big"><th>${w.total}</th><td>${cur(t.roundedTotal)}</td></tr></table>`;
+    <tr class="big"><th>${w.total}</th><td>${cur(t.roundedTotal)}</td></tr>${fx}</table>`;
 }
 
 function moneyAfter(p, w, cur) {
-  if (p.kind !== 'sales_invoice') return '';
-  const rows = [...(p.payments || []).map((x) => [`${w.paid} · ${esc(x.method)}${x.reference ? ` <small>${esc(x.reference)}</small>` : ''}`, cur(x.amount)])];
+  if (p.kind === 'purchase_order') return p.advancePaid ? `<table class="bz-ptot bz-ppaid"><tr><th>${w.advancePaid}</th><td>${cur(p.advancePaid)}</td></tr></table>` : '';
+  if (p.kind !== 'sales_invoice' && p.kind !== 'purchase_invoice') return '';
+  const rows = [...(p.payments || []).map((x) => [`${w.paid} · ${esc(x.method)}${x.reference ? ` <small>${esc(x.reference)}</small>` : ''}`, cur(x.amount)]),
+    ...(p.advances || []).map((x) => [`${w.advance} · ${esc(x.from)}`, cur(x.amount)])];
   if (p.change) rows.push([w.change, cur(p.change)]);
   if (p.writtenOff) rows.push([w.writtenOff, cur(p.writtenOff)]);
   if (p.owed) rows.push([`${w.owed}${p.dueDate ? ` · ${w.due} ${esc(day(p.dueDate))}` : ''}`, cur(p.owed)]);
+  if (p.holdUntil !== null && p.holdUntil !== undefined) rows.push([w.onHold, p.holdUntil ? esc(day(p.holdUntil)) : '—']);
   return rows.length ? `<table class="bz-ptot bz-ppaid">${rows.map(([a, b]) => `<tr><th>${a}</th><td>${b}</td></tr>`).join('')}</table>` : '';
 }
 
 function a4(p, w, head, cur, m2, withoutAmount) {
   const docMeta = meta([
     [w.no, esc(p.id)], [w.date, esc(day(p.date))],
-    p.dueDate && p.kind === 'sales_invoice' ? [w.due, esc(day(p.dueDate))] : null,
+    p.dueDate && (p.kind === 'sales_invoice' || p.kind === 'purchase_invoice') ? [w.due, esc(day(p.dueDate))] : null,
     p.validTill ? [w.validTill, esc(day(p.validTill))] : null, p.deliveryDate ? [w.deliverBy, esc(day(p.deliveryDate))] : null,
-    p.against ? [w.returns, esc(p.against)] : null, p.from?.length ? [w.madeFrom, esc(p.from.join(', '))] : null,
+    p.requiredBy ? [w.requiredBy, esc(day(p.requiredBy))] : null,
+    p.incoterm ? ['Incoterm', `${esc(p.incoterm)}${p.namedPlace ? ` ${esc(p.namedPlace)}` : ''}`] : null,
+    p.billNo ? [w.theirBill, `${esc(p.billNo)}${p.billDate ? ` · ${esc(day(p.billDate))}` : ''}`] : null,
+    p.against ? [w.returns, esc(p.against)] : null, p.returnOf ? [w.returnOf2, esc(p.returnOf)] : null,
+    p.from?.length ? [w.madeFrom, esc(p.from.join(', '))] : null,
     p.reference && p.kind !== 'payment' ? [w.ref, esc(p.reference)] : null,
   ]);
   let body = '';
   if (p.kind === 'payment') body = paymentBody(p, w, cur, m2);
   else if (p.kind === 'journal') body = journalBody(p, w, cur, m2);
   else body = linesBody(p, w, cur, m2, withoutAmount);
-  const sign = p.kind === 'delivery_note' || (p.kind === 'payment' && p.payment?.direction === 'in')
+  const sign = p.kind === 'delivery_note' || p.kind === 'purchase_receipt' || (p.kind === 'payment' && p.payment?.direction === 'in')
     ? `<div class="bz-psign"><span>${w.receivedBy}</span><span>${w.signature}</span><span>${w.date}</span></div>`
+    : ['purchase_order', 'material_request'].includes(p.kind)
+      ? `<div class="bz-psign"><span>${w.preparedBy}</span><span>${w.approvedBy}</span><span>${w.date}</span></div>`
     : p.kind === 'journal' || (p.kind === 'payment' && p.payment?.direction === 'out')
       ? `<div class="bz-psign"><span>${w.preparedBy}</span><span>${w.approvedBy}</span><span>${w.receivedBy}</span></div>` : '';
   return `<article class="bz-sheet a4${p.undone ? ' undone' : ''}" lang="${p.language === 'Swahili' ? 'sw' : 'en'}">
@@ -155,12 +208,16 @@ function a4(p, w, head, cur, m2, withoutAmount) {
 function linesBody(p, w, cur, m2, withoutAmount) {
   const disc = !withoutAmount && (p.lines || []).some((l) => l.discount);
   const anyCode = (p.lines || []).some((l) => l.code);
+  // buying: the supplier's own code for the product; goods arrived: units refused next to those accepted
+  const theirs = (p.lines || []).some((l) => l.supplierCode);
+  const refused = (p.lines || []).some((l) => l.rejected);
   const rows = (p.lines || []).map((l, i) => `<tr><td class="n">${i + 1}</td><td>${esc(l.name)}${l.vatRate === 0 && p.totals?.vatCharged ? ` <small>(${w.exempt})</small>` : ''}</td>
-    ${anyCode ? `<td>${esc(l.code || '')}</td>` : ''}<td class="n">${nf3.format(l.qty)}${l.unit ? ` <small>${esc(l.unit)}</small>` : ''}</td>
+    ${anyCode ? `<td>${esc(l.code || '')}</td>` : ''}${theirs ? `<td>${esc(l.supplierCode || '')}</td>` : ''}<td class="n">${nf3.format(l.qty)}${l.unit ? ` <small>${esc(l.unit)}</small>` : ''}</td>
+    ${refused ? `<td class="n">${l.rejected ? nf3.format(l.rejected) : ''}</td>` : ''}
     ${withoutAmount ? '' : `<td class="n">${m2(disc ? l.listRate : l.rate)}</td>${disc ? `<td class="n">${l.discount ? `${nf3.format(l.discount)}%` : ''}</td>` : ''}<td class="n">${m2(l.amount)}</td>`}</tr>`).join('');
-  const table = `<table class="bz-plines"><thead><tr><th class="n">#</th><th>${w.item}</th>${anyCode ? `<th>${w.code}</th>` : ''}<th class="n">${w.qty}</th>
-    ${withoutAmount ? '' : `<th class="n">${w.price}</th>${disc ? `<th class="n">${w.off}</th>` : ''}<th class="n">${w.amount}</th>`}</tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td></td><td>${w.totalQty}</td>${anyCode ? '<td></td>' : ''}<td class="n">${nf3.format(p.totalQty || 0)}</td>${withoutAmount ? '' : `<td></td>${disc ? '<td></td>' : ''}<td></td>`}</tr></tfoot></table>`;
+  const table = `<table class="bz-plines"><thead><tr><th class="n">#</th><th>${w.item}</th>${anyCode ? `<th>${w.code}</th>` : ''}${theirs ? `<th>${w.theirCode}</th>` : ''}<th class="n">${refused ? w.accepted : w.qty}</th>
+    ${refused ? `<th class="n">${w.refused}</th>` : ''}${withoutAmount ? '' : `<th class="n">${w.price}</th>${disc ? `<th class="n">${w.off}</th>` : ''}<th class="n">${w.amount}</th>`}</tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td></td><td>${w.totalQty}</td>${anyCode ? '<td></td>' : ''}${theirs ? '<td></td>' : ''}<td class="n">${nf3.format(p.totalQty || 0)}</td>${refused ? `<td class="n">${nf3.format(p.totalRejected || 0)}</td>` : ''}${withoutAmount ? '' : `<td></td>${disc ? '<td></td>' : ''}<td></td>`}</tr></tfoot></table>`;
   if (withoutAmount) return table;
   const t = p.totals;
   const vatTable = p.settings?.vatTable && p.vatTable?.length ? `<table class="bz-pvat"><thead><tr><th>${w.rate}</th><th class="n">${w.net}</th><th class="n">${w.vat}</th></tr></thead>
@@ -176,6 +233,7 @@ function paymentBody(p, w, cur, m2) {
   const x = p.payment || {};
   const rows = [[w.method, esc(x.method || '')], x.reference ? [w.ref, esc(x.reference)] : null,
     ...(x.allocations || []).map((a) => [`${w.forInvoice} ${esc(a.invoice)}`, m2(a.amount)]),
+    ...(x.advanceFor || []).map((a) => [`${w.advanceFor} ${esc(a.order)}`, m2(a.amount)]),
     ...(x.deductions || []).map((d) => [`${w.charges} · ${esc(d.account)}`, m2(d.amount)])].filter(Boolean);
   return `<section class="bz-psum"><div>${p.words ? `<p class="bz-pwords"><small>${w.words}</small>${esc(p.words)}</p>` : ''}</div>
     <div><table class="bz-ptot">${rows.map(([a, b]) => `<tr><th>${a}</th><td>${b}</td></tr>`).join('')}<tr class="big"><th>${w.amount}</th><td>${cur(x.amount)}</td></tr></table></div></section>`;
@@ -235,6 +293,9 @@ export const printFrom = (s) => ({
  *  "group same items" and, for a delivery ('dnote'), printing without prices. get() gives the step inputs; terms are
  *  sent only when changed here, so otherwise the server fills in the company's own (store/print.ts). */
 export function printOptions(kit, kind) {
+  // buying documents (buy.js: 'mr' stock request, 'sq' supplier quotation, 'po' purchase order, 'gr' goods arrived,
+  // 'bill'): buying terms, the supplier's language and contact people; a stock request has neither
+  const buying = ['mr', 'sq', 'po', 'gr', 'bill'].includes(kind);
   const box = document.createElement('details');
   box.className = 'bz-printopts wide';
   box.innerHTML = '<summary>Printing: heading, letter head, terms</summary><div class="bz-grid c2"></div>';
@@ -242,29 +303,33 @@ export function printOptions(kit, kind) {
   const ctx = { api: kit.api, defs: kit.defs, titleOf: kit.titleOf };
   let termsTouched = false, customer = null;
   const put = (w, wide = false) => { if (wide) w.el.classList.add('wide'); grid.append(w.el); return w; };
-  const heading = put(makeField({ key: 'print_heading', label: 'Print heading', type: 'link', to: 'print_heading', help: 'Empty: the usual title (Invoice, Quotation, Delivery note…).' }, null, ctx));
+  const heading = put(makeField({ key: 'print_heading', label: 'Print heading', type: 'link', to: 'print_heading',
+    help: buying ? 'Empty: the usual title (Purchase order, Goods received note…).' : 'Empty: the usual title (Invoice, Quotation, Delivery note…).' }, null, ctx));
   const lh = put(makeField({ key: 'letter_head', label: 'Letter head', type: 'link', to: 'letter_head', filter: { active: true }, help: 'Empty: the company’s.' }, null, ctx));
-  // language and contact person follow the customer: redrawn when the customer changes
+  // language and contact person follow the customer (or supplier): redrawn when they change
   const langSlot = document.createElement('div'), contactSlot = document.createElement('div');
   langSlot.className = contactSlot.className = 'bz-slot';
   langSlot.style.display = contactSlot.style.display = 'contents';
   grid.append(langSlot, contactSlot);
   let lang = null, contact = null;
   const drawCustomer = (c) => {
+    if (kind === 'mr') return;
     lang = makeField({ key: 'language', label: 'Print in', type: 'select', options: ['English', 'Swahili'], required: true }, c?.language || 'English', ctx);
     langSlot.replaceChildren(lang.el);
     const people = (c?.contacts || []).map((p) => String(p?.name || '').trim()).filter(Boolean);
-    contact = people.length ? makeField({ key: 'contact', label: 'For the attention of', type: 'select', options: people, help: 'One of the customer’s contact people.' }, null, ctx) : null;
+    contact = people.length ? makeField({ key: 'contact', label: 'For the attention of', type: 'select', options: people, help: `One of the ${buying ? 'supplier' : 'customer'}’s contact people.` }, null, ctx) : null;
     contactSlot.replaceChildren(...(contact ? [contact.el] : []));
   };
   drawCustomer(null);
-  const terms = put(makeField({ key: 'terms', label: 'Terms and conditions', type: 'link', to: 'terms', filter: { selling: true, active: true } }, null,
+  const side = buying ? { buying: true, active: true } : { selling: true, active: true };
+  const terms = put(makeField({ key: 'terms', label: 'Terms and conditions', type: 'link', to: 'terms', filter: side }, null,
     { ...ctx, onPick: () => { termsTouched = true; fillText(); }, onChange: () => { termsTouched = true; fillText(); } }));
-  const ship = put(makeField({ key: 'ship_to', label: 'Deliver to', type: 'longtext', help: 'Empty: the customer’s own address.' }, null, ctx));
+  const ship = !buying || kind === 'po' ? put(makeField({ key: 'ship_to', label: 'Deliver to', type: 'longtext',
+    help: buying ? 'Where the supplier delivers. Empty: the store’s own address.' : 'Empty: the customer’s own address.' }, null, ctx)) : null;
   const text = put(makeField({ key: 'terms_text', label: 'Terms as printed', type: 'longtext', help: 'Change them for this document only, if needed.' }, null,
     { ...ctx, onChange: () => { termsTouched = true; } }), true);
   const group = put(makeField({ key: 'group_same_items', label: 'Print the same product at the same price as one line', type: 'check' }, false, ctx), true);
-  const without = kind === 'dnote' ? put(makeField({ key: 'print_without_amount', label: 'Print without prices', type: 'check' }, false, ctx), true) : null;
+  const without = kind === 'dnote' || kind === 'gr' ? put(makeField({ key: 'print_without_amount', label: 'Print without prices', type: 'check' }, false, ctx), true) : null;
   async function fillText() {
     const id = terms.get();
     if (!id) { text.set(''); return; }
@@ -273,24 +338,26 @@ export function printOptions(kit, kind) {
   }
   // the company's terms, as the server would fill them in
   kit.api.doc('company', '').then(async (x) => {
-    const id = x?.doc?.selling_terms;
+    const id = x?.doc?.[buying ? 'buying_terms' : 'selling_terms'];
     if (!id || termsTouched) return;
     const t = await kit.api.doc('terms', id).then((r) => r?.doc).catch(() => null);
-    if (t && t.active !== false && !termsTouched) { terms.set(id, t.title || t.name); text.set(t.text || ''); }
+    if (t && t.active !== false && (!buying || t.buying === true) && !termsTouched) { terms.set(id, t.title || t.name); text.set(t.text || ''); }
   }).catch(() => {});
+  const forParty = async (id) => {
+    customer = id ? await kit.api.doc(buying ? 'supplier' : 'customer', id).then((x) => x?.doc).catch(() => null) : null;
+    drawCustomer(customer);
+  };
   return {
     el: box,
-    async forCustomer(id) {
-      customer = id ? await kit.api.doc('customer', id).then((x) => x?.doc).catch(() => null) : null;
-      drawCustomer(customer);
-    },
+    forCustomer: forParty,
+    forParty,
     get() {
       const o = {};
       if (heading.get()) o.print_heading = heading.get();
       if (lh.get()) o.letter_head = lh.get();
       if (lang?.get()) o.language = lang.get();
       if (contact?.get()) o.contact = contact.get();
-      if (ship.get()) o.ship_to = ship.get().trim();
+      if (ship?.get()) o.ship_to = ship.get().trim();
       if (termsTouched) { o.terms = terms.get() || ''; o.terms_text = text.get() || ''; }
       if (group.get()) o.group_same_items = true;
       if (without?.get()) o.print_without_amount = true;
@@ -326,7 +393,7 @@ function showSheet(p, { paper, auto = false } = {}) {
   wrap.innerHTML = `<div class="bz-pbar">
       <b>${esc(p.heading || titleOf(p))} ${esc(p.id)}</b>
       ${sizes ? `<div class="seg" role="group" aria-label="Paper">${sizes.map((s) => `<button type="button" data-size="${s}" class="${s === size ? 'on' : ''}">${s === 'A4' ? 'A4' : `Receipt ${s}`}</button>`).join('')}</div>` : ''}
-      ${p.kind === 'delivery_note' ? `<label class="bz-pchk"><input type="checkbox" id="bzPWithout"${without ? ' checked' : ''}> Without prices</label>` : ''}
+      ${p.kind === 'delivery_note' || p.kind === 'purchase_receipt' ? `<label class="bz-pchk"><input type="checkbox" id="bzPWithout"${without ? ' checked' : ''}> Without prices</label>` : ''}
       <span class="bz-pgrow"></span>
       <button type="button" class="btn sm" id="bzPClose">Close</button>
       <button type="button" class="btn pri sm" id="bzPGo">${svg(PRINT_ICON)}Print</button>

@@ -3,11 +3,13 @@
 // MoneyStep) kept in the steps table: the screen sends what was sold or paid, to whom and how; this file checks it
 // against the records (customer and its group, products, payment methods, accounts, the company's VAT) and gives the
 // engine ids and amounts it can trust.
-import type { AccountRole, MoneyAccount, MoneyLine, Step, TaxSpec } from '../core/contract.ts';
+import type { AccountRole, MoneyAccount, MoneyLine, Scenario, Step, TaxSpec } from '../core/contract.ts';
 import type { DB } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
 import { lineSources, salesmanOf } from './sell.ts';
+import { buySources, checkBuyRate } from './buy.ts';
+import { partyFx } from './fx.ts';
 
 const bad = (message: string): never => fail(422, message);
 const parse = (s: string): Data => { try { return JSON.parse(s) ?? {}; } catch { return {}; } };
@@ -102,7 +104,21 @@ function moneyLines(db: DB, input: unknown, side: 'sell' | 'buy'): MoneyLine[] {
   return lines;
 }
 
-function moneyLinesOnly(db: DB, input: unknown, side: 'sell' | 'buy'): MoneyLine[] {
+/** Lines of a buying document: bought products (`buying`), or any product (a request to move stock between stores);
+ *  a request may leave the price empty (0). */
+export function cleanBuyLines(db: DB, input: unknown, buying: boolean): MoneyLine[] {
+  const rows = Array.isArray(input) ? (input as Data[]).map((l) => (l && typeof l === 'object' && !given(l.rate) ? { ...l, rate: 0 } : l)) : input;
+  return buying ? moneyLines(db, rows, 'buy') : moneyLinesOnly(db, rows, 'any');
+}
+/** VAT on a buying document: only when asked for (a supplier's bill shows it), at the company's rate. */
+export function buyTax(db: DB, input: Data): TaxSpec | undefined {
+  const rate = vatRate(db);
+  return input.vat === true && rate !== null ? { rate, inclusive: input.prices_include_vat === true } : undefined;
+}
+/** A supplier's payment terms as instalments (theirs, their group's, the company's). */
+export const scheduleFor = (db: DB, input: Data, supplier: Data, date: string) => scheduleOf(db, input, supplier, 'supplier_group', date);
+
+function moneyLinesOnly(db: DB, input: unknown, side: 'sell' | 'buy' | 'any'): MoneyLine[] {
   if (!Array.isArray(input) || !input.length) bad('Add at least one product');
   if ((input as unknown[]).length > 500) bad('At most 500 lines in one document');
   return (input as Data[]).map((l, i) => {
@@ -244,7 +260,7 @@ const ROLE_OF_TYPE: Record<string, AccountRole> = {
   'Cash': 'cash', 'Bank': 'bank', 'Mobile Money': 'mobile_money', 'Receivable': 'receivable', 'Payable': 'payable', 'Tax': 'vat',
   'Stock': 'stock', 'Cost of Goods Sold': 'cost_of_goods_sold', 'Stock Received But Not Billed': 'stock_received_not_billed',
   'Stock Adjustment': 'stock_adjustment', 'Expenses Included In Valuation': 'expenses_in_valuation', 'Round Off': 'round_off',
-  'Equity': 'capital', 'Temporary': 'temporary_opening', 'Income Account': 'income', 'Expense Account': 'expense',
+  'Equity': 'capital', 'Temporary': 'temporary_opening', 'Income Account': 'income', 'Expense Account': 'expense', 'Exchange Gain/Loss': 'exchange_gain_loss',
 };
 function journalRole(acc: Data): AccountRole {
   const t = String(acc.account_type ?? '');
@@ -317,6 +333,28 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
       }
       if (typeof input.receipt === 'string' && input.receipt) step.receipt = input.receipt;
       else if (input.update_stock === true) { step.updateStock = true; step.warehouse = record(db, 'store', input.warehouse, 'store').id; }
+      // lines may bill a purchase order line or a goods-arrived line (phase 5)
+      buySources(db, 'purchase_invoice', input.lines, lines);
+      checkBuyRate(db, lines, role);
+      // earlier payments set against this bill (advances)
+      if (Array.isArray(input.advances)) {
+        const adv = (input.advances as Data[]).filter((a) => Number(a?.amount) > 0).map((a, i) => {
+          const from = String(a.from ?? '');
+          if (!db.prepare("SELECT 1 FROM steps WHERE id = ? AND kind IN ('payment', 'journal')").get(from)) bad(`Advance ${i + 1}: ${from} is not a payment or journal`);
+          return { from, amount: amount(a.amount, `Advance ${i + 1}`) };
+        });
+        if (adv.length) step.advances = adv;
+      }
+      if (given(input.write_off) && Number(input.write_off) > 0) {
+        if (!MANAGERS.has(role) && role !== 'accountant') bad('Only the owner, a manager or the accountant may write off part of a bill');
+        step.writeOff = amount(input.write_off, 'The write-off');
+      }
+      // hold the bill: no payment until the date (or until released)
+      if (input.hold === true) {
+        step.hold = true;
+        const until = dateOf(input.hold_until, 'On hold until');
+        if (until) step.holdUntil = until;
+      }
     }
     const billNo = text(input.bill_no, 'Supplier\'s bill number', 60);
     if (billNo) { checkBillNo(db, s.id, billNo); step.billNo = billNo; }
@@ -346,8 +384,39 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
       });
       if (ded.length) step.deductions = ded;
     }
+    // an advance against a purchase order or a sales order (it stays credit until set against a bill)
+    if (Array.isArray(input.advance_for)) {
+      const adv = (input.advance_for as Data[]).filter((a) => Number(a?.amount) > 0).map((a, i) => {
+        const order = String(a.order ?? '');
+        if (!db.prepare("SELECT 1 FROM steps WHERE id = ? AND kind IN ('purchase_order', 'sales_order')").get(order)) bad(`Advance ${i + 1}: ${order} is not an order`);
+        return { order, amount: amount(a.amount, `Advance ${i + 1}`) };
+      });
+      if (adv.length) step.advanceFor = adv;
+    }
     const ref = text(input.reference, 'Reference', 80);
     if (ref) step.reference = ref;
+    return withNotes(step);
+  }
+  if (kind === 'debit_note') {
+    // goods or charges going back on a supplier's bill: what we owe falls (off the bill, or as credit with them)
+    const against = String(input.against ?? '');
+    const orig = db.prepare("SELECT data FROM steps WHERE id = ? AND kind = 'purchase_invoice'").get(against) as { data: string } | undefined;
+    if (!orig) bad('Choose the supplier bill');
+    const bill = parse(orig!.data);
+    const step: Step = { id, kind, date, time, against, updateStock: input.update_stock !== false && bill.updateStock === true };
+    if (input.reduce_invoice === true) step.reduceInvoice = true;
+    if (Array.isArray(input.lines)) {
+      // a returned line keeps the price and discount it was billed at (never what the screen says)
+      const billed: MoneyLine[] = (bill.lines as MoneyLine[]) ?? [];
+      // the price is the bill's, so a line may come without one
+      const rows = (input.lines as Data[]).map((l) => (l && typeof l === 'object' && !given(l.rate) ? { ...l, rate: 0 } : l));
+      step.lines = moneyLines(db, rows, 'buy').map((l) => {
+        const o = billed.find((x) => x.item === l.item);
+        return o ? { ...l, rate: o.rate, ...(o.discount ? { discount: o.discount } : {}), ...(o.vatRate !== undefined ? { vatRate: o.vatRate } : {}), ...(o.account ? { account: o.account } : {}) } : l;
+      });
+    }
+    const billNo = text(input.bill_no, 'Supplier\'s credit note number', 60);
+    if (billNo) step.billNo = billNo;
     return withNotes(step);
   }
   if (kind === 'credit_note') {
@@ -426,7 +495,7 @@ export function cleanMoneyStep(db: DB, input: Data, kind: string, id: string, da
 /** The customers and suppliers named by these steps, for the engine's scenario, with each customer's credit limit
  *  (its own, else its group's, else the company's; 0 or empty = no limit, as in ERPNext, 03 §5.1) and whether it is
  *  checked at the invoice instead of at the order. */
-export function partiesOf(db: DB, steps: Step[]): { key: string; type: 'customer' | 'supplier'; creditLimit?: number; creditAtInvoice?: boolean }[] {
+export function partiesOf(db: DB, steps: Step[]): NonNullable<Scenario['parties']> {
   const ids = new Set<string>();
   for (const s of steps) {
     if (s.kind === 'sales_invoice') ids.add(s.customer);
@@ -435,13 +504,22 @@ export function partiesOf(db: DB, steps: Step[]): { key: string; type: 'customer
     if (s.kind === 'journal') for (const r of s.rows) if (r.party) ids.add(r.party);
     if (s.kind === 'quotation' || s.kind === 'sales_order' || s.kind === 'delivery_note') ids.add(s.customer);
     if (s.kind === 'reconcile') ids.add(s.party);
+    if ((s.kind === 'purchase_order' || s.kind === 'supplier_quotation' || s.kind === 'purchase_receipt') && s.supplier) ids.add(s.supplier);
   }
-  const out: { key: string; type: 'customer' | 'supplier'; creditLimit?: number; creditAtInvoice?: boolean }[] = [];
+  const out: NonNullable<Scenario['parties']> = [];
   const companyLimit = Number(companyData(db).credit_limit) || 0;
   for (const id of ids) {
     const r = db.prepare("SELECT type, data FROM docs WHERE id = ? AND type IN ('customer', 'supplier')").get(id) as { type: 'customer' | 'supplier'; data: string } | undefined;
     if (!r) continue;
-    const p: { key: string; type: 'customer' | 'supplier'; creditLimit?: number; creditAtInvoice?: boolean } = { key: id, type: r.type };
+    // fx: a party kept in another currency, with its debtors / creditors account in it (store/fx.ts)
+    const p: NonNullable<Scenario['parties']>[number] = { key: id, type: r.type, ...partyFx(db, r.type, parse(r.data)) };
+    if (r.type === 'supplier') {
+      // on hold (bills, payments or all) until the release date; let off "order needed" / "goods arrived first"
+      const d = parse(r.data);
+      if (d.on_hold === true) p.hold = { type: d.hold_type === 'Bills' ? 'invoices' : d.hold_type === 'Payments' ? 'payments' : 'all', ...(typeof d.release_date === 'string' && d.release_date ? { until: d.release_date } : {}) };
+      if (d.bill_without_order === true) p.billWithoutOrder = true;
+      if (d.bill_without_receipt === true) p.billWithoutReceipt = true;
+    }
     if (r.type === 'customer') {
       const d = parse(r.data);
       const limit = Number(d.credit_limit) || Number(dataOf(db, 'customer_group', d.group)?.credit_limit) || companyLimit;
@@ -472,31 +550,41 @@ export function priceFor(db: DB, q: { item: unknown; party?: unknown; side?: unk
   const rows = (db.prepare("SELECT data FROM docs WHERE type = 'item_price' AND deleted = 0").all() as { data: string }[]).map((r) => parse(r.data))
     .filter((p) => p.product === q.item && (!given(p.unit) || p.unit === product!.stock_unit)
       && (!given(p.valid_from) || String(p.valid_from) <= date) && (!given(p.valid_to) || String(p.valid_to) >= date)
-      && (!given(p.customer) || (side === 'sell' && p.customer === q.party)));
+      && (!given(p.customer) || (side === 'sell' && p.customer === q.party))
+      && (!given(p.supplier) || (side === 'buy' && p.supplier === q.party)));
   for (const list of lists) {
     const pl = dataOf(db, 'price_list', list);
     if (!pl || pl.active === false) continue;
-    // a price for this customer first, then the list price (03 §2.3 step 3); newest valid-from wins
-    const inList = rows.filter((p) => p.price_list === list).sort((a, b) => Number(!!b.customer) - Number(!!a.customer) || String(b.valid_from ?? '').localeCompare(String(a.valid_from ?? '')));
+    // a price for this customer (or from this supplier) first, then the list price (03 §2.3 step 3, 04 §4); newest
+    // valid-from wins
+    const own = (p: Data) => Number(!!(p.customer || p.supplier));
+    const inList = rows.filter((p) => p.price_list === list).sort((a, b) => own(b) - own(a) || String(b.valid_from ?? '').localeCompare(String(a.valid_from ?? '')));
     const hit = inList[0];
-    if (hit) return { rate: Number(hit.rate) || 0, price_list: list, ...(hit.customer ? { customer: true } : {}) };
+    if (hit) return { rate: Number(hit.rate) || 0, price_list: list, ...(hit.customer ? { customer: true } : {}), ...(hit.supplier ? { supplier: true } : {}) };
   }
-  // buying with no price on any list: the last price paid (ERPNext's last purchase rate)
-  if (side === 'buy') { const last = lastPurchase(db, q.item as string); if (last) return { rate: last.rate, price_list: null, last }; }
+  // buying with no price on any list: the last price paid to this supplier, else to anyone (04 §4 rule a)
+  if (side === 'buy') {
+    const last = (given(q.party) ? lastPurchase(db, q.item as string, q.party as string) : null) ?? lastPurchase(db, q.item as string);
+    if (last) return { rate: last.rate, price_list: null, last };
+  }
   return null;
 }
 
 /** The pricing rule for a sale line (03 §2.4): rules for the product first, then its group (and the groups above),
  *  then its brand; the first level with a fitting rule decides; among those the highest priority wins, and two at the
  *  same top priority are refused ("Multiple Price Rules exists"). null when none fits. */
-export function ruleFor(db: DB, q: { item: unknown; party?: unknown; qty?: unknown; date?: unknown; price_list?: unknown; till?: unknown }):
+export function ruleFor(db: DB, q: { item: unknown; party?: unknown; qty?: unknown; date?: unknown; price_list?: unknown; till?: unknown; side?: unknown; currency?: unknown }):
   { action: string; value: number; rule: string; title: string } | { error: string } | null {
   const product = dataOf(db, 'product', q.item);
   if (!product) return null;
   if (dataOf(db, 'till', q.till)?.ignore_price_rules === true) return null;   // a till set to use no pricing rules
   const date = typeof q.date === 'string' && realDate(q.date) ? q.date : new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
   const qty = Number(q.qty) || 0;
-  const cust = dataOf(db, 'customer', q.party);
+  // buying (04 §4, supplier quantity discounts): rules for any supplier, a supplier or a supplier group
+  const buying = q.side === 'buy';
+  const cust = buying ? null : dataOf(db, 'customer', q.party);
+  const supp = buying ? dataOf(db, 'supplier', q.party) : null;
+  const BUY_FOR = ['Any supplier', 'Supplier', 'Supplier group'];
   const groupsUp = (type: string, id: unknown): string[] => {
     const out: string[] = [];
     for (let g = typeof id === 'string' ? id : null, n = 0; g && n < 20; n++) { out.push(g); g = (dataOf(db, type, g)?.parent as string | undefined) ?? null; }
@@ -506,9 +594,11 @@ export function ruleFor(db: DB, q: { item: unknown; party?: unknown; qty?: unkno
   const rules = (db.prepare("SELECT id, title, data FROM docs WHERE type = 'price_rule' AND deleted = 0").all() as { id: string; title: string; data: string }[])
     .map((r) => ({ id: r.id, title: r.title, d: parse(r.data) }))
     .filter(({ d }) => d.active !== false && (!given(d.valid_from) || String(d.valid_from) <= date) && (!given(d.valid_to) || String(d.valid_to) >= date)
-      && (!given(d.price_list) || d.price_list === q.price_list) && qty >= (Number(d.min_qty) || 0) && (!given(d.max_qty) || Number(d.max_qty) === 0 || qty <= Number(d.max_qty))
+      && (!given(d.price_list) || d.price_list === q.price_list) && String(d.currency || 'TZS') === String(q.currency || 'TZS') && qty >= (Number(d.min_qty) || 0) && (!given(d.max_qty) || Number(d.max_qty) === 0 || qty <= Number(d.max_qty))
+      && BUY_FOR.includes(String(d.for ?? '')) === buying
       && (d.for === 'Customer' ? d.customer === q.party : d.for === 'Customer group' ? customerGroups.includes(String(d.customer_group))
-        : d.for === 'Route' ? routes.includes(String(d.route)) : true));
+        : d.for === 'Route' ? routes.includes(String(d.route)) : d.for === 'Supplier' ? d.supplier === q.party
+        : d.for === 'Supplier group' ? groupsUp('supplier_group', supp?.group).includes(String(d.supplier_group)) : true));
   const levels = [
     rules.filter(({ d }) => d.applies_to === 'Product' && d.product === q.item),
     rules.filter(({ d }) => d.applies_to === 'Product group' && productGroups.includes(String(d.product_group))),
@@ -541,10 +631,12 @@ function checkDiscounts(db: DB, lines: MoneyLine[], role: string, wholeShare = 0
   if (!manager && Number.isFinite(limit) && co && given(parse(co.data).discount_needs_manager) && wholeShare > limit) bad(`A discount above ${limit} % needs a manager`);
 }
 
-/** The last price paid for a product: the newest goods arrived or supplier bill line (not undone), per stock unit. */
-export function lastPurchase(db: DB, item: string): { rate: number; date: string; step: string; supplier?: string } | null {
+/** The last price paid for a product: the newest purchase order, goods arrived or supplier bill line (not undone, not
+ *  a return), per stock unit; `supplier`: from that supplier only. */
+export function lastPurchase(db: DB, item: string, supplier?: string): { rate: number; date: string; step: string; supplier?: string } | null {
   const undone = new Set((db.prepare("SELECT data FROM steps WHERE kind = 'cancel'").all() as { data: string }[]).map((r) => String(parse(r.data).target)));
-  const rows = db.prepare("SELECT id, data FROM steps WHERE kind IN ('purchase_receipt', 'purchase_invoice') ORDER BY seq DESC").all() as { id: string; data: string }[];
+  const rows = (db.prepare("SELECT id, data FROM steps WHERE kind IN ('purchase_order', 'purchase_receipt', 'purchase_invoice') ORDER BY seq DESC").all() as { id: string; data: string }[])
+    .filter((r) => { const d = parse(r.data); return !d.returnOf && (!supplier || d.supplier === supplier); });
   let best: { rate: number; date: string; step: string; supplier?: string } | null = null;
   for (const r of rows) {
     if (undone.has(r.id)) continue;

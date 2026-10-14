@@ -31,6 +31,10 @@ export const titleOfDoc = (def, d) => {
  * kit: { api, defs, nav, toast, can(type, what), titleOf, quickCreate, setTitle, setGuard }
  * Returns leave().
  */
+/** Extra panels a record kind shows on its view (e.g. the import shipment's goods and costs, imports.js):
+ *  PANELS[type](columnEl, kit, doc, reload) → optional leave(). */
+export const PANELS = {};
+
 export function mountDoc(el, kit, opts) {
   const def = kit.defs[opts.type];
   let mode = opts.mode || 'view';
@@ -117,6 +121,7 @@ export function mountDoc(el, kit, opts) {
     el.querySelector('#bzDel')?.addEventListener('click', (e) => remove(e.currentTarget));
     el.querySelector('#bzPin')?.addEventListener('click', setPin);
     usedIn();
+    if (PANELS[def.type] && id && !inModal) PANELS[def.type](el.querySelector('.bz-docgrid > .bz-col'), kit, doc, load);
   }
 
   // users: the owner sets anyone's PIN; others change their own (with the current one)

@@ -7,6 +7,7 @@ import type { DocResult, MoneyLine, Scenario, SellStep, Step } from '../contract
 import { roundMoney } from '../money.ts';
 import type { StockLedger } from '../stock/ledger.ts';
 import { invoiceTotals, lineRate } from '../money/taxes.ts';
+import { rateOf, roundsTotal } from '../money/fx.ts';   // foreign currency (phase 5b): marked "fx:"
 
 export const SELL_KINDS = new Set<string>(['quotation', 'sales_order', 'delivery_note', 'pick_list', 'set_status']);
 type Doc = Exclude<SellStep, { kind: 'set_status' }>;
@@ -34,7 +35,7 @@ export class SalesBook {
    *  below-cost check (money/books.ts). */
   atInvoice: (customer: string) => boolean = () => false;
   creditNotes: () => { returnOf: string; lines: MoneyLine[] }[] = () => [];
-  belowCost: (lines: MoneyLine[], tax: Doc['tax'], discount: number | undefined, warehouse: string | undefined, date: string, time: string) => string | null = () => null;
+  belowCost: (lines: MoneyLine[], tax: Doc['tax'], discount: number | undefined, warehouse: string | undefined, date: string, time: string, fxRate?: number) => string | null = () => null;
   private billing: InvoiceView | null = null;   // an invoice being checked for credit, counted as if posted
 
   constructor(scenario: Scenario, stock: StockLedger, invoices: () => InvoiceView[], credit: (customer: string, adds: number) => string | null) {
@@ -55,7 +56,7 @@ export class SalesBook {
     if (bad) return this.fail(step.id, bad);
     if (step.kind === 'pick_list') { this.posted.set(step.id, { step, cancelled: false }); this.order.push(step.id); return; }
     if (step.kind === 'delivery_note' && step.returnOf) return this.deliveryReturn(step);
-    const low = this.belowCost(step.lines, step.tax, step.discountAmount, step.kind === 'quotation' ? undefined : step.warehouse, step.date, step.time);
+    const low = this.belowCost(step.lines, step.tax, step.discountAmount, step.kind === 'quotation' ? undefined : step.warehouse, step.date, step.time, rateOf(step));
     if (low) return this.fail(step.id, low);
     // credit (03 §5.2): an order always; a delivery note only for lines not made from an order. A customer checked at
     // the invoice (bypass): orders never, a delivery note in full.
@@ -63,8 +64,9 @@ export class SalesBook {
     if (!step.creditOk && step.kind !== 'quotation' && !(atInv && step.kind === 'sales_order')) {
       const own = step.kind === 'sales_order' || atInv ? step.lines : step.lines.filter((l) => !l.from);
       if (own.length) {
-        const t = invoiceTotals(own, step.tax, this.scenario.rounding !== false, step.kind === 'sales_order' ? step.discountAmount : undefined);
-        const msg = this.credit(step.customer, step.kind === 'sales_order' ? t.roundedTotal : t.grandTotal);
+        const t = invoiceTotals(own, step.tax, roundsTotal(step, this.scenario.rounding !== false), step.kind === 'sales_order' ? step.discountAmount : undefined);
+        // fx: credit limits are in TZS
+        const msg = this.credit(step.customer, roundMoney((step.kind === 'sales_order' ? t.roundedTotal : t.grandTotal) * rateOf(step)));
         if (msg) return this.fail(step.id, msg);
       }
     }
@@ -231,7 +233,7 @@ export class SalesBook {
       if (done + l.qty > pl.step.lines[pr].qty + 1e-9) return `${l.item}: only ${pl.step.lines[pr].qty - done} picked and not delivered on ${pick}`;
     }
     if (want === 'sales_order') {
-      const allow = 1 + (this.scenario.overDelivery ?? 0) / 100;
+      const allow = 1 + this.allowance(l.item, 'overDelivery') / 100;
       const done = this.deliveredQty(src.step.id, l.from!.line);
       if (done + l.qty > sl.qty * allow + 1e-9) return `${l.item}: ${done + l.qty} would be delivered, only ${sl.qty} ordered on ${src.step.id}`;
     }
@@ -248,12 +250,12 @@ export class SalesBook {
     const st = this.status(src);
     if (st === 'Closed' || st === 'On Hold') return `${src.step.id} is ${st.toLowerCase()}`;
     if (src.step.kind === 'delivery_note' && updateStock && !this.services.has(l.item)) return `${l.item} was already delivered on ${src.step.id}; the invoice cannot move it again`;
-    const allow = 1 + (this.scenario.overBilling ?? 0) / 100;
+    const allow = 1 + this.allowance(l.item, 'overBilling') / 100;
     const billed = billedBefore(l.from!);
     if (billed + amountOf(l) > amountOf(sl) * allow + 0.001) return `${l.item}: billing ${roundMoney(billed + amountOf(l))} is more than ${amountOf(sl)} on ${src.step.id}`;
     if (src.step.kind === 'sales_order' && updateStock && !this.services.has(l.item)) {
       const done = this.deliveredQty(src.step.id, l.from!.line);
-      if (done + l.qty > sl.qty * (1 + (this.scenario.overDelivery ?? 0) / 100) + 1e-9) return `${l.item}: ${done + l.qty} would be delivered, only ${sl.qty} ordered`;
+      if (done + l.qty > sl.qty * (1 + this.allowance(l.item, 'overDelivery') / 100) + 1e-9) return `${l.item}: ${done + l.qty} would be delivered, only ${sl.qty} ordered`;
     }
     return null;
   }
@@ -445,10 +447,10 @@ export class SalesBook {
       // a cancelled document counts nothing (ERPNext shows 0 %, referee P05)
       const live = !p.cancelled;
       if (p.step.kind === 'quotation' && live) r.perOrdered = this.orderedPct(id);
-      if (p.step.kind === 'sales_order') { r.perDelivered = live ? this.perDelivered(id) : 0; r.perBilled = live ? this.perBilled(id) : 0; r.perPicked = live ? this.perPicked(id) : 0; }
+      if (p.step.kind === 'sales_order') { r.perDelivered = live ? this.perDelivered(id) : 0; r.perBilled = live ? this.perBilled(id) : 0; r.perPicked = live ? this.perPicked(id) : 0; r.advancePaid = live ? this.advanceOf(id) : 0; }
       if (p.step.kind === 'delivery_note') { r.perBilled = live && !p.step.returnOf ? this.perBilled(id) : 0; if (!p.step.returnOf) r.perReturned = live ? this.perReturned(id) : 0; }
       if (p.step.kind === 'pick_list') r.perDelivered = live ? this.pickPerDelivered(id) : 0;
-      const t = invoiceTotals(p.step.lines, p.step.tax, this.scenario.rounding !== false, p.step.discountAmount);
+      const t = invoiceTotals(p.step.lines, p.step.tax, roundsTotal(p.step, this.scenario.rounding !== false), p.step.discountAmount);
       r.totals = { netTotal: t.netTotal, vat: t.vat, grandTotal: t.grandTotal, roundedTotal: t.roundedTotal, discount: t.discount };
       if (live) r.lines = p.step.lines.map((_, i) => p.step.kind === 'quotation' ? { ordered: this.orderedQty(id, i) }
         : p.step.kind === 'sales_order' ? { delivered: this.deliveredQty(id, i), billed: this.billedAmount({ step: id, line: i }), picked: this.pickedQty(id, i),
@@ -491,18 +493,26 @@ export class SalesBook {
       if (d.kind === 'sales_order') {
         if (!withOrders) continue;
         if (p.manual === 'Closed') continue;
-        const t = invoiceTotals(d.lines, d.tax, this.scenario.rounding !== false, d.discountAmount);
-        total += t.roundedTotal * (100 - this.perBilled(d.id)) / 100;
+        const t = invoiceTotals(d.lines, d.tax, roundsTotal(d, this.scenario.rounding !== false), d.discountAmount);
+        total += t.roundedTotal * rateOf(d) * (100 - this.perBilled(d.id)) / 100;   // fx: in TZS
       } else if (d.kind === 'delivery_note' && !d.returnOf && d.lines.every((l) => !l.from)) {
-        const t = invoiceTotals(d.lines, d.tax, this.scenario.rounding !== false, d.discountAmount);
-        total += t.grandTotal * (100 - this.perBilled(d.id)) / 100;
+        const t = invoiceTotals(d.lines, d.tax, roundsTotal(d, this.scenario.rounding !== false), d.discountAmount);
+        total += t.grandTotal * rateOf(d) * (100 - this.perBilled(d.id)) / 100;   // fx: in TZS
       }
     }
     return roundMoney(total);
   }
 
   /** Totals of an order (for the credit check at order time). */
-  totalOf(step: Doc): number { return invoiceTotals(step.lines, step.tax, this.scenario.rounding !== false).roundedTotal; }
+  totalOf(step: Doc): number { return invoiceTotals(step.lines, step.tax, roundsTotal(step, this.scenario.rounding !== false)).roundedTotal; }
+
+  /** % a product may go over what was ordered: its own allowance, else the scenario's (ERPNext Item, then settings). */
+  private allowance(item: string, kind: 'overDelivery' | 'overBilling'): number {
+    return this.scenario.items.find((i) => i.key === item)?.[kind] ?? this.scenario[kind] ?? 0;
+  }
+
+  /** Advances paid against an order (set by run.ts from the books). */
+  advanceOf: (order: string) => number = () => 0;
 
   private fail(step: string, message: string): void { this.errors.push({ step, message }); }
 }

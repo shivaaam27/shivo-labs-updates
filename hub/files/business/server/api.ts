@@ -12,9 +12,12 @@ import { importCsv } from '../store/import.ts';
 import { setupBusiness } from '../store/seed.ts';
 import { addStep, computeStock, listSteps, previewMoney, stepLabel, undoStep } from '../store/steps.ts';
 import { priceFor, ruleFor } from '../store/money.ts';
+import { comparePrices, reorderSuggestions } from '../store/reorder.ts';
+import { priceInCurrency, rateQuery } from '../store/fx.ts';
 import { shiftsNow, tillStart } from '../store/till.ts';
 import { accountLedger, trialBalance } from '../store/books.ts';
 import { printView } from '../store/print.ts';
+import { costShipment, importTemplate, shipmentView } from '../store/imports.ts';
 /** Who may read the books per account (trial balance, account history): like ERPNext's Accounts User. */
 const BOOK_ROLES: Role[] = ['manager', 'accountant'];
 import type { Step } from '../core/contract.ts';
@@ -34,6 +37,7 @@ const MAX_TRIES = 5, LOCK_MS = 30_000;
 
 export function createApi(file: string) {
   const db: DB = openDb(file);
+  importTemplate(db, 'setup');   // incoterms and import cost types for a business set up before phase 5c (made once)
   // userId: who switched in by PIN; switched: a PIN switch (or lock) happened, so no automatic owner any more
   const session = { userId: null as string | null, switched: false, fails: 0, lockedUntil: 0 };
 
@@ -83,6 +87,7 @@ export function createApi(file: string) {
     if (is('POST', 'session', 1)) return switchUser(body);
     if (is('POST', 'setup', 1)) {
       const owner = await setupBusiness(db, body);
+      importTemplate(db, owner);
       session.userId = owner; session.switched = true;
       return { ready: true, user: activeUser(db, owner) };
     }
@@ -170,16 +175,40 @@ export function createApi(file: string) {
       needRoles(u, BOOK_ROLES, 'see the books');
       return accountLedger(db, a);
     }
+    if (is('GET', 'reorder', 1)) {
+      // what to reorder now, per store, grouped by the usual supplier (store/reorder.ts)
+      needRoles(u, STEP_ROLES.kinds.material_request, 'see what to reorder');
+      return reorderSuggestions(db);
+    }
+    if (is('GET', 'compare', 2)) {
+      // one product's prices from every supplier: their list price, quotation, last price paid
+      needRoles(u, STEP_ROLES.kinds.supplier_quotation, 'compare supplier prices');
+      return comparePrices(db, a!);
+    }
     if (is('GET', 'price', 1)) {
       needRoles(u, STEP_ROLES.write, 'see prices');
-      const price = priceFor(db, { item: q.item, party: q.party, side: q.side, date: q.date, till: q.till });
+      // in the document's currency (a USD sale or bill: the list's price at the rates)
+      const price = priceInCurrency(db, priceFor(db, { item: q.item, party: q.party, side: q.side, date: q.date, till: q.till }), q);
       // selling: the pricing rule that fits this line (quantity, customer, group, brand), for the screen to apply
-      const rule = q.side === 'buy' ? null : ruleFor(db, { item: q.item, party: q.party, qty: q.qty, date: q.date, price_list: price?.price_list, till: q.till });
+      // buying: supplier quantity discounts the same way (04 §4)
+      const rule = ruleFor(db, { item: q.item, party: q.party, qty: q.qty, date: q.date, price_list: price?.price_list, till: q.till, side: q.side, currency: q.currency });
       return { price, rule };
+    }
+    if (is('GET', 'rate', 1)) {
+      // foreign currency (phase 5b): a party's currency and the exchange rate a new document of that date takes
+      needRoles(u, STEP_ROLES.write, 'see exchange rates');
+      return rateQuery(db, q);
     }
     if (is('POST', 'steps', 2) && a === 'undo') {
       needRoles(u, STEP_ROLES.undo, 'undo stock movements');
       return { step: undoStep(db, body.id, u.id, body.client_id) };
+    }
+    // import shipments (phase 5c, store/imports.ts): the shipment page, and costing it (one landed cost for all its costs)
+    if (is('GET', 'shipment', 2)) { readable(u, 'import_shipment'); return shipmentView(db, a!); }
+    if (is('POST', 'shipment', 3) && b === 'cost') {
+      allowed(u, 'import_shipment', 'write');
+      needRoles(u, STEP_ROLES.kinds.landed_cost, 'add landed costs');
+      return costShipment(db, a!, body, u.id, u.role);
     }
     if (is('POST', 'run', 1)) {
       needRoles(u, STEP_ROLES.read, 'see stock');

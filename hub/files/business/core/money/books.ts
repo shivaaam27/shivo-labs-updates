@@ -9,14 +9,17 @@ import type { StockLedger } from '../stock/ledger.ts';
 import type { Totals } from './taxes.ts';
 import { invoiceTotals, lineRate } from './taxes.ts';
 import type { InvoiceView, SalesBook } from '../sell/orders.ts';
+import type { BillView, BuyBook } from '../buy/orders.ts';
+import { Fx, rateOf, roundsTotal } from './fx.ts';   // foreign currency (phase 5b): hook points are marked "fx:"
 
 type Kind = MoneyStep['kind'];
-export const MONEY_KINDS = new Set<string>(['sales_invoice', 'purchase_invoice', 'payment', 'credit_note', 'money_transfer', 'journal', 'reconcile']);
+export const MONEY_KINDS = new Set<string>(['sales_invoice', 'purchase_invoice', 'payment', 'credit_note', 'debit_note', 'money_transfer', 'journal', 'reconcile']);
 
-interface Gl { role: AccountRole; debit: number; credit: number; party?: string; ref?: string }   // ref: our own account id, when the document names one
-interface Ple { party: string; against: string; amount: number }   // + = owed (customer owes us / we owe the supplier)
+interface Gl { role: AccountRole; debit: number; credit: number; party?: string; ref?: string; fxOf?: string }   // ref: our own account id, when the document names one
+interface Ple { party: string; against: string; amount: number; base?: number; rate?: number; fxOf?: string }   // + = owed (customer owes us / we owe the supplier)
+// fx: amount is in the party's own currency (TZS for most), base in TZS at `rate`; fxOf marks an exchange difference (fx.ts)
 interface Invoice {
-  step: Extract<MoneyStep, { kind: 'sales_invoice' | 'purchase_invoice' | 'credit_note' }>;
+  step: Extract<MoneyStep, { kind: 'sales_invoice' | 'purchase_invoice' | 'credit_note' | 'debit_note' }>;
   party: string;
   side: 'customer' | 'supplier';
   totals: Totals;
@@ -43,10 +46,13 @@ export class MoneyBook {
   posted = new Map<string, Posted>();
   /** The selling side (orders, delivery notes), set by run.ts: invoice lines may bill their lines. */
   sales: SalesBook | null = null;
+  /** The buying side (orders, goods arrived), set by run.ts: bill lines may bill their lines. */
+  buy: BuyBook | null = null;
   order: string[] = [];
   invoices = new Map<string, Invoice>();
   errors: { step: string; message: string }[] = [];
   private rounding: boolean;
+  private fx: Fx;   // fx: foreign currency (fx.ts)
 
   constructor(scenario: Scenario, stock: StockLedger) {
     this.scenario = scenario;
@@ -59,17 +65,19 @@ export class MoneyBook {
     this.items = new Set(scenario.items.map((i) => i.key));
     this.services = new Set(scenario.items.filter((i) => i.stock === false).map((i) => i.key));
     this.rounding = scenario.rounding !== false;
+    this.fx = new Fx(scenario);
   }
 
   isMoney(id: string): boolean { return this.posted.has(id); }
 
   post(step: MoneyStep): void {
-    const bad = this.check(step);
+    const bad = this.fx.check(step, (id) => this.posted.get(id)?.step ?? this.stock.posted.get(id)?.step) ?? this.check(step);   // fx: currency checks first
     if (bad) return this.fail(step.id, bad);
     switch (step.kind) {
       case 'sales_invoice': return this.salesInvoice(step);
       case 'purchase_invoice': return this.purchaseInvoice(step);
       case 'credit_note': return this.creditNote(step);
+      case 'debit_note': return this.debitNote(step);
       case 'payment': return this.payment(step);
       case 'money_transfer': return this.keep(step, [at(dr(ACCOUNT_ROLE[step.to], step.amount), step.toRef), at(cr(ACCOUNT_ROLE[step.from], step.amount), step.fromRef)], []);
       case 'journal': return this.journal(step);
@@ -84,13 +92,18 @@ export class MoneyBook {
     if (!p) return this.fail(cancelId, `Step ${target} was not posted, nothing to cancel`);
     if (p.cancelled) return this.fail(cancelId, `Step ${target} is already cancelled`);
     const inv = this.invoices.get(target);
+    // a return made from it is cancelled first (ERPNext: the linked credit or debit note)
+    const ret = [...this.invoices.values()].find((x) => x.returnOf === target && !this.posted.get(x.step.id)?.cancelled);
+    if (ret) return this.fail(cancelId, `Cancel ${ret.step.id} first: it returns ${target}`);
     if (inv?.stock) this.stock.post({ id: `${cancelId}:stock`, kind: 'cancel', date, time, target } as Step);
     if (inv) inv.owedAtCancel = this.outstanding(target);
     p.cancelled = true;
+    if (inv?.step.kind === 'purchase_invoice' && this.scenario.billRateRevalues) this.stock.refresh();
     if (inv) {
       // unlink: rows of other steps pointing at this invoice now point at their own step (unallocated credit)
       for (const other of this.posted.values()) {
         if (other.cancelled) continue;
+        this.fx.unlink(other, target);   // fx: exchange differences booked on the cancelled invoice go
         for (const row of other.ple) if (row.against === target && other.step.id !== target) row.against = other.step.id;
       }
     }
@@ -100,7 +113,7 @@ export class MoneyBook {
   // ---- documents -------------------------------------------------------------------------------------------
 
   private salesInvoice(step: Extract<MoneyStep, { kind: 'sales_invoice' }>): void {
-    const t = invoiceTotals(step.lines, step.tax, this.rounding, step.discountAmount);
+    const t = invoiceTotals(step.lines, step.tax, roundsTotal(step, this.rounding), step.discountAmount);   // fx: other currencies keep their cents
     const pays = (step.payments ?? []).filter((p) => p.amount > 0);
     const paid = roundMoney(pays.reduce((s, p) => s + p.amount, 0));
     const change = paid > t.roundedTotal && pays.some((p) => p.account === 'cash') ? roundMoney(paid - t.roundedTotal) : 0;
@@ -109,12 +122,12 @@ export class MoneyBook {
     // checks a sale that adds to what is owed (ERPNext also blocks a fully paid sale of a customer already over it).
     // an invoice made wholly from orders or delivery notes was checked there (03 §5.2), unless the customer is checked
     // at the invoice (bypass at the order). What the invoice bills no longer counts as open orders or deliveries.
-    const adds = step.writeOff || (!this.atInvoice.has(step.customer) && step.lines.every((l) => l.from)) ? 0 : left;
+    const adds = step.writeOff || (!this.atInvoice.has(step.customer) && step.lines.every((l) => l.from)) ? 0 : roundMoney(left * rateOf(step));   // fx: limits are in TZS
     if (adds > 0 && !step.creditOk) {
       const msg = this.creditFor(step.customer, adds, { id: step.id, customer: step.customer, lines: step.lines, updateStock: !!step.updateStock, date: step.date });
       if (msg) return this.fail(step.id, msg);
     }
-    const low = this.belowCost(step.lines, step.tax, step.discountAmount, step.updateStock ? step.warehouse : undefined, step.date, step.time);
+    const low = this.belowCost(step.lines, step.tax, step.discountAmount, step.updateStock ? step.warehouse : undefined, step.date, step.time, rateOf(step));
     if (low) return this.fail(step.id, low);
     const goods = this.goods(step.lines);
     const moves = !!step.updateStock && !step.opening && goods.length > 0;
@@ -141,14 +154,14 @@ export class MoneyBook {
   }
 
   private purchaseInvoice(step: Extract<MoneyStep, { kind: 'purchase_invoice' }>): void {
-    const t = invoiceTotals(step.lines, step.tax, this.rounding, step.discountAmount);
+    const t = invoiceTotals(step.lines, step.tax, roundsTotal(step, this.rounding), step.discountAmount);
     const paidNow = roundMoney((step.payments ?? []).reduce((s, p) => s + p.amount, 0));
     if (paidNow > t.roundedTotal) return this.fail(step.id, `Paid ${paidNow} is more than the bill (${t.roundedTotal})`);
     const moves = !!step.updateStock && !step.opening && !step.receipt && this.goods(step.lines).length > 0;
     if (moves) {
       // goods come in at their net cost after discounts; services on the same bill are expenses (referee M15)
       const idx = step.lines.map((_, i) => i).filter((i) => !this.services.has(step.lines[i].item));
-      const goods = idx.map((i) => ({ item: step.lines[i].item, qty: step.lines[i].qty, rate: t.lines[i].net / step.lines[i].qty }));
+      const goods = idx.map((i) => ({ item: step.lines[i].item, qty: step.lines[i].qty, rate: (t.lines[i].net / step.lines[i].qty) * rateOf(step) }));   // fx: stock is valued in TZS
       this.stock.billSteps.add(step.id);
       if (!this.moveStock(step.id, step, 'in', step.warehouse, goods)) return;
     }
@@ -167,8 +180,20 @@ export class MoneyBook {
       gl.push(dr('payable', p.amount, step.supplier), at(cr(ACCOUNT_ROLE[p.account], p.amount), p.ref));
       ple.push({ party: step.supplier, against: step.id, amount: -p.amount });
     }
+    // earlier payments set against the bill (ERPNext Purchase Invoice Advance): nothing is booked again, only which
+    // bill the credit now belongs to (like matching credit later)
+    for (const a of (step.advances ?? []).filter((x) => x.amount > 0)) {
+      ple.push({ party: step.supplier, against: step.id, amount: -a.amount }, { party: step.supplier, against: a.from, amount: a.amount });
+    }
+    // a small difference not to be paid (ERPNext write_off_amount): Dr payable, Cr write off
+    if (step.writeOff && step.writeOff > 0) {
+      gl.push(dr('payable', step.writeOff, step.supplier), cr('write_off', step.writeOff));
+      ple.push({ party: step.supplier, against: step.id, amount: -step.writeOff });
+    }
     this.invoices.set(step.id, { step, party: step.supplier, side: 'supplier', totals: t, dueDate: lastDue(step), stock: moves ? 'in' : null });
     this.keep(step, balance(gl), ple);
+    // a bill at another price than the goods arrived it bills re-values them (04 §5.3)
+    if (this.scenario.billRateRevalues && (step.receipt || step.lines.some((l) => l.from))) this.stock.refresh();
   }
 
   private creditNote(step: Extract<MoneyStep, { kind: 'credit_note' }>): void {
@@ -177,7 +202,7 @@ export class MoneyBook {
     const lines: MoneyLine[] = step.lines ?? sold.lines;
     // a discount on the whole sale comes back in proportion to what is returned (ERPNext gives the whole discount back
     // again on a part return, so the customer gets less than they paid for those goods; ours differs, referee M22)
-    const t = invoiceTotals(lines, sold.tax, this.rounding, step.lines ? this.discountShare(orig, lines) : sold.discountAmount);
+    const t = invoiceTotals(lines, sold.tax, roundsTotal(sold, this.rounding), step.lines ? this.discountShare(orig, lines) : sold.discountAmount);
     const goods = this.goods(lines);
     const moves = !!step.updateStock && goods.length > 0;
     if (moves) {
@@ -193,6 +218,39 @@ export class MoneyBook {
     if (t.vat) gl.push(dr('vat', t.vat));
     this.invoices.set(step.id, { step, party: orig.party, side: 'customer', totals: t, dueDate: step.date, returnOf: step.against, stock: moves ? 'in' : null });
     // its own balance is a credit to the customer (01 §3.3, update_outstanding_for_self), or it comes off the invoice
+    this.keep(step, balance(gl), [{ party: orig.party, against: step.reduceInvoice ? step.against : step.id, amount: -t.roundedTotal }]);
+  }
+
+  /** A return of a supplier bill (ERPNext debit note, 04 §2.7): what we owe falls by the returned lines (its own credit
+   *  with the supplier, or off the bill); goods the bill brought in go back out at the rate they came in. */
+  private debitNote(step: Extract<MoneyStep, { kind: 'debit_note' }>): void {
+    const orig = this.invoices.get(step.against)!;
+    const bill = orig.step as Extract<MoneyStep, { kind: 'purchase_invoice' }>;
+    const lines: MoneyLine[] = step.lines ?? bill.lines;
+    const t = invoiceTotals(lines, bill.tax, this.rounding, step.lines ? this.discountShare(orig, lines) : bill.discountAmount);
+    const moves = !!step.updateStock && this.goods(lines).length > 0;
+    if (moves) {
+      // the bill's stock rows are numbered over its goods only (services left out)
+      const goodsIdx = bill.lines.map((_, i) => i).filter((i) => !this.services.has(bill.lines[i].item));
+      const used = new Map<number, number>();
+      const back = lines.filter((l) => !this.services.has(l.item)).map((l) => {
+        const k = goodsIdx.find((i) => bill.lines[i].item === l.item && (used.get(i) ?? 0) < bill.lines[i].qty) ?? goodsIdx.find((i) => bill.lines[i].item === l.item)!;
+        used.set(k, (used.get(k) ?? 0) + l.qty);
+        return { item: l.item, qty: l.qty, rate: lineRate(l), from: { step: bill.id, line: goodsIdx.indexOf(k) } };
+      });
+      const before = this.stock.errors.length;
+      this.stock.post({ id: step.id, kind: 'purchase_receipt', returnOf: bill.id, date: step.date, time: step.time, warehouse: bill.warehouse!, lines: back } as Step);
+      const err = this.stock.errors.slice(before).find((e) => e.step === step.id);
+      if (err) return this.fail(step.id, err.message);
+    }
+    const gl: Gl[] = [dr('payable', t.roundedTotal, orig.party)];
+    lines.forEach((l, i) => {
+      // goods going back now come off stock at their net amount (stockRows corrects it to the value that left)
+      const role: AccountRole = this.services.has(l.item) ? 'expense' : moves ? 'stock' : 'stock_received_not_billed';
+      gl.push(at(cr(role, t.lines[i].net), role === 'expense' ? l.account : undefined));
+    });
+    if (t.vat) gl.push(cr('vat', t.vat));
+    this.invoices.set(step.id, { step, party: orig.party, side: 'supplier', totals: t, dueDate: step.date, returnOf: step.against, stock: moves ? 'out' : null });
     this.keep(step, balance(gl), [{ party: orig.party, against: step.reduceInvoice ? step.against : step.id, amount: -t.roundedTotal }]);
   }
 
@@ -278,10 +336,51 @@ export class MoneyBook {
     if (k === 'purchase_invoice') {
       if (step.receipt) {
         const r = this.stock.posted.get(step.receipt);
-        if (!r || r.cancelled || r.step.kind !== 'purchase_receipt') return `${step.receipt} is not a posted goods receipt`;
+        if (!r || r.cancelled || r.step.kind !== 'purchase_receipt' || r.step.returnOf) return `${step.receipt} is not a posted goods receipt`;
       }
       if (step.updateStock && !this.scenario.warehouses.includes(step.warehouse ?? '')) return 'Choose the warehouse the goods go into';
-      return party(step.supplier, 'supplier') ?? lines(step.lines);
+      const bad = party(step.supplier, 'supplier') ?? lines(step.lines);
+      if (bad) return bad;
+      if (this.buy) {
+        for (const [i, l] of step.lines.entries()) {
+          if (!l.from) continue;
+          const b = this.buy.checkBillLine(step.supplier, l, i, !!step.updateStock);
+          if (b) return b;
+        }
+        const b = this.buy.checkBill(this.billView(step));
+        if (b) return b;
+      }
+      const t = invoiceTotals(step.lines, step.tax, this.rounding, step.discountAmount);
+      let adv = 0;
+      for (const a of step.advances ?? []) {
+        if (!(a.amount > 0)) return 'An advance set against the bill must be above 0';
+        const src = this.posted.get(a.from);
+        if (!src || src.cancelled || this.invoices.has(a.from)) return `${a.from} is not a payment or journal`;
+        const credit = -roundMoney(this.rowsAgainst(a.from, step.supplier));
+        if (a.amount > credit + 0.001) return `${a.from} has only ${credit} left to set against bills`;
+        adv += a.amount;
+      }
+      const paid = (step.payments ?? []).reduce((s, p) => s + p.amount, 0);
+      if (roundMoney(adv + paid + (step.writeOff ?? 0)) > t.roundedTotal + 0.001) return `Advances, payments and write-off (${roundMoney(adv + paid + (step.writeOff ?? 0))}) are more than the bill (${t.roundedTotal})`;
+      if ((step.writeOff ?? 0) < 0) return 'The write-off cannot be below 0';
+      return null;
+    }
+    if (k === 'debit_note') {
+      const orig = this.invoices.get(step.against);
+      if (!orig || orig.step.kind !== 'purchase_invoice' || this.posted.get(step.against)?.cancelled) return `${step.against} is not a posted supplier bill`;
+      if (step.updateStock && !orig.stock && this.goods(step.lines ?? orig.step.lines).length) return 'The bill brought no goods in, so none can go back on it';
+      if (step.reduceInvoice && this.outstanding(step.against) <= 0) return `Nothing is owed on ${step.against} any more; keep the return as credit with the supplier`;
+      const ls = step.lines ?? orig.step.lines;
+      const bad = lines(ls);
+      if (bad) return bad;
+      for (const l of ls) {
+        const billed = orig.step.lines.filter((x) => x.item === l.item).reduce((s, x) => s + x.qty, 0);
+        const back = [...this.invoices.values()].filter((x) => x.returnOf === step.against && !this.posted.get(x.step.id)?.cancelled)
+          .reduce((s, x) => s + (x.step.lines ?? (orig.step as { lines: MoneyLine[] }).lines).filter((y) => y.item === l.item).reduce((a, y) => a + y.qty, 0), 0);
+        const want = ls.filter((x) => x.item === l.item).reduce((s, x) => s + x.qty, 0);
+        if (want + back > billed + 1e-9) return `Cannot return more ${l.item} than was billed (${billed}${back ? `, ${back} already returned` : ''})`;
+      }
+      return null;
     }
     if (k === 'credit_note') {
       const orig = this.invoices.get(step.against);
@@ -301,6 +400,23 @@ export class MoneyBook {
     if (k === 'payment') {
       if (!(step.amount > 0)) return 'The amount must be above 0';
       if (!this.parties.has(step.party)) return `Unknown customer or supplier ${step.party}`;
+      // a supplier on hold for payments, a bill on hold (04 §1.1, §2.5)
+      if (step.direction === 'out' && this.parties.get(step.party) === 'supplier') {
+        const h = this.buy?.paymentHold(step.party, step.date);
+        if (h) return h;
+      }
+      for (const a of step.allocate ?? []) {
+        const b = this.invoices.get(a.invoice)?.step as { hold?: boolean; holdUntil?: string } | undefined;
+        if (b?.hold && !this.released.has(a.invoice) && (!b.holdUntil || step.date < b.holdUntil)) return `${a.invoice} is on hold${b.holdUntil ? ` until ${b.holdUntil}` : ''}`;
+      }
+      let advance = 0;
+      for (const o of step.advanceFor ?? []) {
+        const doc = this.buy?.live(o.order) ?? this.sales?.live(o.order);
+        const who = doc && ('supplier' in doc ? doc.supplier : 'customer' in doc ? doc.customer : '');
+        if (!doc || (doc.kind !== 'purchase_order' && doc.kind !== 'sales_order') || who !== step.party) return `${o.order} is not a live order of ${step.party}`;
+        if (!(o.amount > 0)) return 'An advance must be above 0';
+        advance += o.amount;
+      }
       // paying back: what is linked must be credit they have (a negative balance, e.g. a return)
       const back = (this.parties.get(step.party) === 'customer') !== (step.direction === 'in');
       let total = 0;
@@ -313,7 +429,7 @@ export class MoneyBook {
         total += a.amount;
       }
       const ded = (step.deductions ?? []).reduce((s, d) => s + d.amount, 0);
-      if (roundMoney(total) > roundMoney(step.direction === 'in' ? step.amount + ded : step.amount - ded)) return 'Allocated more than was paid';
+      if (roundMoney(total + advance) > roundMoney(step.direction === 'in' ? step.amount + ded : step.amount - ded)) return 'Allocated more than was paid';
       return null;
     }
     if (k === 'money_transfer') {
@@ -342,8 +458,9 @@ export class MoneyBook {
     }
     if (k === 'journal') {
       if (step.rows.length < 2) return 'A journal needs at least two rows';
-      const d = roundMoney(step.rows.reduce((s, r) => s + (r.debit ?? 0), 0));
-      const c = roundMoney(step.rows.reduce((s, r) => s + (r.credit ?? 0), 0));
+      // fx: a row in another currency counts at its rate (the journal balances in TZS)
+      const d = roundMoney(step.rows.reduce((s, r) => s + roundMoney((r.debit ?? 0) * (r.exchangeRate ?? 1)), 0));
+      const c = roundMoney(step.rows.reduce((s, r) => s + roundMoney((r.credit ?? 0) * (r.exchangeRate ?? 1)), 0));
       if (d !== c) return `Total Debit must be equal to Total Credit (${d} vs ${c})`;
       return null;
     }
@@ -392,15 +509,24 @@ export class MoneyBook {
     if (!inv?.stock) return [];
     const change = roundMoney(this.stock.rowsOf(id).reduce((s, r) => s + r.valueChange, 0));
     if (!change) return [];
+    if (inv.step.kind === 'debit_note') {
+      // goods back to the supplier left at their stock value, not the returned amounts (landed cost on the bill's goods):
+      // the gap between the two goes to cost of goods sold
+      const t = inv.totals;
+      const ls = inv.step.lines ?? (this.invoices.get(inv.returnOf!)!.step as { lines: MoneyLine[] }).lines;
+      const net = roundMoney(ls.reduce((s, l, i) => s + (this.services.has(l.item) ? 0 : t.lines[i].net), 0));
+      const gap = roundMoney(net + change);   // > 0: less value left than the amounts said
+      return gap > 0 ? [dr('stock', gap), cr('cost_of_goods_sold', gap)] : gap < 0 ? [cr('stock', -gap), dr('cost_of_goods_sold', -gap)] : [];
+    }
     if (inv.step.kind === 'purchase_invoice') {
       // its stock debit is the goods' net amounts (above); a landed cost added later (referee M25) is booked like on
-      // goods arrived: Dr Stock by the extra value, Cr Expenses Included In Valuation, the gap to cost of goods sold
-      const rows = this.stock.rowsOf(id);
-      const landed = roundMoney(rows.reduce((s, r) => s + this.stock.landedPerUnit(r) * r.qty, 0));
+      // goods arrived: Dr Stock by the extra value, Cr Expenses Included In Valuation (or each cost line's own
+      // account), the gap to cost of goods sold
+      const { total: landed, credits } = this.stock.landedBooked(id);
       if (!landed) return [];
       const t = inv.totals;
       const net = roundMoney(inv.step.lines.reduce((s, l, i) => s + (this.services.has(l.item) ? 0 : t.lines[i].net), 0));
-      const out: Gl[] = [dr('stock', change - net), cr('expenses_in_valuation', landed)];
+      const out: Gl[] = [dr('stock', change - net), ...credits.map((c) => at(cr(c.role, c.amount), c.ref))];
       const gap = roundMoney(net + landed - change);
       if (gap) out.push(gap > 0 ? dr('cost_of_goods_sold', gap) : cr('cost_of_goods_sold', -gap));
       return out;
@@ -465,13 +591,16 @@ export class MoneyBook {
     return 'Paid';
   }
 
-  partyBalances(): { party: string; balance: number }[] {
-    const sum = new Map<string, number>();
+  partyBalances(): { party: string; balance: number; inCurrency?: number }[] {
+    const sum = new Map<string, number>(), own = new Map<string, number>();
     for (const p of this.posted.values()) {
       if (p.cancelled) continue;
-      for (const r of p.ple) sum.set(r.party, (sum.get(r.party) ?? 0) + r.amount);
+      for (const r of p.ple) {
+        sum.set(r.party, (sum.get(r.party) ?? 0) + (r.base ?? r.amount));   // fx: in TZS, as the books
+        if (this.fx.isForeignParty(r.party)) own.set(r.party, (own.get(r.party) ?? 0) + r.amount);
+      }
     }
-    return [...sum].map(([party, b]) => ({ party, balance: roundMoney(b) }));
+    return [...sum].map(([party, b]) => ({ party, balance: roundMoney(b), ...(own.has(party) ? { inCurrency: roundMoney(own.get(party)!) } : {}) }));
   }
 
   // ---- helpers -------------------------------------------------------------------------------------------------
@@ -513,12 +642,12 @@ export class MoneyBook {
   /** No sale below cost (03 §2, Selling Settings validate_selling_price): each stock line's net rate (after discounts,
    *  without VAT) may not be below the product's last purchase rate, nor its valuation rate in the store the goods
    *  leave from. Off unless the scenario asks for it. */
-  belowCost(lines: MoneyLine[], tax: Parameters<typeof invoiceTotals>[1], discount: number | undefined, warehouse: string | undefined, date: string, time: string): string | null {
+  belowCost(lines: MoneyLine[], tax: Parameters<typeof invoiceTotals>[1], discount: number | undefined, warehouse: string | undefined, date: string, time: string, fxRate = 1): string | null {
     if (!this.scenario.noSaleBelowCost) return null;
     const t = invoiceTotals(lines, tax, this.rounding, discount);
     for (const [i, l] of lines.entries()) {
       if (this.services.has(l.item) || !l.qty) continue;
-      const net = roundMoney(t.lines[i].net / l.qty);
+      const net = roundMoney((t.lines[i].net / l.qty) * fxRate);   // fx: compared in TZS
       const last = this.lastPurchaseRate(l.item);
       if (last !== null && net < last) return `Line ${i + 1}: the rate ${money(net)} of ${l.item} is below its last purchase rate ${money(last)}`;
       const row = warehouse ? this.stock.lastActive(l.item, warehouse, `${date} ${time}`) : undefined;
@@ -529,6 +658,7 @@ export class MoneyBook {
 
   /** The newest live purchase of a product (goods arrived or supplier bill), per stock unit, without VAT. */
   private lastPurchaseRate(item: string): number | null {
+    if (this.buy) return this.buy.lastPurchase().find((x) => x.item === item)?.rate ?? null;
     let best: { at: string; rate: number } | null = null;
     const take = (at: string, rate: number) => { if (!best || at >= best.at) best = { at, rate }; };
     for (const id of this.stock.order) {
@@ -540,7 +670,7 @@ export class MoneyBook {
       const p = this.posted.get(id);
       if (!p || p.cancelled || p.step.kind !== 'purchase_invoice' || p.step.opening) continue;
       const t = invoiceTotals(p.step.lines, p.step.tax, this.rounding, p.step.discountAmount);
-      p.step.lines.forEach((l, i) => { if (l.item === item && l.qty) take(`${p.step.date} ${p.step.time}`, roundMoney(t.lines[i].net / l.qty)); });
+      p.step.lines.forEach((l, i) => { if (l.item === item && l.qty) take(`${p.step.date} ${p.step.time}`, roundMoney((t.lines[i].net / l.qty) * rateOf(p.step))); });   // fx: in TZS
     }
     return best === null ? null : (best as { rate: number }).rate;
   }
@@ -557,6 +687,45 @@ export class MoneyBook {
     return out;
   }
 
+  /** Bills released from their hold (ERPNext Unblock Invoice): a set_status Open on a held bill. */
+  private released = new Set<string>();
+  release(step: Extract<Step, { kind: 'set_status' }>): void {
+    const b = this.invoices.get(step.target)?.step as { kind?: string; hold?: boolean } | undefined;
+    if (!b || b.kind !== 'purchase_invoice' || this.posted.get(step.target)?.cancelled) return this.fail(step.id, `${step.target} is not a live supplier bill`);
+    if (step.status !== 'Open' || !b.hold || this.released.has(step.target)) return this.fail(step.id, `${step.target} is not on hold`);
+    this.released.add(step.target);
+    this.order.push(step.id);
+  }
+
+  /** A supplier bill or debit note as the buying side sees it. */
+  billView(step: Extract<MoneyStep, { kind: 'purchase_invoice' | 'debit_note' }>): BillView {
+    if (step.kind === 'debit_note') {
+      const bill = this.invoices.get(step.against)?.step as Extract<MoneyStep, { kind: 'purchase_invoice' }>;
+      const lines = step.lines ?? bill.lines;
+      const t = invoiceTotals(lines, bill.tax, this.rounding);
+      return { id: step.id, supplier: bill.supplier, lines, updateStock: !!step.updateStock, date: step.date, time: step.time, returnOf: step.against, totals: t.lines, rate: rateOf(bill) };
+    }
+    const t = invoiceTotals(step.lines, step.tax, this.rounding, step.discountAmount);
+    return { id: step.id, supplier: step.supplier, lines: step.lines, updateStock: !!step.updateStock && !step.receipt, date: step.date, time: step.time,
+      receipt: step.receipt, opening: step.opening, totals: t.lines, rate: rateOf(step) };
+  }
+  /** Live supplier bills and debit notes (for ordered / received / billed counters). */
+  billViews(): BillView[] {
+    const out: BillView[] = [];
+    for (const id of this.order) {
+      const p = this.posted.get(id);
+      if (!p || p.cancelled || (p.step.kind !== 'purchase_invoice' && p.step.kind !== 'debit_note')) continue;
+      out.push(this.billView(p.step));
+    }
+    return out;
+  }
+  /** Advances paid against an order: live payments' advanceFor rows. */
+  advanceOf(order: string): number {
+    let a = 0;
+    for (const p of this.posted.values()) if (!p.cancelled && p.step.kind === 'payment') for (const o of p.step.advanceFor ?? []) if (o.order === order) a += o.amount;
+    return roundMoney(a);
+  }
+
   /** Live sales invoices as the selling side sees them (for ordered / delivered / billed counters). */
   invoiceViews(): InvoiceView[] {
     const out: InvoiceView[] = [];
@@ -571,7 +740,7 @@ export class MoneyBook {
   /** What a party owes now (customer) or is owed (supplier): its live party rows. */
   private balanceOf(party: string): number {
     let b = 0;
-    for (const p of this.posted.values()) if (!p.cancelled) for (const r of p.ple) if (r.party === party) b += r.amount;
+    for (const p of this.posted.values()) if (!p.cancelled) for (const r of p.ple) if (r.party === party) b += r.base ?? r.amount;   // fx: in TZS
     return roundMoney(b);
   }
 
@@ -587,12 +756,21 @@ export class MoneyBook {
   }
 
   private keep(step: MoneyStep, gl: Gl[], ple: Ple[]): void {
+    gl = this.fx.book(step, gl, ple, (id) => this.rateOfDoc(id));   // fx: rows in TZS, exchange differences
     this.posted.set(step.id, { step, gl, ple, cancelled: false });
     this.order.push(step.id);
   }
 
   private fail(step: string, message: string): void {
     this.errors.push({ step, message });
+  }
+
+  /** fx: the rate a posted step booked its own party rows at (a journal row's own rate), else its document's rate. */
+  private rateOfDoc(id: string): number | undefined {
+    const p = this.posted.get(id);
+    if (!p) return undefined;
+    const own = p.ple.find((r) => r.against === id && r.amount && r.rate !== undefined && !r.fxOf);
+    return own?.rate ?? rateOf(p.step);
   }
 }
 

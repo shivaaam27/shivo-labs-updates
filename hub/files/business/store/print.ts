@@ -1,8 +1,10 @@
-// Printing (phase 4e, ERPNext print settings and print formats for selling documents). Two halves:
+// Printing (phase 4e, ERPNext print settings and print formats; buying documents phase 5). Two halves:
 //  - addPrintInputs: what a screen may send for the printed page of a quotation, order, delivery note, sale, return,
-//    payment or journal (print heading, letter head, terms and their text, language, contact, deliver-to address,
-//    "without amounts", "group same items"), checked against the records and kept on the step (core/contract.ts
-//    PrintExtra; the engine ignores it). New selling documents get the company's default terms (a till sale the till's).
+//    payment or journal, and of a stock request, supplier quotation, purchase order, goods arrived (or sent back),
+//    supplier bill or debit note (print heading, letter head, terms and their text, language, contact, deliver-to
+//    address, "without amounts", "group same items"), checked against the records and kept on the step
+//    (core/contract.ts PrintExtra; the engine ignores it). New selling documents get the company's default selling
+//    terms (a till sale the till's), new buying documents its default buying terms.
 //  - printView: everything one printed page needs, worked out here so every printed total is the engine's own
 //    (invoiceTotals, the run's invoices): the business and its letter head, the customer, lines (grouped if asked),
 //    VAT per rate, rounding, the amount in words, payments, change, what is still owed, instalments, terms, footer.
@@ -16,6 +18,7 @@ import { OPENING_ITEM, record, text } from './money.ts';
 import { computeStock, scenarioOf } from './steps.ts';
 import { invoiceTotals } from '../core/money/taxes.ts';
 import { amountInWords } from '../core/money/words.ts';
+import { roundsTotal } from '../core/money/fx.ts';
 import { tripOf } from './trips.ts';
 import type { Language } from '../core/money/words.ts';
 
@@ -24,9 +27,10 @@ const parse = (s: string): Data => { try { return JSON.parse(s) ?? {}; } catch {
 const given = (v: unknown) => v !== undefined && v !== null && v !== '';
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Selling documents (terms, contact, deliver-to, grouping) and the other printed kinds (heading, letter head). */
+/** Selling and buying documents (terms, contact, deliver-to, grouping) and the other printed kinds (heading, letter head). */
 const SELLING = new Set(['quotation', 'sales_order', 'delivery_note', 'sales_invoice']);
-export const PRINTED = new Set([...SELLING, 'credit_note', 'payment', 'journal']);
+const BUYING = new Set(['material_request', 'supplier_quotation', 'purchase_order', 'purchase_receipt', 'purchase_invoice']);
+export const PRINTED = new Set([...SELLING, ...BUYING, 'credit_note', 'debit_note', 'payment', 'journal']);
 const LANGUAGES = ['English', 'Swahili'];
 
 function dataOf(db: DB, type: string, id: unknown): Data | null {
@@ -41,18 +45,20 @@ const stepData = (db: DB, id: unknown): Data | null => {
   return r ? parse(r.data) : null;
 };
 
-/** The customer a selling document or return is for (a return: the sale it returns). */
-function customerOf(db: DB, step: Step): { id: string; data: Data } | null {
+/** The customer a selling document or return is for (a return: the sale it returns), or the supplier of a buying
+ *  document (a debit note: of the bill it returns). A stock request has neither. */
+function partyOf(db: DB, step: Step): { id: string; data: Data } | null {
   const s = step as unknown as Data;
-  const id = step.kind === 'credit_note' ? stepData(db, s.against)?.customer : s.customer;
-  const data = dataOf(db, 'customer', id);
+  const id = step.kind === 'credit_note' ? stepData(db, s.against)?.customer : step.kind === 'debit_note' ? stepData(db, s.against)?.supplier : s.customer ?? s.supplier;
+  const data = dataOf(db, BUYING.has(step.kind) || step.kind === 'debit_note' ? 'supplier' : 'customer', id);
   return data ? { id: String(id), data } : null;
 }
 
-/** Terms used without being chosen (the company's or the till's): skipped quietly if gone, switched off or not for selling. */
-function defaultTerms(db: DB, id: unknown): { id: string; text: string } | null {
+/** Terms used without being chosen (the company's or the till's): skipped quietly if gone, switched off or not for this
+ *  side (selling: unless marked not for selling; buying: only terms marked for buying). */
+function defaultTerms(db: DB, id: unknown, buying = false): { id: string; text: string } | null {
   const t = dataOf(db, 'terms', id);
-  return t && t.active !== false && t.selling !== false ? { id: String(id), text: String(t.text ?? '') } : null;
+  return t && t.active !== false && (buying ? t.buying === true : t.selling !== false) ? { id: String(id), text: String(t.text ?? '') } : null;
 }
 
 /** Check the print inputs of a step from a screen and keep them on it (PrintExtra). */
@@ -62,21 +68,27 @@ export function addPrintInputs(db: DB, step: Step, input: Data): Step {
   if (given(input.print_heading)) out.printHeading = record(db, 'print_heading', input.print_heading, 'print heading').id;
   if (given(input.letter_head)) out.letterHead = record(db, 'letter_head', input.letter_head, 'letter head').id;
   if (step.kind === 'payment' || step.kind === 'journal') return out;
+  const buying = BUYING.has(step.kind);
 
-  // the print language: as chosen, else the customer's
-  if (given(input.language) && !LANGUAGES.includes(String(input.language))) bad('Print language must be English or Swahili');
-  const cust = customerOf(db, step);
-  const language = given(input.language) ? String(input.language) : cust?.data.language;
-  if (language === 'Swahili' || given(input.language)) out.language = language as Language;
-  // opening balances from the old books are not selling documents: no terms, contact or delivery
-  if (!SELLING.has(step.kind) || (step as { opening?: boolean }).opening === true) return out;
+  // the print language: as chosen, else the customer's or the supplier's (a stock request is for our own people)
+  const party = partyOf(db, step);
+  if (step.kind !== 'material_request') {
+    if (given(input.language) && !LANGUAGES.includes(String(input.language))) bad('Print language must be English or Swahili');
+    const language = given(input.language) ? String(input.language) : party?.data.language;
+    if (language === 'Swahili' || given(input.language)) out.language = language as Language;
+  }
+  // opening balances from the old books are not selling or buying documents, and goods sent back print like a
+  // return: no terms, contact or delivery
+  const kept = step as { opening?: boolean; returnOf?: string };
+  if (!(SELLING.has(step.kind) || buying) || kept.opening === true || kept.returnOf) return out;
 
-  // terms: as chosen (or none, when the screen sends an empty choice), else the till's for a till sale, else the company's
+  // terms: as chosen (or none, when the screen sends an empty choice), else the till's for a till sale, else the
+  // company's (selling or buying)
   if ('terms' in input || 'terms_text' in input) {
     if (given(input.terms)) {
       // switched off later is fine: an order made from a quotation keeps the quotation's terms
       const t = dataOf(db, 'terms', input.terms) ?? bad('Those terms and conditions do not exist (they may have been deleted)');
-      if (t.selling === false) bad(`${titlesOf(db, [String(input.terms)])[String(input.terms)]} is not for selling documents`);
+      if (buying ? t.buying !== true : t.selling === false) bad(`${titlesOf(db, [String(input.terms)])[String(input.terms)]} is not for ${buying ? 'buying' : 'selling'} documents`);
       out.terms = String(input.terms);
       out.termsText = String(t.text ?? '');
     }
@@ -86,20 +98,22 @@ export function addPrintInputs(db: DB, step: Step, input: Data): Step {
       if (tt) out.termsText = tt; else delete out.termsText;
     }
   } else {
-    const t = defaultTerms(db, given(input.till) ? dataOf(db, 'till', input.till)?.terms : companyOf(db).selling_terms);
+    const t = buying ? defaultTerms(db, companyOf(db).buying_terms, true)
+      : defaultTerms(db, given(input.till) ? dataOf(db, 'till', input.till)?.terms : companyOf(db).selling_terms);
     if (t) { out.terms = t.id; if (t.text) out.termsText = t.text; }
   }
 
-  // who it is for there, and where the goods go
-  const contact = text(input.contact, 'Contact person', 100);
+  // who it is for there (one of the customer's or supplier's contact people), and where the goods go (selling
+  // documents; a purchase order: where the supplier delivers when not the store's own address)
+  const contact = step.kind === 'material_request' ? '' : text(input.contact, 'Contact person', 100);
   if (contact) {
-    const people = (cust?.data.contacts as Data[] | undefined) ?? [];
-    if (!people.some((p) => String(p?.name ?? '').trim() === contact)) bad(`${contact} is not one of this customer's contact people`);
+    const people = (party?.data.contacts as Data[] | undefined) ?? [];
+    if (!people.some((p) => String(p?.name ?? '').trim() === contact)) bad(`${contact} is not one of this ${buying ? 'supplier' : 'customer'}'s contact people`);
     out.contact = contact;
   }
-  const shipTo = text(input.ship_to, 'Deliver to', 500);
+  const shipTo = !buying || step.kind === 'purchase_order' ? text(input.ship_to, 'Deliver to', 500) : '';
   if (shipTo) out.shipTo = shipTo;
-  if (step.kind === 'delivery_note' && input.print_without_amount === true) out.printWithoutAmount = true;
+  if ((step.kind === 'delivery_note' || step.kind === 'purchase_receipt') && input.print_without_amount === true) out.printWithoutAmount = true;
   if (input.group_same_items === true) out.groupSameItems = true;
   return out;
 }
@@ -107,7 +121,10 @@ export function addPrintInputs(db: DB, step: Step, input: Data): Step {
 // ---------------------------------------------------------------------------------------------------------------------
 // The printed page
 
-interface PrintLine { item: string; name: string; short: string | null; code: string | null; unit: string | null; qty: number; listRate: number; discount: number; rate: number; amount: number; vatRate: number }
+/** `rejected`: goods arrived only, units refused on arrival (not in `qty`, no amount). `supplierCode`: the supplier's
+ *  own code for the product on buying documents (product suppliers table). */
+interface PrintLine { item: string; name: string; short: string | null; code: string | null; unit: string | null; qty: number; listRate: number; discount: number; rate: number; amount: number; vatRate: number;
+  rejected?: number; supplierCode?: string | null }
 
 /** Everything a printed page of this document needs (GET /print/:id). */
 export function printView(db: DB, id: string) {
@@ -119,7 +136,8 @@ export function printView(db: DB, id: string) {
   const co = companyOf(db);
   const undone = !!db.prepare("SELECT 1 FROM steps WHERE kind = 'cancel' AND json_extract(data, '$.target') = ?").get(id);
   const run = computeStock(db);
-  const rounding = scenarioOf(db, []).rounding !== false;
+  const rounding = roundsTotal(s, scenarioOf(db, []).rounding !== false);   // fx: other currencies keep their cents
+  const currency = typeof s.currency === 'string' && s.currency ? s.currency : 'TZS';
   const titleCache: Record<string, string> = { ...run.titles };
   const title = (x: unknown): string => {
     if (typeof x !== 'string' || !x) return '';
@@ -128,13 +146,14 @@ export function printView(db: DB, id: string) {
   };
   const till = dataOf(db, 'till', s.till);
 
-  // the party: a customer (selling documents, returns, payments in), a supplier (payments out), or none (journals)
-  const against = kind === 'credit_note' ? stepData(db, s.against) : null;
-  const partyId = (kind === 'credit_note' ? against?.customer : s.customer ?? s.party) as string | undefined;
+  // the party: a customer (selling documents, returns, payments in), a supplier (buying documents, debit notes,
+  // payments out), or none (journals, stock requests)
+  const against = kind === 'credit_note' || kind === 'debit_note' ? stepData(db, s.against) : null;
+  const partyId = (kind === 'credit_note' ? against?.customer : kind === 'debit_note' ? against?.supplier : s.customer ?? s.supplier ?? s.party) as string | undefined;
   const partyRow = typeof partyId === 'string'
     ? db.prepare("SELECT type, title, data FROM docs WHERE id = ? AND type IN ('customer', 'supplier')").get(partyId) as { type: string; title: string; data: string } | undefined : undefined;
   const pd = partyRow ? parse(partyRow.data) : {};
-  const hideTin = co.hide_customer_tin === true;
+  const hideTin = co.hide_customer_tin === true && partyRow?.type === 'customer';
   const party = partyRow ? {
     id: partyId, type: partyRow.type, name: partyRow.title, phone: pd.phone ?? null, email: pd.email ?? null, address: pd.address ?? null, area: pd.area ?? null,
     tin: hideTin ? null : pd.tin ?? null, vrn: hideTin ? null : pd.vrn ?? null,
@@ -150,7 +169,7 @@ export function printView(db: DB, id: string) {
   const store = dataOf(db, 'store', s.warehouse ?? till?.store);
 
   const out: Data = {
-    id, kind, undone, language, date: s.date, time: s.time,
+    id, kind, undone, language, date: s.date, time: s.time, currency, ...(currency !== 'TZS' ? { exchangeRate: s.exchangeRate } : {}),
     heading: headingId ? title(headingId) : null,
     company: { name: co.name ?? '', legal_name: co.legal_name ?? null, address: co.address ?? null, city: co.city ?? null,
       phone: co.phone ?? null, email: co.email ?? null, tin: co.tin ?? null, vrn: co.vrn ?? null, website: co.website ?? null,
@@ -163,6 +182,12 @@ export function printView(db: DB, id: string) {
     // who sold it, and how a delivery travels: its own driver and vehicle, else its delivery trip's (phase 4d)
     salesman: typeof s.salesman === 'string' ? title(s.salesman) : null,
     transport: (() => {
+      // goods arrived: the transport company, its waybill and the vehicle the supplier's goods came on
+      if (kind === 'purchase_receipt') {
+        const t = { driver: null, vehicle: (s.vehicle as string | undefined) ?? null, transporter: typeof s.transporter === 'string' ? title(s.transporter) : null,
+          waybill: (s.lrNo as string | undefined) ?? null, waybillDate: (s.lrDate as string | undefined) ?? null, trip: null };
+        return Object.values(t).some(Boolean) ? t : null;
+      }
       if (kind !== 'delivery_note') return null;
       const trip = tripOf(db, id);
       const drv = (s.driver as string | undefined) ?? trip?.driver, veh = (s.vehicle as string | undefined) ?? trip?.vehicle;
@@ -173,7 +198,8 @@ export function printView(db: DB, id: string) {
     by: row!.by ? title(row!.by) : null,
     remarks: s.remarks ?? null, reference: s.reference ?? null,
     terms: s.termsText ?? null,
-    withoutAmount: s.printWithoutAmount === true,
+    // a stock request is a list of what is needed: quantities only
+    withoutAmount: s.printWithoutAmount === true || kind === 'material_request',
     settings: { vatTable: co.vat_table === true, hideWords: co.hide_words === true, withVat: co.print_with_vat !== false,
       schedule: co.print_schedule !== false, hideCurrency: co.hide_currency === true },
   };
@@ -184,8 +210,10 @@ export function printView(db: DB, id: string) {
       direction: s.direction, method: s.method ? title(s.method) : null, amount, reference: s.reference ?? null,
       allocations: ((s.allocate as Data[] | undefined) ?? []).map((a) => ({ invoice: a.invoice, amount: a.amount })),
       deductions: ((s.deductions as Data[] | undefined) ?? []).map((d) => ({ account: d.ref ? title(d.ref) : String(d.role), amount: d.amount })),
+      // an advance paid against a purchase order (or a sales order)
+      advanceFor: ((s.advanceFor as Data[] | undefined) ?? []).map((a) => ({ order: a.order, amount: a.amount })),
     };
-    out.words = co.hide_words === true ? null : amountInWords(amount, language);
+    out.words = co.hide_words === true ? null : amountInWords(amount, language, currency);
     return out;
   }
   if (kind === 'journal') {
@@ -194,14 +222,15 @@ export function printView(db: DB, id: string) {
     const total = r2(rows.reduce((a, r) => a + r.debit, 0));
     out.rows = rows;
     out.total = total;
-    out.words = co.hide_words === true ? null : amountInWords(total, language);
+    out.words = co.hide_words === true ? null : amountInWords(total, language, currency);
     return out;
   }
 
   // documents with lines: the engine's totals, lines as printed, VAT per rate
-  const lines = ((kind === 'credit_note' ? (s.lines ?? against?.lines) : s.lines) as MoneyLine[] | undefined) ?? [];
-  const tax = (kind === 'credit_note' ? against?.tax : s.tax) as TaxSpec | undefined;
-  const discount = kind === 'credit_note' ? 0 : Number(s.discountAmount) || 0;
+  const isReturn = kind === 'credit_note' || kind === 'debit_note';
+  const lines = ((isReturn ? (s.lines ?? against?.lines) : s.lines) as (MoneyLine & { rejected?: number })[] | undefined) ?? [];
+  const tax = (isReturn ? against?.tax : s.tax) as TaxSpec | undefined;
+  const discount = isReturn ? 0 : Number(s.discountAmount) || 0;
   const full = invoiceTotals(lines, tax, rounding, discount);
   const plain = invoiceTotals(lines, tax, rounding, 0);
   const net = !!tax?.inclusive && co.print_with_vat === false;   // lines printed before VAT
@@ -215,9 +244,15 @@ export function printView(db: DB, id: string) {
   let printed: PrintLine[] = plain.lines.map((t, i) => {
     const l = lines[i], p = product(l.item);
     const amount = net ? t.net : t.amount;
-    return { item: l.item, name: l.item === OPENING_ITEM ? 'Opening balance' : title(l.item), short: (p?.short_name as string | undefined) || null, code: (p?.code as string | undefined) ?? null,
+    const out: PrintLine = { item: l.item, name: l.item === OPENING_ITEM ? 'Opening balance' : title(l.item), short: (p?.short_name as string | undefined) || null, code: (p?.code as string | undefined) ?? null,
       unit: p?.stock_unit ? title(p.stock_unit) : null, qty: l.qty, listRate: l.rate, discount: l.discount ?? 0,
       rate: net ? (l.qty ? r2(t.net / l.qty) : 0) : t.rate, amount, vatRate: t.vatRate };
+    if (kind === 'purchase_receipt' && !s.returnOf) out.rejected = Number(l.rejected) || 0;
+    if (partyRow?.type === 'supplier') {
+      const theirs = ((p?.suppliers as Data[] | undefined) ?? []).find((x) => x?.supplier === partyId && given(x.code));
+      out.supplierCode = theirs ? String(theirs.code) : null;
+    }
+    return out;
   });
   // the same product at the same price, printed as one line (ERPNext group_same_items)
   if (s.groupSameItems === true) {
@@ -225,7 +260,10 @@ export function printView(db: DB, id: string) {
     for (const l of printed) {
       const key = `${l.item} ${l.rate} ${l.discount} ${l.vatRate}`;
       const m = merged.get(key);
-      if (m) { m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.amount = r2(m.amount + l.amount); } else merged.set(key, { ...l });
+      if (m) {
+        m.qty = Math.round((m.qty + l.qty) * 1000) / 1000; m.amount = r2(m.amount + l.amount);
+        if (m.rejected !== undefined) m.rejected = Math.round((m.rejected + (l.rejected ?? 0)) * 1000) / 1000;
+      } else merged.set(key, { ...l });
     }
     printed = [...merged.values()];
   }
@@ -244,23 +282,51 @@ export function printView(db: DB, id: string) {
     rounding: r2(roundedTotal - grandTotal), roundedTotal, vatCharged: !!tax && vat > 0, pricesIncludeVat: !!tax?.inclusive, linesBeforeVat: net,
   };
   out.vatTable = vatTable;
-  out.words = co.hide_words === true ? null : amountInWords(roundedTotal, language);
+  out.words = co.hide_words === true ? null : amountInWords(roundedTotal, language, currency);
   out.status = official?.status ?? docRes?.status ?? null;
   out.from = [...new Set(lines.filter((l) => l.from).map((l) => l.from!.step))];
   out.validTill = s.validTill ?? null;
   out.deliveryDate = s.deliveryDate ?? null;
   out.against = s.against ?? null;
-  if (kind === 'sales_invoice') {
-    const pays = ((s.payments as Data[] | undefined) ?? []).map((p) => ({ method: p.method ? title(p.method) : String(p.account), amount: Number(p.amount) || 0, reference: p.reference ?? null }));
+  // buying documents: when the goods are needed, the supplier's own numbers, refused goods, goods sent back, holds
+  out.requiredBy = s.requiredBy ?? null;
+  // trade terms (store/imports.ts): the incoterm and the place it names, e.g. FOB Mombasa
+  out.incoterm = typeof s.incoterm === 'string' && s.incoterm ? title(s.incoterm) : null;
+  out.namedPlace = s.namedPlace ?? null;
+  if (kind === 'material_request') {
+    out.purpose = s.purpose === 'transfer' ? 'transfer' : 'purchase';
+    out.fromStore = typeof s.from === 'string' ? (() => { const f = dataOf(db, 'store', s.from); return { name: title(s.from), address: f?.address ?? null, phone: f?.phone ?? null }; })() : null;
+  }
+  if (kind === 'purchase_receipt') {
+    out.supplierNote = s.supplierNote ?? null;
+    out.returnOf = s.returnOf ?? null;
+    out.rejectedStore = typeof s.rejectedWarehouse === 'string' ? title(s.rejectedWarehouse) : null;
+    out.totalRejected = Math.round(lines.reduce((a, l) => a + (Number(l.rejected) || 0), 0) * 1000) / 1000;
+  }
+  if (kind === 'purchase_invoice' || kind === 'debit_note') { out.billNo = s.billNo ?? null; out.billDate = s.billDate ?? null; }
+  if (kind === 'purchase_order') out.advancePaid = docRes?.advancePaid ?? 0;
+  if (kind === 'sales_invoice' || kind === 'purchase_invoice') {
+    // paid at once: a sale's payments (with change), a cash purchase's one payment; a bill's advances set against it
+    const pays = ((s.payments as Data[] | undefined) ?? []).map((p) => ({ method: p.method ? title(p.method) : p.ref ? title(p.ref) : String(p.account), amount: Number(p.amount) || 0, reference: p.reference ?? null }));
     const paid = r2(pays.reduce((a, p) => a + p.amount, 0));
     const owed = official ? Math.max(0, r2(official.outstanding)) : 0;
     out.payments = pays;
     out.paid = paid;
-    out.change = paid > roundedTotal + 0.004 ? r2(paid - roundedTotal) : 0;
-    out.writtenOff = s.writeOff === true && paid < roundedTotal - 0.004 && owed < 0.005 ? r2(roundedTotal - paid) : 0;
+    out.change = kind === 'sales_invoice' && paid > roundedTotal + 0.004 ? r2(paid - roundedTotal) : 0;
+    out.writtenOff = kind === 'purchase_invoice' ? Number(s.writeOff) || 0
+      : s.writeOff === true && paid < roundedTotal - 0.004 && owed < 0.005 ? r2(roundedTotal - paid) : 0;
     out.owed = owed;
     out.dueDate = owed > 0.004 ? s.dueDate ?? null : null;
     out.opening = s.opening === true;
+    if (kind === 'purchase_invoice') {
+      out.advances = ((s.advances as Data[] | undefined) ?? []).map((a) => ({ from: a.from, amount: Number(a.amount) || 0 }));
+      // on hold (until a date, or until released with a set_status Open that was not undone)
+      const released = (db.prepare("SELECT id FROM steps WHERE kind = 'set_status' AND json_extract(data, '$.target') = ? AND json_extract(data, '$.status') = 'Open'").all(id) as { id: string }[])
+        .some((r) => !db.prepare("SELECT 1 FROM steps WHERE kind = 'cancel' AND json_extract(data, '$.target') = ?").get(r.id));
+      out.holdUntil = s.hold === true && !released ? s.holdUntil ?? '' : null;
+    }
+  }
+  if (kind === 'sales_invoice' || kind === 'purchase_invoice' || kind === 'purchase_order') {
     // instalments (Accounts Settings show_payment_schedule_in_print): each share of the rounded total, the last takes the cents left
     const sched = (s.schedule as { dueDate: string; portion: number }[] | undefined) ?? [];
     if (sched.length && co.print_schedule !== false) {

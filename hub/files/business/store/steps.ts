@@ -7,33 +7,39 @@ import type { DB } from './db.ts';
 import { now, tx } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
-import { loadSingle, nextSeries, titlesOf, writeLog } from './docs.ts';
+import { loadSingle, nextSeries, saveDoc, titlesOf, writeLog } from './docs.ts';
 import { OPENING_ITEM, TILL_WRITE_OFF, cleanMoneyStep, partiesOf } from './money.ts';
 import { balanceRule } from './books.ts';
 import { MONEY_KINDS } from '../core/money/books.ts';
 import { SELL_KINDS } from '../core/sell/orders.ts';
 import { cleanSellStep } from './sell.ts';
+import { BUY_KINDS } from '../core/buy/orders.ts';
+import { buySources, cleanBuyStep } from './buy.ts';
 import { invoiceTotals } from '../core/money/taxes.ts';
 import { SHIFT_KINDS, applyTill, cleanShiftStep } from './till.ts';
 import { TRIP_KINDS, cleanTripStep, undoTripCheck } from './trips.ts';
 /** Steps that book nothing (till shifts, delivery trips): kept by the store, never run by the engine. */
 const STORE_ONLY = new Set<string>([...SHIFT_KINDS, ...TRIP_KINDS]);
 import { addPrintInputs } from './print.ts';
+import { addTradeTerms, cleanLandedCost } from './imports.ts';
+import { withCurrency } from './fx.ts';   // foreign currency (phase 5b)
+import { roundsTotal } from '../core/money/fx.ts';
 
 interface StepRow { seq: number; id: string; kind: string; data: string; created: string; by: string | null }
 const MOVING = ['receipt', 'issue', 'transfer', 'count', 'purchase_receipt', 'delivery'] as const;
 const NEEDS_RATE = new Set(['receipt', 'purchase_receipt', 'count', 'delivery']);
-const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS, ...SELL_KINDS, ...SHIFT_KINDS, ...TRIP_KINDS]);
+const KINDS = new Set<string>([...MOVING, 'landed_cost', ...MONEY_KINDS, ...SELL_KINDS, ...BUY_KINDS, ...SHIFT_KINDS, ...TRIP_KINDS]);
 export const STEP_LABELS: Record<string, string> = {
   receipt: 'Stock in', issue: 'Damaged or own use', transfer: 'Move stock', count: 'Stock count',
   purchase_receipt: 'Goods arrived', delivery: 'Delivered to customer', landed_cost: 'Landed cost', cancel: 'Undo',
   sales_invoice: 'Sale', purchase_invoice: 'Supplier bill', payment: 'Payment', credit_note: 'Return', money_transfer: 'Money moved', journal: 'Journal',
   quotation: 'Quotation', sales_order: 'Sales order', delivery_note: 'Delivery note', set_status: 'Status change', reconcile: 'Credit matched',
   shift_open: 'Shift opened', shift_close: 'Shift closed', pick_list: 'Pick list', delivery_trip: 'Delivery trip', trip_visit: 'Stop visited',
+  material_request: 'Stock request', supplier_quotation: 'Supplier quotation', purchase_order: 'Purchase order', debit_note: 'Debit note',
 };
 /** A step's label for people (an opening balance is a sale or bill underneath). */
 export const stepLabel = (s: Step): string => ('opening' in s && s.opening === true ? 'Opening balance' : s.kind === 'delivery_note' && s.returnOf ? 'Delivery return'
-  : STEP_LABELS[s.kind] ?? s.kind);
+  : s.kind === 'purchase_receipt' && s.returnOf ? 'Goods sent back' : STEP_LABELS[s.kind] ?? s.kind);
 
 const parse = (s: string): Step | null => { try { return JSON.parse(s) as Step; } catch { return null; } };
 const docData = (db: DB, type: string, id: string): Data | null => {
@@ -52,6 +58,9 @@ function idsIn(steps: Step[]): { items: Set<string>; stores: Set<string>; partie
     if ('lines' in s && Array.isArray(s.lines)) for (const l of s.lines) items.add(l.item);
     if ('warehouse' in s && typeof s.warehouse === 'string') stores.add(s.warehouse);
     if (s.kind === 'transfer') { stores.add(s.from); stores.add(s.to); }
+    if (s.kind === 'purchase_receipt' && s.rejectedWarehouse) stores.add(s.rejectedWarehouse);
+    if (s.kind === 'material_request' && s.from) stores.add(s.from);
+    if ((s.kind === 'purchase_order' || s.kind === 'supplier_quotation' || s.kind === 'purchase_receipt') && s.supplier) parties.add(s.supplier);
     if (s.kind === 'sales_invoice') parties.add(s.customer);
     if (s.kind === 'purchase_invoice') parties.add(s.supplier);
     if (s.kind === 'payment') parties.add(s.party);
@@ -85,12 +94,25 @@ export function scenarioOf(db: DB, all: Step[], allowNegativeOverride?: boolean)
     ...(co.partial_reservation === false ? { partialReservation: false } : {}),
     ...(Number(co.over_picking) > 0 ? { overPicking: Number(co.over_picking) } : {}),
     ...(co.no_hold_on_return === true ? { noHoldOnReturn: true } : {}),
+    // buying rules (phase 5): order needed, goods arrived first, bill refused units, the bill's price re-values goods
+    ...(co.po_required === true ? { poRequired: true } : {}),
+    ...(co.pr_required === true ? { prRequired: true } : {}),
+    ...(co.bill_rejected === true ? { billRejected: true } : {}),
+    ...(co.bill_rate_revalues !== false ? { billRateRevalues: true } : {}),
+    ...(Number(co.request_allowance) > 0 ? { requestAllowance: Number(co.request_allowance) } : {}),
     items: [
       ...[...items].map((key) => {
         const r = db.prepare('SELECT data FROM docs WHERE id = ?').get(key) as { data: string } | undefined;
         let valuation: ValuationMethod = 'Moving Average', stock = true;
-        try { const d = r ? JSON.parse(r.data) : {}; if (d.valuation_method === 'FIFO') valuation = 'FIFO'; if (d.is_stock === false) stock = false; } catch { /* default */ }
-        return stock ? { key, valuation } : { key, valuation, stock: false };
+        let d: Data = {};
+        try { d = r ? JSON.parse(r.data) : {}; if (d.valuation_method === 'FIFO') valuation = 'FIFO'; if (d.is_stock === false) stock = false; } catch { /* default */ }
+        // the product's own buying rules: the least to order, its over-delivery and over-billing allowances
+        const own = {
+          ...(Number(d.min_order_qty) > 0 ? { minOrderQty: Number(d.min_order_qty) } : {}),
+          ...(d.over_delivery !== undefined && d.over_delivery !== null && d.over_delivery !== '' ? { overDelivery: Number(d.over_delivery) || 0 } : {}),
+          ...(d.over_billing !== undefined && d.over_billing !== null && d.over_billing !== '' ? { overBilling: Number(d.over_billing) || 0 } : {}),
+        };
+        return stock ? { key, valuation, ...own } : { key, valuation, stock: false, ...own };
       }),
       { key: OPENING_ITEM, valuation: 'Moving Average' as ValuationMethod, stock: false },
     ],
@@ -160,6 +182,7 @@ function cleanStep(db: DB, input: Data, id: string, role = '', by: string | null
   if (!/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(time)) bad('Time must be like 14:30:00');
 
   if (SELL_KINDS.has(kind)) return cleanSellStep(db, input, kind, id, date, time, role);
+  if (BUY_KINDS.has(kind)) return cleanBuyStep(db, input, kind, id, date, time, role);
   if (SHIFT_KINDS.has(kind)) return withRemarks(cleanShiftStep(db, input, kind, id, date, time, by, role), input);
   if (TRIP_KINDS.has(kind)) return withRemarks(cleanTripStep(db, input, kind, id, date, time), input);
   if (MONEY_KINDS.has(kind)) {
@@ -175,17 +198,8 @@ function cleanStep(db: DB, input: Data, id: string, role = '', by: string | null
     return step;
   }
 
-  if (kind === 'landed_cost') {
-    const receipt = String(input.receipt ?? '');
-    // goods arrived, or a supplier bill that brought the goods in itself (referee M25)
-    const target = db.prepare('SELECT kind, data FROM steps WHERE id = ?').get(receipt) as { kind: string; data: string } | undefined;
-    const billIn = target?.kind === 'purchase_invoice' && parse(target.data)?.kind === 'purchase_invoice' && (parse(target.data) as Extract<Step, { kind: 'purchase_invoice' }>).updateStock === true;
-    if (!target || (target.kind !== 'purchase_receipt' && !billIn)) bad('Landed cost must be added to "Goods arrived" or to a bill that brought the goods in');
-    const amount = Number(input.amount);
-    if (!Number.isFinite(amount) || amount <= 0) bad('The landed cost amount must be above 0');
-    const distribute = input.distribute === 'qty' ? 'qty' : 'amount';
-    return withRemarks({ id, kind: 'landed_cost', date, time, receipt, amount, distribute }, input);
-  }
+  // one cost or several cost lines, over one or several goods arrived (store/imports.ts)
+  if (kind === 'landed_cost') return cleanLandedCost(db, input, id, date, time);
 
   if (!Array.isArray(input.lines) || !input.lines.length) bad('Add at least one product');
   if ((input.lines as unknown[]).length > 500) bad('At most 500 lines in one movement');
@@ -210,6 +224,8 @@ function cleanStep(db: DB, input: Data, id: string, role = '', by: string | null
   });
 
   if (kind === 'transfer') {
+    // a move may fill a stock request between stores (its lines name the request lines)
+    buySources(db, 'transfer', input.lines, lines);
     const from = activeDoc(db, 'store', input.from, 'store to move from');
     const to = activeDoc(db, 'store', input.to, 'store to move to');
     if (from.id === to.id) bad('Choose two different stores');
@@ -279,10 +295,12 @@ export function previewMoney(db: DB, input: Data) {
   const kind = String(input?.kind ?? '');
   if (kind !== 'sales_invoice' && kind !== 'purchase_invoice') bad('Only sales and bills have a preview');
   const { date, time } = darNow();
-  const step = cleanMoneyStep(db, { ...input, bill_no: undefined }, kind, 'preview', date, time, 'owner') as Extract<Step, { kind: 'sales_invoice' | 'purchase_invoice' }>;
-  const t = invoiceTotals(step.lines, step.tax, scenarioOf(db, []).rounding !== false, step.discountAmount);
+  const step = withCurrency(db, cleanMoneyStep(db, { ...input, bill_no: undefined }, kind, 'preview', date, time, 'owner'), input, null) as Extract<Step, { kind: 'sales_invoice' | 'purchase_invoice' }>;
+  const t = invoiceTotals(step.lines, step.tax, roundsTotal(step, scenarioOf(db, []).rounding !== false), step.discountAmount);
   const out: Record<string, unknown> = { netTotal: t.netTotal, vat: t.vat, grandTotal: t.grandTotal, roundedTotal: t.roundedTotal, roundingAdjustment: t.roundingAdjustment,
     discount: t.discount, lines: t.lines.map((l) => ({ item: l.item, rate: l.rate, amount: l.amount, net: l.net, vatRate: l.vatRate, vat: l.vat })) };
+  // another currency: its rate and the totals in TZS, as the books will have them
+  if (step.currency && step.exchangeRate) out.currency = { code: step.currency, rate: step.exchangeRate, roundedTotal: Math.round(t.roundedTotal * step.exchangeRate * 100) / 100 };
   // what this customer owes now and their credit limit, so the screen can warn before saving
   if (step.kind === 'sales_invoice') {
     const steps = loadSteps(db);
@@ -296,8 +314,8 @@ export function previewMoney(db: DB, input: Data) {
 
 export function addStep(db: DB, input: Data, by: string | null, role = ''): Step {
   const clientId = clientIdOf(input?.client_id);
-  // printing (heading, letter head, terms...) is checked after the step itself (store/print.ts)
-  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, addPrintInputs(db, cleanStep(db, input, nextSeries(db, 'ST-', 5), role, by), input), by, clientId));
+  // printing (heading, letter head, terms...), trade terms (incoterm) and the currency are checked after the step itself
+  return tx(db, () => already(db, clientId) ?? postIfAccepted(db, addTradeTerms(db, addPrintInputs(db, withCurrency(db, cleanStep(db, input, nextSeries(db, 'ST-', 5), role, by), input, saveDoc), input), input), by, clientId));
 }
 
 export function undoStep(db: DB, target: unknown, by: string | null, client?: unknown): Step {

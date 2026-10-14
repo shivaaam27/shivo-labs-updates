@@ -67,6 +67,30 @@ export function valueOut(method: ValuationMethod, before: Position, qty: number)
   return finishAverage(before, newQty, before.rate, [[qty, before.rate]]);
 }
 
+/** Outward row at a given rate (goods sent back to a supplier at the rate they came in, 04 §2.7): Moving Average takes
+ *  that value off the stock value; FIFO takes the units from a layer at that rate first, then oldest first. */
+export function valueOutAt(method: ValuationMethod, before: Position, qty: number, rate: number): Valued {
+  const newQty = roundQty(before.qty - qty);
+  if (method === 'FIFO') {
+    const queue = copyQueue(before.queue);
+    const at = queue.findIndex((l) => Math.abs(l[1] - rate) < 1e-9);
+    const pieces: Layer[] = [];
+    let left = qty;
+    if (at >= 0) {
+      const take = Math.min(left, queue[at][0]);
+      pieces.push([take, queue[at][1]]);
+      queue[at][0] = roundQty(queue[at][0] - take);
+      if (queue[at][0] <= 0) queue.splice(at, 1);
+      left = roundQty(left - take);
+    }
+    if (left > 0) pieces.push(...takeFromQueue(queue, left, before.rate));
+    return finishFifo(before, newQty, queue, pieces);
+  }
+  const value = newQty === 0 ? 0 : roundMoney(before.value - qty * rate);
+  const pos: Position = { qty: newQty, rate: newQty === 0 ? before.rate : roundRate(value / newQty), value, queue: [], hasRate: true };
+  return { pos, valueChange: roundMoney(value - before.value), pieces: [[qty, rate]] };
+}
+
 /** Stock count: sets qty and rate; the FIFO queue becomes one layer (02 §6.3). */
 export function valueCount(method: ValuationMethod, before: Position, qty: number, rate: number): Valued {
   const value = roundMoney(qty * rate);

@@ -73,6 +73,7 @@ export const ACCOUNTS: Acc[] = [
   ['5290', 'Shop and Office Supplies', '5200', 'Expense', 'Expense Account', false],
   ['5295', 'Round Off', '5200', 'Expense', 'Round Off', false],
   ['5296', 'Write Off', '5200', 'Expense', 'Expense Account', false],
+  ['5298', 'Exchange Gain/Loss', '5200', 'Expense', 'Exchange Gain/Loss', false],
   ['5299', 'Other Expenses', '5200', 'Expense', 'Expense Account', false],
 ];
 
@@ -130,7 +131,7 @@ export async function setupBusiness(db: DB, body: Data): Promise<string> {
         cash_account: acc['1111'], receivable_account: acc['1140'], payable_account: acc['2110'], income_account: acc['4100'],
         cogs_account: acc['5110'], stock_account: acc['1150'], stock_adjustment_account: acc['5120'], srbnb_account: acc['2140'],
         landed_cost_account: acc['5130'], round_off_account: acc['5295'], write_off_account: acc['5296'], expense_account: acc['5299'],
-        opening_account: acc['1900'],
+        opening_account: acc['1900'], exchange_gain_loss_account: acc['5298'],
       }));
     return by;
   });

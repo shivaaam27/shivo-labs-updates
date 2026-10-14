@@ -6,6 +6,7 @@ import type { DB } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data } from './docs.ts';
 import { checkSameRate, checkSellDiscounts, cleanSellLines, customerTax, dateInput, record, textInput, wholeDiscount } from './money.ts';
+import { BUY_STATUS_KINDS, cleanBuyStatus } from './buy.ts';
 
 const bad = (message: string): never => fail(422, message);
 const MANAGERS = new Set(['owner', 'manager']);
@@ -50,7 +51,10 @@ export function cleanSellStep(db: DB, input: Data, kind: string, id: string, dat
   if (kind === 'set_status') {
     const target = String(input.target ?? '');
     const t = db.prepare('SELECT kind FROM steps WHERE id = ?').get(target) as { kind: string } | undefined;
+    // a buying document: close, hold or reopen an order, stop or reopen a request (store/buy.ts)
+    if (t && BUY_STATUS_KINDS.has(t.kind)) return cleanBuyStatus(db, input, t.kind, id, date, time, role, remarks);
     if (!t || !['quotation', 'sales_order', 'delivery_note'].includes(t.kind)) bad('Choose a quotation, order or delivery note');
+    if (role === 'storekeeper') bad('The storekeeper changes the status of stock requests and goods arrived only');
     const status = String(input.status ?? '');
     if (!['Closed', 'On Hold', 'Open', 'Lost'].includes(status)) bad('Status must be Closed, On Hold, Open or Lost');
     if (status !== 'Lost' && !MANAGERS.has(role)) bad('Only the owner or a manager may close, hold or reopen');
@@ -70,7 +74,11 @@ export function cleanSellStep(db: DB, input: Data, kind: string, id: string, dat
     return notes({ id, kind, date, time, customer: c.id, lines, ...(tax ? { tax } : {}), ...(validTill ? { validTill } : {}), ...extra, ...salesmanOf(db, input, c.data) });
   }
   const warehouse = record(db, 'store', input.warehouse, 'store').id;
-  if (kind === 'pick_list') return notes({ id, kind, date, time, customer: c.id, warehouse, lines });
+  // goods refused on arrival are never picked for a customer (ERPNext leaves rejected stores out of picking)
+  if (kind === 'pick_list') {
+    if (record(db, 'store', warehouse, 'store').data.rejected === true) bad('That store holds refused goods; pick from another store');
+    return notes({ id, kind, date, time, customer: c.id, warehouse, lines });
+  }
   const over = input.allow_over_limit === true;
   const who = salesmanOf(db, input, c.data);
   if (over && !MANAGERS.has(role)) bad('Only the owner or a manager may go over a customer\'s credit limit');

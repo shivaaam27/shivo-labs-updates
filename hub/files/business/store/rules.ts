@@ -4,6 +4,8 @@ import type { DB } from './db.ts';
 import { fail } from './errors.ts';
 import type { Data, DocRow, Errors, Existing } from './docs.ts';
 import { owedBy } from './steps.ts';
+import { checkShipment } from './imports.ts';
+import { currencyRules } from './fx.ts';
 
 const parse = (s: string): Data => { try { return JSON.parse(s) ?? {}; } catch { return {}; } };
 const dataOf = (db: DB, type: string, id: unknown): Data | null => {
@@ -18,6 +20,7 @@ const titleOf = (db: DB, id: unknown): string => {
 
 /** Runs after the field checks; may fill derived values and add or clear errors. */
 export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | null, errors: Errors): void {
+  currencyRules(db, def, data, prev, errors);   // foreign currency (store/fx.ts)
   // a new customer with no route gets the company's default route (ERPNext Selling Settings territory)
   if (def.type === 'customer' && !prev && (data.route === undefined || data.route === null || data.route === '')) {
     const co = db.prepare("SELECT data FROM docs WHERE type = 'company' AND deleted = 0 LIMIT 1").get() as { data: string } | undefined;
@@ -45,6 +48,9 @@ export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | nul
     if (!stillOwner && otherOwners(db, prev.id) === 0) errors.role = 'There must always be at least one active owner';
   }
 
+  // an import shipment: its documents, cost lines and status (store/imports.ts)
+  if (def.type === 'import_shipment') checkShipment(db, data, prev, errors);
+
   if (def.type === 'product') {
     const units = Array.isArray(data.units) ? (data.units as Data[]) : [];
     units.forEach((u, i) => { if (u.unit && u.unit === data.stock_unit) errors[`units.${i}.unit`] = 'This is already the stock unit'; });
@@ -58,7 +64,8 @@ export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | nul
       const units = Array.isArray(product.units) ? (product.units as Data[]) : [];
       if (!units.some((u) => u.unit === data.unit)) errors.unit = `${titleOf(db, data.product)} has no unit ${titleOf(db, data.unit)}; add it under its other units first`;
     }
-    // one price per product, list, unit and customer (a price only for one customer sits next to the list price) for any day
+    // one price per product, list, unit and customer or supplier (a price only for one customer, or from one supplier,
+    // sits next to the list price) for any day
     if (!errors.product && !errors.price_list && !errors.valid_to) {
       const others = db.prepare(`SELECT name, data FROM docs WHERE type = 'item_price' AND deleted = 0 AND id <> ?
           AND json_extract(data, '$.product') = ? AND json_extract(data, '$.price_list') = ?`).all(prev?.id ?? '', String(data.product ?? ''), String(data.price_list ?? '')) as { name: string; data: string }[];
@@ -66,7 +73,7 @@ export function checkRules(db: DB, def: DocDef, data: Data, prev: Existing | nul
       const unitOf = (d: Data): unknown => d.unit ?? product?.stock_unit ?? null;
       for (const o of others) {
         const d = parse(o.data);
-        if (unitOf(d) !== unitOf(data) || (d.customer ?? null) !== (data.customer ?? null)) continue;
+        if (unitOf(d) !== unitOf(data) || (d.customer ?? null) !== (data.customer ?? null) || (d.supplier ?? null) !== (data.supplier ?? null)) continue;
         const of = String(d.valid_from ?? '0000-00-00'), ot = String(d.valid_to ?? '9999-12-31');
         if (of <= to && from <= ot) { errors.rate = `There is already a price for these dates (${o.name}); end it first or change its dates`; break; }
       }

@@ -92,13 +92,22 @@ export const api = {
   /** The books per account: no id = trial balance {accounts, debit, credit, unset}; an account id = its entries. */
   books: (account) => call('GET', account ? `/books/${seg(account)}` : '/books'),
   /** The price of a product for a customer (side 'sell') or supplier ('buy') on a date: {price: {rate, price_list} | null}. */
-  price: (item, party, side, date, qty, till) => call('GET', `/price${qs({ item, party, side, date, qty, till })}`),
+  price: (item, party, side, date, qty, till, currency, exchange_rate) => call('GET', `/price${qs({ item, party, side, date, qty, till, currency, exchange_rate })}`),
+  /** Foreign currency (phase 5b): the currency a customer or supplier is kept in and the rate a document of that date takes {currency, rate|null, date}. */
+  rate: (party, side, date) => call('GET', `/rate${qs({ party, side, date })}`),
   /** Open till shifts with what they took so far ({shifts}); expected amounts are left out for a blind count. */
   shifts: () => call('GET', '/shifts'),
   /** The till screen's start: {tills (full settings), products (codes, barcodes), methods}. */
   tillStart: () => call('GET', '/till'),
   /** Everything a document's printed page shows (print.js lays it out). */
   print: (id) => call('GET', `/print/${seg(id)}`),
+  /** What to reorder now (phase 5): {suggestions:[{product, store, type, supplier, inStock, ordered, requested, reserved, projected, level, qty, requiredBy}], titles}. */
+  reorder: () => call('GET', '/reorder'),
+  /** One product's prices from every supplier, cheapest first: {product, suppliers:[{supplier, code, listPrice, quoted, validTill, lastPaid, leadDays, usual}], titles}. */
+  compare: (product) => call('GET', `/compare/${seg(product)}`),
+  /** An import shipment's page (goods, landed cost per unit, costs, customs) and costing it (imports.js). */
+  shipment: (id) => call('GET', `/shipment/${seg(id)}`),
+  costShipment: (id, date) => call('POST', `/shipment/${seg(id)}/cost`, { date }),
 };
 
 /** Normalise the different shapes a list of definitions may come in to {type: def}. */
