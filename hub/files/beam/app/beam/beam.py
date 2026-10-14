@@ -90,6 +90,72 @@ def dev_dir(did):
     return OUTBOX / ("d-" + re.sub(r"[^A-Za-z0-9-]", "_", did))
 
 
+def _save_devices():
+    try:
+        HOME.mkdir(parents=True, exist_ok=True)
+        tmp = DEVICES.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_devices))
+        os.replace(tmp, DEVICES)
+    except OSError:
+        pass
+
+
+# One phone, one card. The app's id can change (a reinstall used to give it a new one), so an id the PC hasn't
+# seen, coming from a Wi-Fi address that already belongs to an app device, is joined to that device ("alias"):
+# same card, same waiting list. Only real hardware addresses count ("mac:..."), not a bare IP.
+def canonical(did, mac):
+    with _dev_lock:
+        devs = devices()
+        d = devs.get(did)
+        if d and d.get("alias"):
+            return d["alias"]
+        if d or not mac.startswith("mac:"):
+            return did
+        same = [(v.get("first", 0), k) for k, v in devs.items()
+                if k.startswith("app:") and not v.get("alias") and v.get("mac") == mac]
+        if not same:
+            return did
+        main = min(same)[1]
+        devs[did] = {"alias": main}
+        _save_devices()
+        return main
+
+
+def join_duplicates():
+    """At start: devices already listed twice (same Wi-Fi address) become one; their waiting files move over,
+    and a name given on the phone is kept."""
+    with _dev_lock:
+        devs = devices()
+        groups = {}
+        for k, v in devs.items():
+            if k.startswith("app:") and not v.get("alias") and str(v.get("mac", "")).startswith("mac:"):
+                groups.setdefault(v["mac"], []).append(k)
+        changed = False
+        for ids in groups.values():
+            if len(ids) < 2:
+                continue
+            ids.sort(key=lambda k: devs[k].get("first", 0))
+            main, rest = devs[ids[0]], ids[1:]
+            for k in rest:
+                o = devs[k]
+                main["seen"] = max(main.get("seen", 0), o.get("seen", 0))
+                if o.get("name") and o.get("named", 0) >= main.get("named", 0):
+                    main["name"], main["named"] = o["name"], o.get("named", 0)
+                src = dev_dir(k)
+                if src.is_dir():
+                    dst = dev_dir(ids[0]); dst.mkdir(parents=True, exist_ok=True)
+                    for f in src.iterdir():
+                        try:
+                            os.replace(f, dst / f.name) if not (dst / f.name).exists() else f.unlink()
+                        except OSError:
+                            pass
+                    shutil.rmtree(src, ignore_errors=True)
+                devs[k] = {"alias": ids[0]}
+            changed = True
+        if changed:
+            _save_devices()
+
+
 def device_id(ip):
     """An iPhone keeps one Wi-Fi hardware address per network, so trust survives its IP changing."""
     try:
@@ -193,6 +259,18 @@ def received_notice(batch, name):
         batch["timer"] = threading.Timer(2.5, show)
         batch["timer"].daemon = True
         batch["timer"].start()
+
+
+def open_link(url):
+    """In the browser chosen on the PC (config "browser": its .exe), else Windows' default browser."""
+    exe = config().get("browser") or ""
+    if exe and os.path.isfile(exe):
+        try:
+            subprocess.Popen([exe, url], creationflags=NOWIN)
+            return
+        except OSError:
+            pass
+    webbrowser.open(url)
 
 
 def set_clipboard(text):
@@ -325,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._did
         given = re.sub(r"[^A-Za-z0-9-]", "", self.headers.get("X-Beam-Id", "") or self.param("bid"))[:64]
         if given:
-            self._did = "app:" + given
+            self._did = canonical("app:" + given, self.mac())
         else:
             mac = self.mac()
             same = [(d.get("seen", 0), k) for k, d in list(devices().items()) if k.startswith("app:") and d.get("mac") == mac]
@@ -596,7 +674,7 @@ class Handler(BaseHTTPRequestHandler):
             if len(data) < 2_000_000:
                 text = data.decode("utf-8", "replace").strip()
                 if re.fullmatch(r"https?://\S+", text):
-                    webbrowser.open(text)
+                    open_link(text)
                     toast("Link from iPhone", text)
                 else:
                     set_clipboard(text)
@@ -661,6 +739,7 @@ def make_server():
     srv.cfg, srv.batch = cfg, {"n": 0, "t": 0}
     INBOX.mkdir(parents=True, exist_ok=True)
     OUTBOX.mkdir(parents=True, exist_ok=True)
+    join_duplicates()   # one card per phone (older engines could list a phone twice)
     for stale in [*OUTBOX.glob(".*"), *OUTBOX.glob("*.part"), *OUTBOX.glob("d-*/.*")]:  # temp files from a send that was cut short
         stale.unlink(missing_ok=True)
     return srv

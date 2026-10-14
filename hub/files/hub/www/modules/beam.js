@@ -53,6 +53,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
         </div>
         <div class="card bm-card">
           <div class="bm-h"><h2>Received</h2><button class="tbtn" id="bmFolder">${svg('folder')}Open folder</button></div>
+          <label class="bm-links">Links from your phone open in <select id="bmBrowser"><option value="">Default browser</option></select></label>
           <div id="bmReceived"></div>
         </div>
       </div>
@@ -193,6 +194,16 @@ export function mountBeam(root, { esc, toast, openModule }) {
     if (r.ok) { $('#bmText').value = ''; toast(`Text ready for ${label(ids)}`); load(); } else toast("Couldn't add the text");
   };
   $('#bmFolder').onclick = () => post('/api/beam/reveal');
+  // which browser opens links shared from the phone (Safari > Share > Beam / Send to PC)
+  fetch('/api/beam/browsers').then((r) => r.json()).then(({ chosen, list }) => {
+    const sel = $('#bmBrowser');
+    sel.insertAdjacentHTML('beforeend', list.map((b) => `<option value="${esc(b.exe)}">${esc(b.name)}</option>`).join(''));
+    sel.value = list.some((b) => b.exe === chosen) ? chosen : '';
+    sel.onchange = async () => {
+      const r = await post('/api/beam/browser', JSON.stringify({ exe: sel.value }));
+      toast(r.ok ? (sel.value ? `Links will open in ${sel.selectedOptions[0].text}` : 'Links will open in your default browser') : "Couldn't save that");
+    };
+  }).catch(() => {});
 
   // Ctrl+V: files and whole folders copied in Explorer (the hub reads Windows' clipboard, so folders and big files work);
   // a copied picture (e.g. a screenshot) comes from the page's own clipboard instead

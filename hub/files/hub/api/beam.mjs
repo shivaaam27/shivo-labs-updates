@@ -68,6 +68,7 @@ async function deviceList() {
   const seen = await readJsonFile(join(HOME, "devices.json")), names = await readJsonFile(NAMES);
   const now = Date.now() / 1000, out = [];
   for (const [id, d] of Object.entries(seen)) {
+    if (d.alias) continue;   // another id of a phone already listed (beam.py joins them: one card per phone)
     const n = names[id] || {};
     if (n.hidden && !(d.seen > n.hidden)) continue;   // removed (it comes back if it checks in again later)
     // a name given on the PC card or on the device itself: whichever was set last
@@ -102,6 +103,26 @@ async function publishTo(tmp, name, ids) {
   }
   await unlink(tmp).catch(() => {});
   return last;
+}
+
+// ---------- browsers on this PC (as Windows lists them for "default apps"), for "Links open in"
+const regOut = (args) => new Promise((ok) => execFile("reg.exe", args, { windowsHide: true, maxBuffer: 1 << 20 }, (e, out) => ok(String(out || ""))));
+let browserCache = null;
+async function browsers() {
+  if (browserCache && Date.now() - browserCache.at < 60000) return browserCache.list;
+  const found = new Map();
+  for (const root of ["HKLM\\SOFTWARE\\Clients\\StartMenuInternet", "HKCU\\SOFTWARE\\Clients\\StartMenuInternet", "HKLM\\SOFTWARE\\WOW6432Node\\Clients\\StartMenuInternet"]) {
+    const keys = (await regOut(["query", root])).split(/\r?\n/).map((l) => l.trim()).filter((l) => /^HKEY_/i.test(l) && l.length > root.length + 6);
+    for (const key of keys) {
+      const name = ((await regOut(["query", key, "/ve"])).match(/REG_SZ\s+(.+)/) || [])[1]?.trim();
+      const cmd = ((await regOut(["query", key + "\\shell\\open\\command", "/ve"])).match(/REG_(?:EXPAND_)?SZ\s+(.+)/) || [])[1]?.trim();
+      const exe = cmd && (cmd.match(/^"([^"]+\.exe)"/i) || cmd.match(/^(\S+\.exe)/i) || [])[1];
+      if (name && exe && existsSync(exe) && !found.has(exe.toLowerCase())) found.set(exe.toLowerCase(), { name, exe });
+    }
+  }
+  const list = [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+  browserCache = { at: Date.now(), list };
+  return list;
 }
 
 // ---------- the engine: hub/engines/beam_host.py (runs beam.py from this repo; no tray app, no window)
@@ -239,6 +260,22 @@ const json = (res, code, body) => { res.writeHead(code, { "content-type": "appli
 export async function beamApi(req, res, path, url) {
   if (!path.startsWith("/api/beam/")) return false;
   const what = path.slice("/api/beam/".length);
+  // ---------- links from the phone: which browser opens them (beam.py reads "browser" from config.json)
+  if (req.method === "GET" && what === "browsers") {
+    const cfg = await config();
+    return json(res, 200, { chosen: cfg.browser || "", list: await browsers() }), true;
+  }
+  if (req.method === "POST" && what === "browser") {
+    let body = ""; for await (const c of req) body += c;
+    const { exe } = JSON.parse(body || "{}");
+    const list = await browsers();
+    if (exe && !list.some((b) => b.exe === exe)) return json(res, 400, { error: "Unknown browser" }), true;
+    const file = join(HOME, "config.json"), cfg = await config();
+    if (!cfg.token) return json(res, 409, { error: "Start Beam once first" }), true;   // never write a config Beam hasn't made
+    if (exe) cfg.browser = exe; else delete cfg.browser;
+    await writeFile(file + ".tmp", JSON.stringify(cfg)); await rename(file + ".tmp", file);
+    return json(res, 200, { ok: true }), true;
+  }
   if (req.method === "GET" && what === "status") {
     const cfg = await config(), port = cfg.port || 8765;
     const ip = await lanIp();
