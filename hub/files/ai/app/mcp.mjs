@@ -65,11 +65,13 @@ export function makeConnectors(dataDir, { secret = () => undefined } = {}) {
         env: { ...process.env, ...(cfg.env || {}) }, stderr: "ignore",
       });
     }
-    const entry = { client: null, tools: [], lastUsed: Date.now(), error: null };
+    const entry = { key, client: null, tools: [], lastUsed: Date.now(), error: null };
     try {
       await Promise.race([client.connect(transport), new Promise((_, rej) => setTimeout(() => rej(new Error("timed out connecting")), 30000))]);
       const { tools } = await client.listTools();
       entry.client = client; entry.tools = tools || [];
+      // A server that crashes or drops the line is forgotten, so the next use connects again.
+      client.onclose = () => { if (live.get(key) === entry) live.delete(key); };
     } catch (e) {
       entry.error = String(e.message || e).slice(0, 300);
       try { await client.close(); } catch {}
@@ -109,7 +111,14 @@ export function makeConnectors(dataDir, { secret = () => undefined } = {}) {
           // Look the connection up each time: if it was closed for being idle, this reconnects.
           const e = await connect(r.name, r.cfg);
           if (!e.client) throw new Error(e.error || "the connector isn't connected");
-          const res = await e.client.callTool({ name: r.tool, arguments: input || {} });
+          let res;
+          try { res = await e.client.callTool({ name: r.tool, arguments: input || {} }); }
+          catch (err) {
+            // Not retried here: the server may already have done it. Drop the connection so the
+            // next call starts a fresh one, and let the AI decide whether to try again.
+            if (live.get(e.key) === e) { live.delete(e.key); e.client.close().catch(() => {}); }
+            throw new Error(`The "${r.name}" connector failed: ${String(err?.message || err).slice(0, 300)}. It will reconnect on the next try.`);
+          }
           const content = [];
           for (const c of res.content || []) {
             if (c.type === "text") content.push({ type: "text", text: c.text });

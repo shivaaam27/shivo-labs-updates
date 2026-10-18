@@ -1105,9 +1105,10 @@ body.focus #scroll{padding-top:40px}
 const $ = (id) => document.getElementById(id);
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
 };
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const esc = escHtml; // short name used by /permissions and the safe-mode banner
 // Every request that changes something carries the per-launch token (see the server's Security notes).
 // CONTENT is the separate address previews load from, so preview pages can't reach the app's controls.
 let TOKEN = "", CONTENT = "";
@@ -1142,14 +1143,20 @@ const setPref = (k, v) => store.set("fl.prefs", { ...prefs(), [k]: v });
 let lastPreview = store.get("fl.lastPreview", null); // the page last shown in the preview, kept across restarts
 let gitSeq = 0, gitShown = "", chipFor = "", chipAt = 0, gitDiffSeq = 0; // git panel state
 
-function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("show"), 1800); }
+function toast(t, ms = 1800) { const el = $("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("show"), ms); }
 // Pasted images aren't saved with chats (a few screenshots would fill the browser's storage);
 // the saved chat just notes how many there were.
+// If the browser's storage is full, save again without the picture thumbnails; if even that
+// doesn't fit, say so (once) instead of losing new work without a word.
 function save() {
-  store.set("fl.chats", chats.map((c) => ({
+  const slim = (dropThumbs) => chats.map((c) => ({
     ...c, live: undefined,
-    items: c.items.map((it) => it.images?.length ? { ...it, images: undefined, imageCount: it.images.length } : it),
-  })));
+    items: c.items.map((it) => it.images?.length || (dropThumbs && it.thumbs) ? { ...it, images: undefined, thumbs: dropThumbs ? undefined : it.thumbs, imageCount: it.images?.length || it.thumbs?.length || it.imageCount } : it),
+  }));
+  if (!store.set("fl.chats", slim(false)) && !store.set("fl.chats", slim(true)) && !save.warned) {
+    save.warned = true;
+    toast("Chat storage is full, so new messages aren't being saved. Delete some old chats to make room.", 12000);
+  }
   renderSide();
 }
 
@@ -1873,8 +1880,8 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
           textPart = null;
         } else if (ev.type === "tool") {
           textPart = null;
+          if (steps[ev.id]) continue; // a step is shown and saved once, even if announced again
           const t = { kind: "tool", id: ev.id, name: ev.name, input: ev.input }; turn.parts.push(t);
-          if (steps[ev.id]) continue; // web tools are announced once
           if (ev.name === "run_command") { termWrite(`\nAI> `, "who"); termWrite(String(ev.input?.command || "") + "\n", "cmd"); }
           steps[ev.id] = { t, el: place(() => ev.name === "update_plan" ? addTodo(body, t.input) : addStep(body, t)) };
           setLoader(think, fkKind(ev.name, ev.input)); think.querySelector("span").textContent = DOING[ev.name] || "Working…";

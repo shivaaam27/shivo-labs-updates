@@ -33,9 +33,11 @@ export function loadRules(workDir, dataDir) {
 const glob = (pat) => new RegExp("^" + pat.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*\/?/g, "\u0000").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]").replace(/\u0000/g, ".*") + "$", "i");
 
 function matches(rule, name, input, workDir) {
-  const m = /^([\w-]+)(?:\((.*)\))?$/s.exec(rule.trim()); if (!m) return false;
+  const m = /^([\w*-]+)(?:\((.*)\))?$/s.exec(rule.trim()); if (!m) return false;
   const tool = ALIAS[m[1]] || m[1];
-  if (tool !== name && !(tool.endsWith("*") && name.startsWith(tool.slice(0, -1)))) return false;
+  // "mcp__github" (a connector's name alone) covers all of its tools, as in Claude Code.
+  const wholeServer = /^mcp__[^_]+(?:_[^_]+)*$/.test(tool) && name.startsWith(tool + "__");
+  if (tool !== name && !wholeServer && !(tool.endsWith("*") && name.startsWith(tool.slice(0, -1)))) return false;
   const pat = m[2]; if (pat === undefined || pat === "" || pat === "*") return true;
   if (name === "run_command") {
     const cmd = String(input.command || "").trim();

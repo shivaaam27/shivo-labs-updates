@@ -1127,6 +1127,9 @@ app.post("/api/chat", async (req, res) => {
     for (const [b, i] of found.slice(0, -2)) b.content[i] = { type: "text", text: "(An older screenshot/document was removed to save tokens. View it again if needed.)" };
   }
 
+  // The optional features are dropped for this chat only when a request is refused; the app-wide
+  // switch goes off only once a retry without them works (so they really were the cause).
+  let extrasOn = useExtras, extrasDropped = false;
   function requestBody() {
     pruneMedia();
     const body = {
@@ -1139,7 +1142,7 @@ app.post("/api/chat", async (req, res) => {
       thinking: { type: "adaptive", display: "summarized" }, // a readable summary of its reasoning
       cache_control: { type: "ephemeral" },
     };
-    if (useExtras) {
+    if (extrasOn) {
       // Long chats are summarised automatically instead of hitting the context limit;
       // if a model declines a request, it falls back to another model automatically.
       body.betas = ["compact-2026-01-12"];
@@ -1167,6 +1170,10 @@ app.post("/api/chat", async (req, res) => {
       if (h.block) return { text: "A hook blocked this step: " + h.reason, isError: true };
     }
     const out = await runToolInner(t);
+    // Connector, browser and artifact results don't go through the tool runner's scrub, so hide
+    // any saved secret value here too, before the AI or the screen sees it.
+    out.text = scrub(out.text);
+    if (Array.isArray(out.content)) out.content = out.content.map((c) => c.type === "text" ? { ...c, text: scrub(c.text) } : c);
     if (rules.hooks.PostToolUse && !abort.signal.aborted) {
       const h = await runHooks(rules, "PostToolUse", { session_id: chatId, tool_name: t.name, tool_input: t.input, tool_response: String(out.text || "").slice(0, 20000) }, { workDir, toolName: t.name });
       const note = h.reason || h.context;
@@ -1267,12 +1274,14 @@ app.post("/api/chat", async (req, res) => {
             }
           });
           message = await stream.finalMessage();
+          if (extrasDropped) useExtras = false;
           break;
         } catch (e) {
           if (abort.signal.aborted) throw e;
           // Retry once without the optional features if the request shape was rejected.
           if (e.provider) throw e; // other providers: the message already says what went wrong
-          if (e instanceof Anthropic.BadRequestError && useExtras && attempt === 0) { useExtras = false; continue; }
+          // (Not for used-up credits: that has nothing to do with the request's shape.)
+          if (e instanceof Anthropic.BadRequestError && extrasOn && attempt === 0 && !/credit balance/i.test(e.message)) { extrasOn = false; extrasDropped = true; continue; }
           // A tool input that couldn't be parsed: ask again (a couple of times).
           if (!(e instanceof Anthropic.APIError) && attempt < 2) continue;
           throw e;

@@ -1,6 +1,12 @@
 {
-    "version": "2.0.2",
+    "version": "2.0.3",
     "notes": [
-        "Your AI keys (Claude, Gemini, OpenRouter, Groq, Brave) are now stored encrypted with Windows' own protection, like your other secrets. Keys saved by older versions are encrypted the first time this version starts; nothing to do."
+        "Long chats keep summarising themselves when they get long. Before, one refused request (for example when credits ran out) could switch this off until the app restarted.",
+        "The /permissions list opens again when you have rules saved. The safe-mode message shows properly too.",
+        "Web search steps no longer show up twice in a chat.",
+        "When the app's chat storage is full, it saves without picture thumbnails first. If even that doesn't fit, it tells you instead of quietly losing new messages.",
+        "Permission rules for a whole connector now work, written as mcp__github or mcp__github__*.",
+        "Saved secrets are now hidden in connector and browser results too, not only in command output.",
+        "A connector that crashes or drops its connection reconnects on the next try instead of staying broken."
     ]
 }
