@@ -1795,6 +1795,7 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
   if (current === chat) { body.appendChild(think); scrollDown(true); }
   const visible = () => current === chat;
   let textPart = null, textEl = null; const steps = {}, cards = {};
+  const waitingDraw = new WeakSet(); // text parts with new words not drawn yet
   const place = (fn) => { think.remove(); const el = visible() ? fn() : null; if (visible()) body.appendChild(think); scrollDown(); return el; };
   lives.set(chat.id, {
     chat, turn, add: (q) => place(() => addQueued(body, q)),
@@ -1873,9 +1874,18 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
         }
         else if (ev.type === "delta") {
           if (!textPart) { textPart = { kind: "text", text: "" }; turn.parts.push(textPart); textEl = place(() => addText(body, "")); }
-          textPart.text += ev.text; if (textEl) textEl.innerHTML = md(textPart.text);
-          setLoader(think, "write"); think.querySelector("span").textContent = "Writing…"; scrollDown();
+          textPart.text += ev.text;
+          // Redrawing the whole reply on every word gets slow as it grows: draw at most once per
+          // screen frame (less often for very long replies). The part and its element are kept in
+          // the closure, so the last words are drawn even if the next step has already begun.
+          if (textEl && !waitingDraw.has(textPart)) {
+            const part = textPart, el = textEl; waitingDraw.add(part);
+            const go = () => { if (!waitingDraw.delete(part)) return; el.innerHTML = md(part.text); scrollDown(); };
+            if (part.text.length > 20000) setTimeout(go, 120); else requestAnimationFrame(go);
+          }
+          setLoader(think, "write"); think.querySelector("span").textContent = "Writing…";
         } else if (ev.type === "text_done") {
+          if (textPart && waitingDraw.delete(textPart) && textEl) textEl.innerHTML = md(textPart.text); // finish the drawing first
           if (textPart && visible()) {
             if (textEl) enhance(textEl);
             place(() => addLinks(body, textPart.text));

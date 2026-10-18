@@ -779,6 +779,9 @@ const FAST_MODELS = new Set(["claude-opus-5-5"]); // fast mode: same model, quic
 const READ_ONLY_TOOLS = TOOLS.filter((t) => !WRITE_TOOLS.has(t.name));
 const STUDIO_NAMES = new Set(STUDIO_TOOLS.map((t) => t.name));
 const STUDIO_READ_TOOLS = STUDIO_TOOLS.filter((t) => ["read_artifact", "browser", "view_file"].includes(t.name));
+// Tools that only look, so several in one reply can run at the same time (view_file stays out: it may
+// open Office, which shouldn't run twice at once).
+const PARALLEL_TOOLS = new Set(["read_file", "list_files", "search_files", "fetch_url", "search_web", "check_process", "read_artifact", "use_skill", "delegate_task"]);
 // Optional API features; if the account rejects them, we retry once without.
 let useExtras = true;
 
@@ -1100,12 +1103,12 @@ app.post("/api/chat", async (req, res) => {
       const uses = m.content.filter((b) => b.type === "tool_use" && b.input);
       if (m.stop_reason === "pause_turn") continue;
       if (!uses.length) return m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n") || "(no report)";
-      const results = [];
-      for (const u of uses) {
-        send({ type: "status", text: `Helper: ${u.name.replace("_", " ")}…` });
+      // A helper only looks, so all of its steps in one reply run at the same time.
+      send({ type: "status", text: `Helper: ${[...new Set(uses.map((u) => u.name.replace("_", " ")))].join(", ")}…` });
+      const results = await Promise.all(uses.map(async (u) => {
         const out = await helperRunner(u.name, u.input, abort.signal);
-        results.push({ type: "tool_result", tool_use_id: u.id, content: out.text, is_error: out.isError || undefined });
-      }
+        return { type: "tool_result", tool_use_id: u.id, content: out.text, is_error: out.isError || undefined };
+      }));
       msgs.push({ role: "user", content: results });
     }
     return "The helper ran out of steps before finishing.";
@@ -1387,20 +1390,29 @@ app.post("/api/chat", async (req, res) => {
         continue;
       }
 
-      const results = [];
-      for (const t of toolUses) {
+      async function runOne(t) {
         send({ type: "tool", id: t.id, name: t.name, input: t.input });
         let out;
         // Any unexpected failure becomes a normal error result, so every tool call always gets
         // an answer and the conversation can't be left broken.
         try { out = await handleTool(t); }
         catch (e) { out = { text: abort.signal.aborted ? "Stopped by the user." : "This step failed: " + String(e?.message || e), isError: true }; }
-        finally { activeToolId = null; }
+        finally { if (activeToolId === t.id) activeToolId = null; }
         out.text = String(out.text ?? "");
         // Browser results carry a screenshot: the AI sees it, the app shows it in the step.
         const image = out.content?.find((b) => b.type === "image");
         send({ type: "tool_result", id: t.id, isError: out.isError, text: out.text.slice(0, 4000), image: image ? `data:${image.source.media_type};base64,${image.source.data}` : undefined, diff: out.diff, path: out.path });
-        results.push({ type: "tool_result", tool_use_id: t.id, content: out.content || out.text, is_error: out.isError || undefined });
+        return { type: "tool_result", tool_use_id: t.id, content: out.content || out.text, is_error: out.isError || undefined };
+      }
+      // Steps that only look (read, search, fetch, helpers) and sit next to each other run at the
+      // same time; anything that changes something, asks the user or drives the browser runs alone,
+      // in order. Results go back in the order the AI asked for them.
+      const results = [];
+      for (let i = 0; i < toolUses.length;) {
+        let j = i;
+        if (PARALLEL_TOOLS.has(toolUses[i].name)) while (j + 1 < toolUses.length && PARALLEL_TOOLS.has(toolUses[j + 1].name)) j++;
+        results.push(...await Promise.all(toolUses.slice(i, j + 1).map(runOne)));
+        i = j + 1;
       }
       session.messages.push({ role: "user", content: results });
       saveSession(chatId, session);

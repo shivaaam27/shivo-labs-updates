@@ -1,6 +1,8 @@
-// TV inside the hub: find Android / Google TVs on the Wi-Fi, put the Shivo Labs home screen on them,
-// see and manage their apps, and use the laptop as a remote with a picture of the TV's screen.
-// The work is done by api/tv.mjs (Google's adb over Wi-Fi).
+// TV inside the hub, two tabs:
+// - "Your TV": the phone app's own TV screen (phone/www/tv, served by the hub at /phone/). The laptop finds, pairs with
+//   and uses a Shivo Labs TV exactly like the phone does: same code, same relay from anywhere, shortcuts, pointer.
+// - "Set up a TV" (mountSetup below): puts the Shivo Labs home screen on a new Android / Google TV and manages its apps
+//   with Google's adb over Wi-Fi (api/tv.mjs).
 
 const svg = (p) => `<svg viewBox="0 0 24 24">${p}</svg>`;
 const I = {
@@ -19,7 +21,33 @@ const I = {
 };
 const KEY_OF = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok', Escape: 'back', Backspace: 'back', Home: 'home', ' ': 'play' };
 
-export function mountTv(root, { esc, toast }) {
+export function mountTv(root, ctx) {
+  if (!document.querySelector('link[data-phonetv]')) {
+    const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/phone/tv/tv.css'; l.dataset.phonetv = ''; document.head.appendChild(l);
+  }
+  root.innerHTML = `<div class="tvw"><div class="seg tvw-seg"><button data-w="your" class="on">Your TV</button><button data-w="setup">Set up a TV</button></div><div id="tvwBody" class="tvw-body"></div></div>`;
+  let leaveInner = null, which = null;
+  const show = async (w) => {
+    if (which === w) return;
+    which = w;
+    root.querySelectorAll('[data-w]').forEach((b) => b.classList.toggle('on', b.dataset.w === w));
+    leaveInner?.(); leaveInner = null;
+    const body = root.querySelector('#tvwBody'); body.innerHTML = '';
+    if (w === 'setup') { leaveInner = mountSetup(body, ctx); return; }
+    try {
+      const m = await import('/phone/tv/tv.js');
+      if (which !== 'your') return;
+      const api = m.mountTv(body, { toast: ctx.toast, haptic: () => {} });
+      api.start(); leaveInner = () => api.stop();
+    } catch (e) { body.innerHTML = `<p class="tv-none">The TV screen couldn't load (${ctx.esc(e.message)}).</p>`; }
+  };
+  root.querySelectorAll('[data-w]').forEach((b) => (b.onclick = () => show(b.dataset.w)));
+  show('your');
+  return () => { leaveInner?.(); };
+}
+
+// Set up a TV: find Android / Google TVs, put the Shivo Labs home screen on them, manage their apps (adb over Wi-Fi)
+function mountSetup(root, { esc, toast }) {
   const $ = (s, el = root) => el.querySelector(s);
   const get = async (p) => (await fetch('/api/tv/' + p, { cache: 'no-store' })).json();
   const post = async (p, body) => (await fetch('/api/tv/' + p, { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })).json();

@@ -20,7 +20,8 @@ import { startPcLink } from "./api/pclink.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] || process.env.HUB_PORT) || 4800;
 // The shared look lives next to the hub in the repo; an installed copy carries it inside hub/shared.
-const ROOTS = { "/shared/": [join(here, "shared"), join(here, "..", "shared")].find(existsSync), "/": join(here, "www") };
+// /phone/: the phone app's TV screen (phone/www/tv and what it uses), shown as the hub's TV page too (one TV screen everywhere)
+const ROOTS = { "/shared/": [join(here, "shared"), join(here, "..", "shared")].find(existsSync), "/phone/": join(here, "..", "phone", "www"), "/": join(here, "www") };
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".ttf": "font/ttf", ".png": "image/png", ".ico": "image/x-icon" };
 const HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 
@@ -84,7 +85,7 @@ http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     // static files
-    const base = url.pathname.startsWith("/shared/") ? "/shared/" : "/";
+    const base = url.pathname.startsWith("/shared/") ? "/shared/" : url.pathname.startsWith("/phone/") ? "/phone/" : "/";
     const root = ROOTS[base];
     const rel = decodeURIComponent(url.pathname.slice(base.length)) || "index.html";
     const file = normalize(join(root, rel));

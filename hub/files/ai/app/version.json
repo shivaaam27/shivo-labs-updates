@@ -1,10 +1,7 @@
 {
-    "version": "2.0.4",
+    "version": "2.0.5",
     "notes": [
-        "Sign in to connectors: services that need a sign-in (like Cloudflare) now have a Sign in button under Settings → Connectors. Your browser opens, you press Allow, and the AI can use it. Sign-ins are stored encrypted on this PC and renew by themselves.",
-        "Cloudflare in Quick add: your whole account, Workers with KV, R2 and D1, Workers logs, and Cloudflare's docs.",
-        "Saved tokens reach the tools that need them: a Cloudflare token saved as CLOUDFLARE_API_TOKEN now works with wrangler without the AI having to name it. The same goes for gh (GH_TOKEN), Vercel, Netlify, Supabase and Fly.",
-        "The AI now knows today's date, your time zone and whether the folder is a Git project.",
-        "The AI also reads the notes Claude Code keeps about the same project, so it knows what Claude Code has learned there."
+        "Faster work: when the AI reads or searches several files, opens several web pages, or sends out several helpers at once, they now run at the same time instead of one after another. Changes to files and commands still run one at a time, in order.",
+        "Smoother long replies: the reply is redrawn at most once per screen refresh instead of on every word, so long answers no longer slow the app down."
     ]
 }

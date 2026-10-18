@@ -1,0 +1,217 @@
+/* TV screen in the phone app (tv/tv.js). Uses the app's own colours (app.css), so light and dark mode just work.
+   One column on a phone; from 760px wide (iPad, landscape phones) the controls stay on the left and the
+   content scrolls on the right. Sizes use clamp() so small and large phones both look right. */
+
+/* ---- pairing ---- */
+.tvp{max-width:440px;margin:0 auto;padding:clamp(16px,6vh,48px) 4px 24px;text-align:center}
+.tvp-art{position:relative;width:132px;height:96px;margin:0 auto 22px}
+.tvp-tv{position:absolute;left:0;top:0;width:104px;height:80px;border-radius:24px;display:grid;place-items:center;background:var(--sage-soft);color:var(--sage)}
+.tvp-tv svg{width:48px;height:48px;stroke-width:1.5}
+.tvp-ph{position:absolute;right:0;bottom:0;width:48px;height:62px;border-radius:16px;display:grid;place-items:center;background:var(--panel);color:var(--text);
+  box-shadow:var(--shadow-1),0 0 0 1px var(--line)}
+.tvp-ph svg{width:26px;height:26px;stroke-width:1.6}
+.tvp-art.off .tvp-tv{background:var(--soft);color:var(--muted)}
+html[data-theme=dark] .tvp-tv{color:var(--glow)}
+.tvp-h{margin:0;font:600 clamp(22px,6vw,26px)/1.2 var(--display);letter-spacing:-.01em}
+.tvp-p{margin:8px auto 22px;max-width:340px;color:var(--muted);font-size:15px;line-height:1.45}
+.tvp-steps{list-style:none;margin:0 0 18px;padding:0;text-align:left;display:flex;flex-direction:column;gap:12px}
+.tvp-steps li{display:flex;align-items:flex-start;gap:12px;font-size:15px;line-height:1.4}
+.tvp-steps b{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--soft);font:600 13px var(--body)}
+.tvp-steps em{font-style:normal;font-weight:600}
+.tvp-host{text-align:center;font-size:18px;letter-spacing:.02em}
+.tvp-code{width:100%;padding:16px 8px;border-radius:18px;border:1px solid var(--line);background:var(--panel);color:var(--text);text-align:center;
+  font:600 clamp(30px,10vw,40px)/1 var(--body);letter-spacing:.35em;text-indent:.35em;font-variant-numeric:tabular-nums}
+.tvp-code:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 4px var(--sage-soft)}
+.tvp-btn{margin-top:12px}
+.tvp-link{margin-top:14px;color:var(--sage);font:600 15px var(--body);padding:8px}
+html[data-theme=dark] .tvp-link{color:var(--glow)}
+.tvp-err{margin:14px 0 0;color:var(--err);font-size:14px;line-height:1.4}
+.tvp-foot{margin:26px auto 0;max-width:320px;color:var(--muted);font-size:12.5px;line-height:1.45}
+
+/* ---- paired: layout ---- */
+.tvx{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;max-width:1180px;margin:0 auto}
+.tvx-side,.tvx-main{display:flex;flex-direction:column;gap:14px;min-width:0}
+@media (min-width:760px){
+  .tvx{display:grid;grid-template-columns:minmax(300px,360px) 1fr;gap:22px;align-items:start}
+  .tvx-side{position:sticky;top:0}
+}
+.tvx-wait{display:flex;flex-direction:column;align-items:center;gap:14px;padding-top:18vh;color:var(--muted)}
+.tvx-wait .tvx-tv-ic{animation:breathe 1.6s ease-in-out infinite}
+
+/* the TV and its state */
+.tvx-tv{display:flex;align-items:center;gap:12px;padding:4px 2px}
+.tvx-tv > div{min-width:0}
+.tvx-tv b{display:block;font:600 19px/1.2 var(--display);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvx-tv small{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;margin-top:3px}
+.tvx-tv-ic{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;flex:none;background:var(--sage-soft);color:var(--sage)}
+html[data-theme=dark] .tvx-tv-ic{color:var(--glow)}
+.tvx-tv-ic svg{width:24px;height:24px}
+
+/* now playing */
+.tvx-now{border-radius:var(--r-card);background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);overflow:hidden}
+.tvx-now.empty{display:flex;align-items:center;gap:14px;padding:16px}
+.tvx-now.empty b{display:block;font:600 15px/1.3 var(--body)}
+.tvx-now.empty small{display:block;color:var(--muted);font-size:13px;line-height:1.4;margin-top:2px}
+.tvx-now-ic{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;flex:none;background:var(--soft);color:var(--muted)}
+.tvx-now-ic svg{width:22px;height:22px}
+.tvx-now-art{position:relative;aspect-ratio:16/9;background:var(--soft)}
+.tvx-now-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tvx-now-art img.ic{object-fit:contain;padding:22% 35%}
+.tvx-now-art > i{position:absolute;inset:0;background:linear-gradient(transparent 35%,rgba(0,0,0,.78))}
+.tvx-now-t{position:absolute;left:16px;right:16px;bottom:13px;color:#fff}
+.tvx-now-t small{display:block;font-size:12px;opacity:.82;margin-bottom:3px}
+.tvx-now-t b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font:600 17px/1.25 var(--display)}
+.tvx-now-t span{display:block;font-size:13px;opacity:.8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvx-now .tvx-track{margin:12px 16px 0}
+.tvx-now-b{display:flex;align-items:center;justify-content:center;gap:22px;padding:12px 16px 16px}
+
+/* buttons */
+.tvx-btn{width:50px;height:50px;border-radius:50%;display:grid;place-items:center;flex:none;color:var(--text);
+  background:color-mix(in srgb,var(--text) 7%,transparent);transition:transform .2s var(--spring),background .2s}
+.tvx-btn:active{transform:scale(.88)}
+.tvx-btn svg{width:22px;height:22px}
+.tvx-btn.big{width:62px;height:62px;background:var(--text);color:var(--bg)}
+.tvx-btn.big svg{width:26px;height:26px;fill:currentColor;stroke-width:2.2}
+.tvx-now-b .tvx-btn:not(.big) svg{fill:currentColor}
+
+/* volume and quick buttons */
+.tvx-ctl{border-radius:var(--r-card);background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);padding:16px;display:flex;flex-direction:column;gap:16px}
+.tvx-vol{display:flex;align-items:center;gap:12px}
+.tvx-vol-m{flex:1;min-width:0}
+.tvx-vol-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;color:var(--muted)}
+.tvx-vol-top svg{width:20px;height:20px}
+.tvx-vol-top b{font:600 15px/1 var(--body);color:var(--text);font-variant-numeric:tabular-nums}
+.tvx-track{height:6px;border-radius:3px;background:color-mix(in srgb,var(--text) 10%,transparent);overflow:hidden}
+.tvx-track i{display:block;height:100%;border-radius:inherit;background:var(--sage);transition:width .3s var(--ease)}
+html[data-theme=dark] .tvx-track i{background:var(--glow)}
+.tvx-quick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tvx-q{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 4px 10px;border-radius:16px;background:color-mix(in srgb,var(--text) 5%,transparent);
+  font:600 13px/1 var(--body);color:var(--text);transition:transform .2s var(--spring),background .2s}
+.tvx-q:active{transform:scale(.94);background:color-mix(in srgb,var(--text) 10%,transparent)}
+.tvx-q svg{width:22px;height:22px}
+.tvx-later{display:flex;align-items:center;gap:10px;margin:2px 4px;color:var(--muted);font-size:12.5px;line-height:1.4}
+.tvx-later svg{width:20px;height:20px;flex:none}
+
+/* tabs and content */
+.tvx-seg{align-self:flex-start;width:100%;max-width:420px}
+.tvx-seg button{flex:1;padding:9px 10px;font-size:14px}
+@media (min-width:760px){.tvx-seg{position:sticky;top:0;z-index:2}}
+.tvx-content.in{animation:rise .35s var(--ease) both}
+.tvx-none{color:var(--muted);font-size:14px;line-height:1.5;padding:24px 6px;text-align:center}
+.tvx-h{display:flex;align-items:baseline;gap:8px;margin:6px 2px 10px;font:600 17px/1.2 var(--display)}
+.tvx-h span{font:400 13px var(--body);color:var(--muted)}
+.tvx-h:not(:first-child){margin-top:20px}
+.tvx-strip{display:flex;gap:12px;overflow-x:auto;margin:0 -20px;padding:0 20px 6px;scroll-snap-type:x mandatory;scroll-padding:0 20px;scrollbar-width:none}
+.tvx-strip::-webkit-scrollbar{display:none}
+@media (min-width:760px){.tvx-strip{margin:0;padding:0 0 6px;scroll-padding:0}}
+.tvx-thumb{flex:none;width:clamp(210px,64vw,260px);text-align:left;scroll-snap-align:start}
+.tvx-thumb-p{display:block;aspect-ratio:16/9;border-radius:16px;overflow:hidden;background:var(--soft);transition:transform .2s var(--spring)}
+.tvx-thumb-p img{width:100%;height:100%;object-fit:cover;display:block}
+.tvx-thumb b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:8px 2px 0;font:500 14px/1.32 var(--body)}
+.tvx-thumb:active .tvx-thumb-p{transform:scale(.96)}
+
+/* apps as TV tiles (their wide TV picture), or their icon on a soft tile */
+.tvx-apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:16px 12px}
+.tvx-app{display:flex;flex-direction:column;gap:7px;text-align:left;min-width:0}
+.tvx-app-p{position:relative;display:block;aspect-ratio:16/9;border-radius:14px;overflow:hidden;background:var(--panel);
+  box-shadow:var(--shadow-1),0 0 0 1px var(--line);transition:transform .2s var(--spring)}
+.tvx-app-p img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tvx-app:not(.ic) .tvx-app-i{display:none}
+.tvx-app.ic .tvx-app-p{background:var(--soft)}
+.tvx-app.ic .tvx-app-i{inset:auto;left:50%;top:50%;width:38%;height:auto;aspect-ratio:1;object-fit:contain;transform:translate(-50%,-50%)}
+.tvx-app-l{font:500 13px/1.3 var(--body);padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvx-app:active .tvx-app-p{transform:scale(.95)}
+
+.tvx-inputs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.tvx-input{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:16px;border-radius:18px;text-align:left;background:var(--panel);
+  box-shadow:var(--shadow-1),0 0 0 1px var(--line);transition:transform .2s var(--spring)}
+.tvx-input span{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:var(--soft);margin-bottom:8px}
+.tvx-input span svg{width:21px;height:21px}
+.tvx-input b{font:600 16px/1.2 var(--display)}
+.tvx-input small{color:var(--muted);font-size:12.5px}
+.tvx-input:active{transform:scale(.96)}
+.tvx-forget{align-self:center;margin-top:18px;padding:10px 14px;color:var(--err);font:600 14px var(--body)}
+
+/* what was watched: progress on the picture, the app under the title; Continue in the Now playing panel */
+.tvx-thumb-p{position:relative}
+.tvx-thumb-bar{position:absolute;left:10px;right:10px;bottom:9px;height:4px;border-radius:2px;background:rgba(255,255,255,.35);overflow:hidden}
+.tvx-thumb-bar i{display:block;height:100%;background:#FF0033}
+.tvx-thumb-s{display:block;margin:3px 2px 0;color:var(--muted);font-size:12.5px}
+.tvx-cont{width:100%;display:flex;align-items:center;justify-content:center;gap:8px}
+.tvx-cont svg{width:18px;height:18px;fill:currentColor;stroke:none}
+
+/* TVs found on the Wi-Fi */
+.tvp-found{display:flex;flex-direction:column;gap:8px;margin:0 0 14px;text-align:left}
+.tvp-tvrow{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:16px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line)}
+.tvp-tvrow > svg:first-child{width:24px;height:24px;color:var(--sage)}
+html[data-theme=dark] .tvp-tvrow > svg:first-child{color:var(--glow)}
+.tvp-tvrow span{flex:1;min-width:0}
+.tvp-tvrow b{display:block;font:600 15px/1.25 var(--body)}
+.tvp-tvrow small{color:var(--muted);font-size:12.5px}
+.tvp-tvrow > svg:last-child{width:18px;height:18px;color:var(--muted)}
+.tvp-looking{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:14px;margin:0}
+.tvp-looking svg{width:18px;height:18px;animation:breathe 1.6s ease-in-out infinite}
+.tvp-or{color:var(--muted);font-size:13px;margin:4px 0 8px}
+
+/* the full remote */
+.tvx-rsetup{display:grid;grid-template-columns:auto 1fr;gap:12px 14px;align-items:center}
+.tvx-rsetup b{display:block;font:600 15px/1.3 var(--body)}
+.tvx-rsetup small{display:block;color:var(--muted);font-size:13px;line-height:1.4;margin-top:2px}
+.tvx-rsetup .btn{grid-column:1/-1}
+.tvx-rpair{text-align:center;gap:10px}
+.tvx-rpair b{font:600 16px/1.3 var(--body)}
+.tvx-rpair small{color:var(--muted);font-size:13px;margin-top:-6px}
+.tvx-rcode{letter-spacing:.3em;text-transform:uppercase}
+.tvx-pad{position:relative;width:min(100%,250px);aspect-ratio:1;margin:4px auto 2px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%,color-mix(in srgb,var(--text) 4%,transparent) 0 34%,color-mix(in srgb,var(--text) 7%,transparent) 35%)}
+.tvx-pk{position:absolute;width:33%;height:33%;display:grid;place-items:center;color:var(--text);border-radius:50%;transition:transform .15s var(--spring),background .15s}
+.tvx-pk svg{width:26px;height:26px;stroke-width:2}
+.tvx-pk:active{background:color-mix(in srgb,var(--text) 10%,transparent);transform:scale(.9)}
+.tvx-pk.up{left:33.5%;top:0}.tvx-pk.down{left:33.5%;bottom:0}.tvx-pk.left{left:0;top:33.5%}.tvx-pk.right{right:0;top:33.5%}
+.tvx-ok{position:absolute;left:31%;top:31%;width:38%;height:38%;border-radius:50%;background:var(--text);color:var(--bg);font:700 16px/1 var(--body);letter-spacing:.06em;
+  box-shadow:0 8px 20px -8px rgba(0,0,0,.45);transition:transform .15s var(--spring)}
+.tvx-ok:active{transform:scale(.92)}
+.tvx-rrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tvx-type{display:flex;gap:8px;align-items:center}
+.tvx-type .field{margin:0;flex:1}
+
+/* nothing found on the Wi-Fi: what to check */
+.tvp-help{text-align:left;padding:14px 16px;border-radius:16px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line)}
+.tvp-help b{display:block;font:600 15px/1.3 var(--body);margin-bottom:6px}
+.tvp-help p{margin:6px 0 0;color:var(--muted);font-size:13.5px;line-height:1.45}
+/* pairing with a code from the TV (any network) */
+.tvp-far{display:flex;flex-direction:column;gap:8px;text-align:left;margin-top:14px;padding:16px;border-radius:18px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line)}
+.tvp-far b{font:600 15px/1.3 var(--body)}
+.tvp-far small{color:var(--muted);font-size:13px;line-height:1.4}
+.tvp-far .tvp-code{margin:4px 0 0;text-transform:uppercase}
+.tvp-far .tvp-btn{margin:0}
+.tvp-help em{font-style:normal;font-weight:600;color:var(--text)}
+.tvp-hi{border-color:var(--sage);box-shadow:0 0 0 4px var(--sage-soft)}
+
+/* not connected: the screen stays, a banner says why */
+.tvx-offline{display:flex;align-items:center;gap:12px;margin:0 0 12px;padding:12px 14px;border-radius:14px;background:var(--soft);color:var(--muted)}
+.tvx-offline>span svg{width:22px;height:22px;flex:none}
+.tvx-offline>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.tvx-offline b{color:var(--ink,inherit);font-size:14px}
+.tvx-offline small{font-size:12.5px;line-height:1.35}
+.tvx-offline .btn{width:auto;flex:none}
+.tvx-tv .dot.wait{background:var(--faint,#999);animation:none}
+/* Shortcuts tab: a code for another phone */
+.tvx-codebox{margin-top:16px;align-items:center;text-align:center;gap:8px}
+.tvx-codebox small{color:var(--muted);font-size:13px}
+.tvx-codebox b{font:600 34px/1.1 var(--display,var(--body));letter-spacing:.12em}
+.tvx-codebox span{color:var(--muted);font-size:13.5px}
+.tvx-h + .tvx-inputs{margin-bottom:18px}
+
+/* the air mouse (Pointer): a full-screen sheet with a touch pad */
+.tvx-pointer{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;flex-direction:column;gap:14px;padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 16px)}
+.tvx-pt-top{display:flex;align-items:center;justify-content:space-between}
+.tvx-pt-top b{font:600 20px/1.2 var(--display,var(--body))}
+.tvx-pt-x{width:40px;height:40px;border-radius:50%;background:var(--panel);box-shadow:0 0 0 1px var(--line);display:grid;place-items:center}
+.tvx-pt-x svg{width:20px;height:20px}
+.tvx-pt-pad{flex:1;border-radius:28px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;touch-action:none;user-select:none;-webkit-user-select:none}
+.tvx-pt-pad span svg{width:44px;height:44px;opacity:.5}
+.tvx-pt-pad p{margin:0;font-size:15px}
+.tvx-pt-pad small{color:var(--muted);font-size:13px}
+.tvx-pt-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tvx-fine{color:var(--muted);font-size:12.5px;text-align:center}
