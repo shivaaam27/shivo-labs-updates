@@ -424,7 +424,14 @@ function Invoke-WifiPair([string]$Udid, [string]$Name) {
 # The phone's address on the Wi-Fi now (the last one first, else a look round this PC's networks).
 function Find-WifiPhone([string]$Udid) {
     $p = (Get-WifiState)[$Udid]
-    if (-not $p) { throw 'This iPhone isn''t set up for Wi-Fi yet: plug it in once.' }
+    if (-not $p) {
+        # paired for Wi-Fi but missing from this PC's list (e.g. paired from another window of Shivo Labs): the
+        # pairing itself (in Linux) decides, and the phone is added to the list
+        Install-WifiTools
+        if (-not (Invoke-Wifi "paired $(Q-Bash $Udid)").paired) { throw 'This iPhone isn''t set up for Wi-Fi yet: plug it in once.' }
+        Set-WifiPhone $Udid @{}
+        $p = (Get-WifiState)[$Udid]
+    }
     $ip = [string](Invoke-Wifi "find $(Q-Bash $Udid) $(Q-Bash ([string]$p.ip))").found
     if ($ip -and $ip -ne $p.ip) { Set-WifiPhone $Udid @{ ip = $ip } }
     $ip

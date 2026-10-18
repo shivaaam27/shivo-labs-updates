@@ -259,6 +259,8 @@ async function home(ip, what) {
     await sh(ip, `cmd appops set ${PKG} APP_AUTO_START allow`);
     // the pairing code shows as a small card on top of what is playing (YouTube keeps playing)
     await sh(ip, `cmd appops set ${PKG} SYSTEM_ALERT_WINDOW allow`);
+    // it updates itself over the air (Android still asks once on screen for each update)
+    await sh(ip, `cmd appops set ${PKG} REQUEST_INSTALL_PACKAGES allow`);
     // switched off and on, so Android starts the service again after an update
     await sh(ip, `cmd notification disallow_listener ${PKG}/${PKG}.NowPlaying`);
     await sh(ip, `cmd notification allow_listener ${PKG}/${PKG}.NowPlaying`);

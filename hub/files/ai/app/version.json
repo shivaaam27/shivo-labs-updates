@@ -1,12 +1,10 @@
 {
-    "version": "2.0.3",
+    "version": "2.0.4",
     "notes": [
-        "Long chats keep summarising themselves when they get long. Before, one refused request (for example when credits ran out) could switch this off until the app restarted.",
-        "The /permissions list opens again when you have rules saved. The safe-mode message shows properly too.",
-        "Web search steps no longer show up twice in a chat.",
-        "When the app's chat storage is full, it saves without picture thumbnails first. If even that doesn't fit, it tells you instead of quietly losing new messages.",
-        "Permission rules for a whole connector now work, written as mcp__github or mcp__github__*.",
-        "Saved secrets are now hidden in connector and browser results too, not only in command output.",
-        "A connector that crashes or drops its connection reconnects on the next try instead of staying broken."
+        "Sign in to connectors: services that need a sign-in (like Cloudflare) now have a Sign in button under Settings → Connectors. Your browser opens, you press Allow, and the AI can use it. Sign-ins are stored encrypted on this PC and renew by themselves.",
+        "Cloudflare in Quick add: your whole account, Workers with KV, R2 and D1, Workers logs, and Cloudflare's docs.",
+        "Saved tokens reach the tools that need them: a Cloudflare token saved as CLOUDFLARE_API_TOKEN now works with wrangler without the AI having to name it. The same goes for gh (GH_TOKEN), Vercel, Netlify, Supabase and Fly.",
+        "The AI now knows today's date, your time zone and whether the folder is a Git project.",
+        "The AI also reads the notes Claude Code keeps about the same project, so it knows what Claude Code has learned there."
     ]
 }

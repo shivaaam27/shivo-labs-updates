@@ -1005,6 +1005,10 @@ body.focus #scroll{padding-top:40px}
           <option value="">Quick add…</option>
           <option value="github">GitHub: issues, pull requests, code, Actions</option>
           <option value="context7">Context7: up-to-date docs for any library</option>
+          <option value="cloudflare">Cloudflare: your whole account (Workers, KV, R2, D1, DNS…)</option>
+          <option value="cloudflare-bindings">Cloudflare Workers, KV, R2 and D1</option>
+          <option value="cloudflare-logs">Cloudflare Workers logs</option>
+          <option value="cloudflare-docs">Cloudflare docs</option>
           <option value="browser">Browser control (Playwright): a real browser the AI drives</option>
           <option value="google">Gmail and Google Drive…</option>
         </select>
@@ -2771,21 +2775,40 @@ async function showConnectors() {
   const box = $("connList"); box.innerHTML = list.length ? "" : `<p style="color:var(--muted);margin:0">No connectors yet.</p>`;
   for (const c of list) {
     const row = document.createElement("div"); row.className = "rowl"; row.style.cssText = "align-items:center;gap:8px";
-    row.innerHTML = `<span style="min-width:0"><b></b> <small style="color:var(--muted)"></small><br><small class="cst" style="color:var(--faint)"></small></span><span style="display:flex;gap:4px;flex-shrink:0"><button class="pvb" data-a="test">Test</button>${c.source === "app" ? `<button class="pvb" data-a="toggle">${c.disabled ? "Turn on" : "Turn off"}</button><button class="pvb" data-a="del">Remove</button>` : ""}</span>`;
+    const signBtn = c.kind === "remote" ? (c.signedIn ? `<button class="pvb" data-a="signout">Sign out</button>` : `<button class="pvb" data-a="signin">Sign in</button>`) : "";
+    row.innerHTML = `<span style="min-width:0"><b></b> <small style="color:var(--muted)"></small><br><small class="cst" style="color:var(--faint)"></small></span><span style="display:flex;gap:4px;flex-shrink:0"><button class="pvb" data-a="test">Test</button>${signBtn}${c.source === "app" ? `<button class="pvb" data-a="toggle">${c.disabled ? "Turn on" : "Turn off"}</button><button class="pvb" data-a="del">Remove</button>` : ""}</span>`;
     row.querySelector("b").textContent = c.name;
-    row.querySelector("small").textContent = `${c.kind === "remote" ? c.url : [c.command, ...(c.args || [])].join(" ")} · ${c.source === "project" ? "from this project's .mcp.json" : "added in the app"}${c.disabled ? " · off" : ""}`;
+    row.querySelector("small").textContent = `${c.kind === "remote" ? c.url : [c.command, ...(c.args || [])].join(" ")} · ${c.source === "project" ? "from this project's .mcp.json" : "added in the app"}${c.signedIn ? " · signed in" : ""}${c.disabled ? " · off" : ""}`;
     row.querySelectorAll("button").forEach((b) => b.onclick = async () => {
       if (b.dataset.a === "test") {
         row.querySelector(".cst").textContent = "Testing…";
         const r = await (await post("/api/connectors/test", { name: c.name, cwd: current?.cwd || "" })).json();
         row.querySelector(".cst").textContent = r.ok ? `✓ Connected · ${r.tools.length} tools: ${r.tools.slice(0, 6).join(", ")}${r.tools.length > 6 ? "…" : ""}` : `✕ ${r.error}`;
       }
+      if (b.dataset.a === "signin") signInConnector(c.name, (t) => { row.querySelector(".cst").textContent = t; });
+      if (b.dataset.a === "signout" && confirm(`Sign out of "${c.name}"? The AI can't use it until you sign in again.`)) { await post("/api/connectors/signout", { name: c.name, cwd: current?.cwd || "" }); showConnectors(); }
       if (b.dataset.a === "toggle") { await post("/api/connectors", { name: c.name, disabled: !c.disabled }); showConnectors(); }
       if (b.dataset.a === "del" && confirm(`Remove the "${c.name}" connector?`)) { await post("/api/connectors", { name: c.name, remove: true }); showConnectors(); }
     });
     box.appendChild(row);
   }
   $("connModal").classList.add("show");
+}
+// Sign in to a remote connector: the service's page opens in the browser; once the user presses Allow
+// there, the app is told (checked every 3 seconds for up to 5 minutes).
+async function signInConnector(name, say) {
+  say("Opening the sign-in page…");
+  const r = await post("/api/connectors/signin", { name, cwd: current?.cwd || "" }); const j = await r.json();
+  if (j.ok) { say(`✓ Connected · ${j.tools} tools`); return showConnectors(); }
+  if (!j.waiting) return say(`✕ ${j.error}`);
+  say("Your browser opened the sign-in page. Press Allow there, then come back here.");
+  for (let i = 0; i < 100; i++) {
+    await new Promise((d) => setTimeout(d, 3000));
+    const list = await (await fetch("/api/connectors?cwd=" + encodeURIComponent(current?.cwd || ""))).json().catch(() => []);
+    if (list.find((x) => x.name === name)?.signedIn) { say("✓ Signed in."); return showConnectors(); }
+    if (!$("connModal").classList.contains("show")) return;
+  }
+  say("No sign-in came back yet. Press Sign in to try again.");
 }
 $("cAdd").onclick = async () => {
   const name = $("cName").value.trim(); const m = $("cMsg"); m.className = "msg";
@@ -2800,8 +2823,9 @@ $("cAdd").onclick = async () => {
   const t = await (await post("/api/connectors/test", { name })).json();
   m.className = t.ok ? "msg good" : "msg bad";
   m.textContent = t.ok ? `Connected: ${t.tools.length} tools available.` : `Saved, but it couldn't connect: ${t.error}`;
-  ["cName", "cCmd", "cEnv", "cUrl", "cHead"].forEach((id) => { if (t.ok) $(id).value = ""; });
-  showConnectors();
+  ["cName", "cCmd", "cEnv", "cUrl", "cHead"].forEach((id) => { if (t.ok || t.needsAuth) $(id).value = ""; });
+  await showConnectors();
+  if (t.needsAuth) { m.className = "msg"; signInConnector(name, (x) => { m.textContent = x; }); }
 };
 $("connNav").onclick = showConnectors;
 // Quick add: fills the form with a connector that's known to work (checked Oct 2026).
@@ -2818,6 +2842,14 @@ $("cPreset").onchange = async () => {
       m.textContent = r.ok ? "Done: your GitHub sign-in is saved as the secret GITHUB_TOKEN. Click Add and test." : j.error + " Sign in under Settings → GitHub & command line, or add a token as the secret GITHUB_TOKEN.";
     } else m.textContent = "Uses your secret GITHUB_TOKEN. Click Add and test.";
   } else if (v === "context7") { remote("context7", "https://mcp.context7.com/mcp", ""); m.textContent = "No key needed. Click Add and test."; }
+  else if (v.startsWith("cloudflare")) {
+    const cf = { cloudflare: ["cloudflare", "https://mcp.cloudflare.com/mcp"], "cloudflare-bindings": ["cloudflare-bindings", "https://bindings.mcp.cloudflare.com/mcp"],
+      "cloudflare-logs": ["cloudflare-logs", "https://observability.mcp.cloudflare.com/mcp"], "cloudflare-docs": ["cloudflare-docs", "https://docs.mcp.cloudflare.com/mcp"] }[v];
+    // The whole-account one also takes an API token: with a secret CLOUDFLARE_API_TOKEN saved it uses that, otherwise you sign in.
+    remote(cf[0], cf[1], v === "cloudflare" ? "Authorization: Bearer ${secret:CLOUDFLARE_API_TOKEN}" : "");
+    m.textContent = v === "cloudflare-docs" ? "No sign-in needed. Click Add and test."
+      : "Click Add. Your browser opens Cloudflare: choose your account and press Allow." + (v === "cloudflare" ? " (If you saved a Cloudflare API token as the secret CLOUDFLARE_API_TOKEN, that is used instead.)" : "");
+  }
   else if (v === "browser") {
     $("ckLocal").onclick(); $("cName").value = "browser"; $("cCmd").value = "npx -y @playwright/mcp@latest"; $("cEnv").value = "";
     m.textContent = "A real browser window the AI can click and type in (it can sign in to sites you show it). The first start downloads it, so the test can take a minute.";

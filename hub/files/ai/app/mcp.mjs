@@ -8,6 +8,7 @@ import { execSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 
 const safeName = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
 
@@ -23,7 +24,9 @@ export function expandVars(value, secret = () => undefined) {
 }
 const expandAll = (o, secret) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, expandVars(v, secret)]));
 
-export function makeConnectors(dataDir, { secret = () => undefined } = {}) {
+// auth: sign-ins for remote connectors (mcpauth.mjs). A connector with its own Authorization header
+// (a token) never uses it.
+export function makeConnectors(dataDir, { secret = () => undefined, auth = null } = {}) {
   const file = join(dataDir, "connectors.json");
   const load = () => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return { mcpServers: {} }; } };
   const save = (c) => writeFileSync(file, JSON.stringify(c, null, 2));
@@ -58,14 +61,18 @@ export function makeConnectors(dataDir, { secret = () => undefined } = {}) {
     let transport;
     if (cfg.url || cfg.type === "http" || cfg.type === "sse") {
       const headers = { ...(cfg.headers || {}), ...helperHeaders(cfg) };
-      transport = new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers } });
+      // A header whose secret isn't saved expands to "Bearer ": leave it out, so sign-in can be used instead.
+      for (const k of Object.keys(headers)) if (/^authorization$/i.test(k) && !/^\S+\s+\S/.test(String(headers[k]).trim())) delete headers[k];
+      const hasToken = Object.keys(headers).some((k) => /^authorization$/i.test(k));
+      if (auth && !hasToken) await auth.ready();
+      transport = new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers }, ...(auth && !hasToken ? { authProvider: auth.provider(cfg.url) } : {}) });
     } else {
       transport = new StdioClientTransport({
         command: cfg.command, args: cfg.args || [], cwd: cfg.cwd,
         env: { ...process.env, ...(cfg.env || {}) }, stderr: "ignore",
       });
     }
-    const entry = { key, client: null, tools: [], lastUsed: Date.now(), error: null };
+    const entry = { key, url: cfg.url, client: null, tools: [], lastUsed: Date.now(), error: null, needsAuth: false };
     try {
       await Promise.race([client.connect(transport), new Promise((_, rej) => setTimeout(() => rej(new Error("timed out connecting")), 30000))]);
       const { tools } = await client.listTools();
@@ -74,6 +81,10 @@ export function makeConnectors(dataDir, { secret = () => undefined } = {}) {
       client.onclose = () => { if (live.get(key) === entry) live.delete(key); };
     } catch (e) {
       entry.error = String(e.message || e).slice(0, 300);
+      if (e instanceof UnauthorizedError || /\b401\b|unauthori[sz]ed/i.test(entry.error)) {
+        entry.needsAuth = !!cfg.url;
+        entry.error = auth && cfg.url ? "needs you to sign in (Settings → Connectors → Sign in)" : "the service refused the sign-in details (check the token)";
+      }
       try { await client.close(); } catch {}
     }
     live.set(key, entry);
@@ -94,7 +105,7 @@ export function makeConnectors(dataDir, { secret = () => undefined } = {}) {
       const cfgs = configsFor(workDir), defs = [], routes = new Map(), status = [];
       await Promise.all(Object.entries(cfgs).map(async ([name, cfg]) => {
         const e = await connect(name, cfg);
-        status.push({ name, source: cfg.source, ok: !e.error, error: e.error, tools: e.tools.length });
+        status.push({ name, source: cfg.source, ok: !e.error, error: e.error, needsAuth: e.needsAuth, tools: e.tools.length });
         for (const t of e.tools) {
           let full = `mcp__${safeName(name)}__${safeName(t.name)}`.slice(0, 64);
           // Names are cut to the API's 64-character limit; keep them unique.
@@ -132,6 +143,10 @@ export function makeConnectors(dataDir, { secret = () => undefined } = {}) {
     },
     // Close every connection (used before the app restarts for an update).
     closeAll() { for (const e of live.values()) e.client?.close().catch(() => {}); live.clear(); },
-    async test(name, cfg) { const e = await connect(name, cfg); return { ok: !e.error, error: e.error, tools: e.tools.map((t) => t.name) }; },
+    async test(name, cfg) { const e = await connect(name, cfg); return { ok: !e.error, error: e.error, needsAuth: e.needsAuth, tools: e.tools.map((t) => t.name) }; },
+    // Forget cached connections (and failures) for an address, e.g. right after signing in or out.
+    forget(url) { for (const [k, e] of live) if (e.url === url) { e.client?.close().catch(() => {}); live.delete(k); } },
+    // The address a connector really uses (with ${secret:...} filled in), for sign-in.
+    urlOf(cfg) { return expandVars(cfg?.url, secret); },
   };
 }

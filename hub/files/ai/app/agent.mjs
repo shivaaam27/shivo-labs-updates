@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { release } from "node:os";
 import { WEB_TOOLS, fetchUrl, searchWeb } from "./web.mjs";
 
 // $ per million tokens (input, output). Cache writes cost 1.25x input, reads 0.1x.
@@ -217,6 +218,30 @@ export function loadMemory(workDir, extraDirs = []) {
     text = text.slice(0, Math.max(0, 40000 - total)); total += text.length;
     return { path: p, text };
   }).filter((m) => m.text.trim());
+}
+
+// The notes Claude Code keeps about a project (its "auto memory": an index MEMORY.md plus one file per
+// note, in ~/.claude/projects/<folder name with every other character as ->/memory). Read so this app
+// knows what Claude Code learned about the same project. The nearest folder up the chain that has one wins.
+export function loadAutoMemory(workDir) {
+  const home = process.env.USERPROFILE || "";
+  for (let d = workDir; d && dirname(d) !== d; d = dirname(d)) {
+    const dir = join(home, ".claude", "projects", d.replace(/[^A-Za-z0-9]/g, "-"), "memory");
+    const index = join(dir, "MEMORY.md");
+    if (!existsSync(index)) continue;
+    let text = ""; try { text = readFileSync(index, "utf8").slice(0, 20000); } catch {}
+    if (text.trim()) return { dir, index, text };
+  }
+  return null;
+}
+
+// What the AI should know about the moment and the machine, like Claude Code's environment block.
+function environment(workDir) {
+  const now = new Date();
+  const day = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  let git = false; for (let d = workDir; d && dirname(d) !== d && !git; d = dirname(d)) git = existsSync(join(d, ".git"));
+  return `Today is ${day} (time zone ${zone}). Windows ${release()}. The working folder is ${git ? "" : "not "}inside a git repository.`;
 }
 
 // Skills: folders with a SKILL.md (name + description in front matter, instructions below),
@@ -468,7 +493,7 @@ export function stopBackgroundProcesses() {
   for (const pid of background.keys()) killProcess(pid);
 }
 
-export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills = [], depth = "normal", secrets = [] }) {
+export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills = [], depth = "normal", secrets = [], toolSecrets = [], autoMemory = null }) {
   return [
     "You are Shivo Labs AI (made by Shivo Labs, formerly Fabra Labs), a coding assistant running in a desktop app on the user's Windows PC.",
     "You can read, create and edit files, search code, and run PowerShell commands with your tools. Do the work yourself rather than telling the user to do it.",
@@ -487,6 +512,7 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
     "Before saying a web page or artifact is done, check it with the browser tool (open, look at the screenshot, click through the main parts, check console errors), and fix what you find.",
     "Always write file paths and commands inside `backticks` so they display correctly.",
     "Keep replies short and plain. The user is not a terminal expert and often speaks instead of typing, so read past small transcription mistakes.",
+    environment(workDir),
     `Working folder: ${workDir}`,
     extraDirs.length ? `Other folders you may use: ${extraDirs.join("; ")}` : "",
     scratch ? "No project folder is linked, so this is the chat's private scratch folder. Files you create are kept here." : "",
@@ -494,8 +520,10 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
       `Match loosely (e.g. pattern "*cv*" or "*.html" in a likely folder) and check the obvious folders first. The user's home folder is ${process.env.USERPROFILE}; their projects are mostly in Documents. If a search finds nothing, say so and ask rather than searching for long.`,
     "For git work, use git and the GitHub CLI (gh) through run_command. Only commit or push when the user asks. If gh says it isn't logged in, tell the user to sign in under Settings → GitHub & command line (you can't answer its login prompts).",
     "Commands run in a fresh, non-interactive PowerShell: nothing can be typed into a prompt, so use flags that skip questions (--yes, -Force, --with-token) instead.",
+    "Cloudflare (Workers, KV, R2, D1, Durable Objects): use `npx wrangler` in the project folder. Check the sign-in first with `npx wrangler whoami`. If it isn't signed in, run `npx wrangler login` with timeout_seconds 300: it opens the user's browser, so tell them to choose their account and press Allow; or ask them to save a Cloudflare API token as the secret CLOUDFLARE_API_TOKEN under Settings → Secrets. " +
+      "Cloudflare connectors (Settings → Connectors) can also manage the account and read Workers logs once signed in. Check which account a connector or wrangler is using before changing anything, and ask before deploying, deleting or changing anything live.",
     secrets.length
-      ? `Saved secrets you can use (the user added them in Settings; you never see the values): ${secrets.join(", ")}. Use one in run_command as $env:NAME (e.g. $env:${secrets[0]}); it is only filled in for commands that mention it. Never print, echo, write to files or send a secret anywhere except the service it belongs to. If you need a token that isn't listed, ask the user to add it under Settings → Secrets rather than pasting it into the chat.`
+      ? `Saved secrets you can use (the user added them in Settings; you never see the values): ${secrets.join(", ")}. Use one in run_command as $env:NAME (e.g. $env:${secrets[0]}); it is only filled in for commands that mention it${toolSecrets.length ? `, except these, which their tool gets on its own: ${toolSecrets.join("; ")}` : ""}. Never print, echo, write to files or send a secret anywhere except the service it belongs to. If you need a token that isn't listed, ask the user to add it under Settings → Secrets rather than pasting it into the chat.`
       : "No secrets are saved. If a task needs an API key or token, ask the user to add it under Settings → Secrets (not in the chat), then use it as $env:NAME.",
     "Use delegate_task for broad research across many files, so this conversation stays focused.",
     "Research and online access: search_web and fetch_url work for every model. search_web lists results, fetch_url opens any http(s) address (docs, articles, JSON, GitHub pages) and returns it as text with links you can follow; " +
@@ -511,6 +539,9 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
     ...(memory.length
       ? ["\n# Instructions from the user's CLAUDE.md files (follow these; later, more specific files win)",
         ...memory.map((m) => `\n## ${m.path}\n${m.text}`)]
+      : []),
+    ...(autoMemory
+      ? [`\n# Notes Claude Code keeps about this project (an index; each line links a note file in ${autoMemory.dir} — read the file with read_file when it's relevant). Treat them as background that may be out of date: check before relying on one.`, autoMemory.text]
       : []),
   ].filter(Boolean).join("\n");
 }

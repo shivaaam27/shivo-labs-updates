@@ -8,14 +8,15 @@ import { exec, execFile, execSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import {
   Anthropic, TOOLS, SERVER_TOOLS, serverToolsFor, DEPTHS, WRITE_TOOLS, HELPER_TOOLS, costOf, makeToolRunner, systemPrompt,
-  stopBackgroundProcesses, loadMemory, loadCommands, listProcesses, killProcess, lineDiff, loadSkills,
+  stopBackgroundProcesses, loadMemory, loadAutoMemory, loadCommands, listProcesses, killProcess, lineDiff, loadSkills,
 } from "./agent.mjs";
 import { relayFor } from "./relay.mjs";
 import { cloudTurn, followCloud } from "./cloud.mjs";
 import { cliStatus, loginState, startWebLogin, cancelWebLogin, tokenLogin, logout as ghLogout, setIdentity } from "./cli.mjs";
-import { initSecrets, secretsReady, secretNames, listSecrets, setSecret, envFor, scrub, secretValue, protectValues, unprotectValues } from "./secrets.mjs";
+import { toolSecretNotes, initSecrets, secretsReady, secretNames, listSecrets, setSecret, envFor, scrub, secretValue, protectValues, unprotectValues } from "./secrets.mjs";
 import { loadRules, decide, runHooks, settingsFiles } from "./rules.mjs";
 import { makeConnectors } from "./mcp.mjs";
+import { makeMcpAuth } from "./mcpauth.mjs";
 import { gitInfo, prStatus, fileDiff, addWorktree, removeWorktree } from "./git.mjs";
 import { PROVIDERS, isClaude, splitModel, listModels, chatStep, makeGeminiLimits, geminiWithFallback, geminiRank, freeLimits, trimHistory } from "./providers.mjs";
 import { STUDIO_TOOLS, makeArtifacts, renderArtifact, exportPdf, exportDocx, makeBrowser, OFFICE, officeToPdf } from "./studio.mjs";
@@ -524,7 +525,12 @@ app.post("/api/stop", (req, res) => {
 });
 
 // ---------- Connectors (MCP)
-const connectors = makeConnectors(dataDir, { secret: secretValue });
+// Remote connectors that need a sign-in send the browser back here (mcpauth.mjs).
+const mcpAuth = makeMcpAuth(dataDir, `http://localhost:${PORT}/api/mcp/oauth/callback`);
+const connectors = makeConnectors(dataDir, { secret: secretValue, auth: mcpAuth });
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const openInBrowser = (url) => spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { detached: true, windowsHide: true }).unref();
+const connectorCfg = (name, cwd) => connectors.configsFor(cwd || "")[name] || connectors.load().mcpServers?.[name];
 const mask = (o = {}) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v).length > 6 ? String(v).slice(0, 3) + "…" + String(v).slice(-2) : "…"]));
 app.get("/api/connectors", async (req, res) => {
   const cwd = req.query.cwd ? String(req.query.cwd) : "";
@@ -532,7 +538,8 @@ app.get("/api/connectors", async (req, res) => {
   const all = connectors.configsFor(cwd);
   // Secrets in env and headers are never sent back in full.
   const list = Object.entries({ ...Object.fromEntries(Object.entries(own).map(([n, c]) => [n, { ...c, source: "app" }])), ...all })
-    .map(([name, c]) => ({ name, source: c.source, disabled: !!c.disabled, kind: c.url ? "remote" : "local", url: c.url, command: c.command, args: c.args, env: mask(c.env), headers: mask(c.headers), headersHelper: c.headersHelper }));
+    .map(([name, c]) => ({ name, source: c.source, disabled: !!c.disabled, kind: c.url ? "remote" : "local", url: c.url, command: c.command, args: c.args, env: mask(c.env), headers: mask(c.headers), headersHelper: c.headersHelper,
+      signedIn: c.url ? mcpAuth.signedIn(connectors.urlOf(c)) : false }));
   res.json(list);
 });
 app.post("/api/connectors", (req, res) => {
@@ -554,9 +561,41 @@ app.post("/api/connectors", (req, res) => {
   connectors.save(all); res.json({ ok: true });
 });
 app.post("/api/connectors/test", async (req, res) => {
-  const cfg = connectors.configsFor(req.body.cwd || "")[req.body.name] || connectors.load().mcpServers?.[req.body.name];
+  const cfg = connectorCfg(req.body.name, req.body.cwd);
   if (!cfg) return res.status(404).json({ error: "Not found" });
   res.json(await connectors.test(req.body.name, cfg));
+});
+// Sign in to a remote connector: the service's page opens in the browser; the user presses Allow and
+// lands on the callback below. Already signed in (or no sign-in needed): just says so.
+app.post("/api/connectors/signin", async (req, res) => {
+  const cfg = connectorCfg(req.body.name, req.body.cwd);
+  if (!cfg?.url) return res.status(404).json({ error: "Only remote connectors (with an address) can sign in." });
+  await mcpAuth.ready();
+  const url = connectors.urlOf(cfg);
+  connectors.forget(url);
+  const r = await connectors.test(req.body.name, cfg);
+  if (r.ok) return res.json({ ok: true, tools: r.tools.length });
+  const page = mcpAuth.waitingUrl(url);
+  if (!page || !/^https:\/\//i.test(page)) return res.status(400).json({ error: r.error || "This connector didn't offer a sign-in." });
+  openInBrowser(page);
+  res.json({ ok: false, waiting: true });
+});
+app.post("/api/connectors/signout", async (req, res) => {
+  const cfg = connectorCfg(req.body.name, req.body.cwd);
+  if (!cfg?.url) return res.status(404).json({ error: "Not found" });
+  const url = connectors.urlOf(cfg);
+  await mcpAuth.signOut(url); connectors.forget(url);
+  res.json({ ok: true });
+});
+// The browser comes back here from the service's sign-in page (a plain page, opened outside the app).
+app.get("/api/mcp/oauth/callback", async (req, res) => {
+  const page = (title, text) => res.type("html").send(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="font:16px system-ui;max-width:520px;margin:15vh auto;padding:0 20px;color:#1d1d1b"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(text)}</p></body>`);
+  if (req.query.error) return page("Sign-in not finished", `The service said: ${String(req.query.error_description || req.query.error).slice(0, 300)}. You can close this tab and try again.`);
+  try {
+    const url = await mcpAuth.finish(req.query.state, req.query.code);
+    connectors.forget(url);
+    page("Signed in", "Shivo Labs AI can use this connector now. You can close this tab and go back to the app.");
+  } catch (e) { page("Sign-in not finished", String(e.message || e).slice(0, 400)); }
 });
 
 // ---------- Local web servers running on this PC (for the preview's quick switcher).
@@ -863,7 +902,7 @@ app.post("/api/chat", async (req, res) => {
   const memory = loadMemory(workDir, extraDirs);
   const skills = loadSkills(workDir, skillsDir);
   await secretsReady();
-  const system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames() }) +
+  const system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames(), toolSecrets: toolSecretNotes(), autoMemory: loadAutoMemory(workDir) }) +
     (mode === "plan" ? "\n\nPLAN MODE: Only read and investigate. Do not change any files or run commands. End with a clear step-by-step plan for the user to approve." : "") +
     // Other providers' free tiers allow few requests per minute, and every reply is one request:
     // ask for fewer, fuller turns (several tool calls at once).
