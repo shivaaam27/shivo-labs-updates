@@ -26,7 +26,8 @@ apt-get install -y -qq --no-install-recommends \
 
 echo "STEP 4/5 xtool"
 mkdir -p /opt/xtool && cd /opt/xtool
-curl -fsSL "${XTOOL_URL:-https://github.com/xtool-org/xtool/releases/latest/download/xtool-x86_64.AppImage}" -o xtool.AppImage
+# a fixed version: X Tools' Wi-Fi signer (x-tools/wifi/sign) is built against this one and reads its saved sign-in
+curl -fsSL "${XTOOL_URL:-https://github.com/xtool-org/xtool/releases/download/1.21.0/xtool-x86_64.AppImage}" -o xtool.AppImage
 chmod +x xtool.AppImage
 rm -rf squashfs-root
 ./xtool.AppImage --appimage-extract >/dev/null

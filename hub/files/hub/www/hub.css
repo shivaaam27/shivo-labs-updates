@@ -147,6 +147,8 @@ button.file:hover .n{color:var(--sage)}
 .xt-sub{color:var(--muted);margin:4px 0 0}
 .xt-panel{width:100%;max-width:520px;display:flex;flex-direction:column;gap:14px;padding:26px;animation:pop .55s var(--spring) both}
 .xt-note{font-size:12.5px;color:var(--muted);margin:0}
+.xt-log{font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--muted);background:var(--bg2,rgba(127,127,127,.08));border-radius:10px;padding:12px;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:12px 0 0}
+#devLine .tbtn{margin-left:6px}
 .xt-steps{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:12px}
 .xt-steps li{display:flex;gap:12px;align-items:flex-start}
 .xt-steps li>div{flex:1}
@@ -270,6 +272,7 @@ html.calm #splash{display:none}
 .xt-hero .xt-notch{position:absolute;top:14px;left:50%;width:56px;height:16px;margin-left:-28px;border-radius:99px;background:var(--soft)}
 .xt-hero .xt-h{font-size:36px}
 .xt-hero .xt-sub{font-size:16px}
+.xt-pin{font-size:44px;font-weight:600;letter-spacing:.12em;margin:6px 0 14px;font-variant-numeric:tabular-nums}
 .xt-how{list-style:none;display:flex;gap:10px;flex-wrap:wrap;justify-content:center;padding:0;margin:22px 0 0}
 .xt-how li{display:flex;align-items:center;gap:8px;padding:9px 16px 9px 9px;border-radius:999px;background:var(--panel);box-shadow:var(--shadow-1);font-size:14px}
 .xt-how b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--sage-soft);color:var(--sage);font-size:12.5px}

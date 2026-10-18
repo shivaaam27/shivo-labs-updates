@@ -362,6 +362,95 @@ function Invoke-XtoolInstall([string]$IpaPath, [scriptblock]$Progress) {
     }
 }
 
+# ---------- Wi-Fi installs (x-tools/wifi): Apple's remote-pairing route, the one Xcode uses ----------
+# Once on the cable X Tools makes a Wi-Fi pairing (no tap on the phone); after that installs and renews go over
+# Wi-Fi: shivo-sign signs a copy for the Apple ID (fresh 7-day profiles), shivo-wifi sends it. Remembered per phone
+# in wifi.json: { udid: { name, ip, pairedAt } }. The phone answers only while it is awake.
+$WifiStatePath = Join-Path $DataDir 'wifi.json'
+function Get-WifiState {
+    $h = @{}
+    try { ([IO.File]::ReadAllText($WifiStatePath) | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $h[$_.Name] = $_.Value } } catch { }
+    $h
+}
+function Set-WifiPhone([string]$Udid, [hashtable]$Changes) {
+    $s = Get-WifiState
+    $p = if ($s[$Udid]) { $s[$Udid] } else { [pscustomobject]@{ name = 'iPhone'; ip = ''; pairedAt = '' } }
+    foreach ($k in $Changes.Keys) { $p | Add-Member -NotePropertyName $k -NotePropertyValue $Changes[$k] -Force }
+    $s[$Udid] = $p
+    New-Item -ItemType Directory -Force $DataDir | Out-Null
+    [IO.File]::WriteAllText($WifiStatePath, ($s | ConvertTo-Json -Depth 4))
+}
+
+# wifi.sh into Linux, and the two programs: x-tools/wifi/package.sh's package, downloaded once (and again when it
+# changes), checked against its SHA-256. SHIVO_WIFI_TOOLS_URL / _SHA256 override them for testing a new package.
+$WifiToolsUrl = 'https://github.com/shivaaam27/shivo-labs-updates/releases/download/shivo-wifi-tools-62de8c15/shivo-wifi-tools.tar.gz'
+$WifiToolsSha = '62de8c1558663ad3c12089563039aa06d00a452ac6995f6e0d97203d14ff6c6e'
+function Install-WifiTools {
+    # the script travels inside the command (base64), not by a /mnt/c path: nothing depends on where the files are
+    $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $EngineDir 'wifi.sh')))
+    $r = Invoke-Sh "echo $b64 | base64 -d | tr -d '\r' > /usr/local/bin/shivo-wifi.sh && chmod +x /usr/local/bin/shivo-wifi.sh"
+    if ($r.Code -ne 0) { throw 'Wi-Fi installs could not be set up in Linux.' }
+    $url = if ($env:SHIVO_WIFI_TOOLS_URL) { $env:SHIVO_WIFI_TOOLS_URL } else { $WifiToolsUrl }
+    $sha = if ($env:SHIVO_WIFI_TOOLS_SHA256) { $env:SHIVO_WIFI_TOOLS_SHA256 } else { $WifiToolsSha }
+    [void](Invoke-Wifi "setup $(Q-Bash $url) $(Q-Bash $sha)")
+}
+
+# Runs wifi.sh; $OnMsg sees each JSON line. Returns all their fields together (found, apps, ...); throws its error.
+function Invoke-Wifi([string]$ArgLine, [scriptblock]$OnMsg) {
+    $st = @{ all = @{}; err = $null }
+    $r = Invoke-Sh "/usr/local/bin/shivo-wifi.sh $ArgLine 2>&1" {
+        param($line)
+        $t = $line.Trim(); if (-not $t.StartsWith('{')) { return }
+        try { $m = $t | ConvertFrom-Json } catch { return }
+        foreach ($p in $m.PSObject.Properties) { $st.all[$p.Name] = $p.Value }
+        if ($m.error) { $st.err = [string]$m.error }
+        if ($OnMsg) { & $OnMsg $m }
+    }
+    if ($st.err) { throw $st.err }
+    if ($r.Code -ne 0) { throw ('Wi-Fi: ' + (($r.Out.Trim() -split "`n" | Select-Object -Last 2) -join ' ')) }
+    [pscustomobject]$st.all
+}
+
+# Once per phone, on the cable (quick, nothing shows on the phone). Returns $true when it is set up for Wi-Fi.
+function Invoke-WifiPair([string]$Udid, [string]$Name) {
+    Install-WifiTools
+    if ((Invoke-Wifi "paired $(Q-Bash $Udid)").paired -and (Get-WifiState)[$Udid]) { Set-WifiPhone $Udid @{ name = $Name }; return $true }
+    Start-Bridge
+    [void](Invoke-Wifi "pair $(Q-Bash $Udid)")
+    Set-WifiPhone $Udid @{ name = $Name; pairedAt = (Get-Date).ToString('o') }
+    $true
+}
+
+# The phone's address on the Wi-Fi now (the last one first, else a look round this PC's networks).
+function Find-WifiPhone([string]$Udid) {
+    $p = (Get-WifiState)[$Udid]
+    if (-not $p) { throw 'This iPhone isn''t set up for Wi-Fi yet: plug it in once.' }
+    $ip = [string](Invoke-Wifi "find $(Q-Bash $Udid) $(Q-Bash ([string]$p.ip))").found
+    if ($ip -and $ip -ne $p.ip) { Set-WifiPhone $Udid @{ ip = $ip } }
+    $ip
+}
+
+function Invoke-WifiInstall([string]$IpaPath, [string]$Udid, [scriptblock]$Progress) {
+    Install-WifiTools
+    & $Progress 2 'Looking for your iPhone on Wi-Fi'
+    $ip = Find-WifiPhone $Udid
+    $signing = @{ 'Logging in' = 10; 'Provisioning' = 20; 'Signing' = 45 }
+    [void](Invoke-Wifi "install $(Q-Bash $Udid) $(Q-Bash $ip) $(Q-Bash (ConvertTo-LinuxPath $IpaPath))" {
+        param($m)
+        if ($m.step) {
+            switch -Wildcard ([string]$m.step) {
+                'Preparing' { & $Progress 5 'Preparing' }
+                'checking the pairing' { & $Progress 65 'Connecting to iPhone over Wi-Fi' }
+                'opening the tunnel' { & $Progress 70 'Connecting to iPhone over Wi-Fi' }
+                'installing' { & $Progress 75 'Installing over Wi-Fi' }
+                default { $hit = $signing.Keys | Where-Object { ([string]$m.step).StartsWith($_) } | Select-Object -First 1; & $Progress $(if ($hit) { $signing[$hit] } else { 30 }) 'Signing with Apple' }
+            }
+        }
+        if ($null -ne $m.progress) { & $Progress ([int](75 + 24 * [int]$m.progress / 100)) 'Installing over Wi-Fi' }
+    })
+    & $Progress 100 'Installed'
+}
+
 # ---------- .ipa files ----------
 
 function Get-BE($b, [long]$at, [int]$n) { [long]$v = 0; for ($i = 0; $i -lt $n; $i++) { $v = ($v -shl 8) -bor $b[[int]($at + $i)] }; $v }
@@ -448,7 +537,9 @@ function Find-Ipas {
         } catch { }
     }
     foreach ($f in $files | Sort-Object { [IO.File]::GetLastWriteTime($_) } -Descending | Select-Object -First 20) {
-        try { $i = Get-IpaSummary $f; $i.folder = Split-Path $f; $i } catch { }   # skip files that aren't real apps
+        # skip files that aren't real apps, and builds already signed by X Tools' Apple ID (XTL-...): xtool would sign
+        # them again as a second app (Renew and Install sign the unsigned copy themselves)
+        try { $i = Get-IpaSummary $f; if ($i.bundleId -like 'XTL-*') { continue }; $i.folder = Split-Path $f; $i } catch { }
     }
 }
 
@@ -474,7 +565,7 @@ function Get-AppsList {
     }
 }
 
-function Invoke-Install([string]$Path) {
+function Invoke-Install([string]$Path, [bool]$Wifi = $false) {
     $sync.Cancel = $false
     if (-not (Test-Path -LiteralPath $Path)) { throw 'The app file is missing. Add it again.' }
     $info = Read-Ipa $Path
@@ -485,7 +576,8 @@ function Invoke-Install([string]$Path) {
     $copy = Join-Path $AppsDir ((($key.ToCharArray() | Where-Object { [IO.Path]::GetInvalidFileNameChars() -notcontains $_ }) -join '') + '.ipa')
     if ([IO.Path]::GetFullPath($Path) -ne [IO.Path]::GetFullPath($copy)) { Copy-Item -LiteralPath $Path $copy -Force }
 
-    Invoke-XtoolInstall $copy { param($pct, $label) Emit 'progress' @{ pct = $pct; label = $label } }
+    $progress = { param($pct, $label) Emit 'progress' @{ pct = $pct; label = $label } }
+    if ($Wifi) { Invoke-WifiInstall $copy $script:TargetUdid $progress } else { Invoke-XtoolInstall $copy $progress }
 
     $store = Get-Store
     foreach ($old in @($store.Apps | Where-Object { $_.BundleId -eq $info.BundleId })) { $store.Apps.Remove($old) }
@@ -572,7 +664,7 @@ function Invoke-EngineCommand([string]$Cmd, $A) {
             return @{ appleId = $email }
         }
         'signOut' { [void](Invoke-Sh 'xtool auth logout 2>&1'); return $null }
-        'install' { $script:TargetUdid = [string]$A.udid; return Invoke-Install ([string]$A.path) }
+        'install' { $script:TargetUdid = [string]$A.udid; return Invoke-Install ([string]$A.path) ([bool]$A.wifi) }
         'renew' {
             $script:TargetUdid = [string]$A.udid
             $app = (Get-Store).Apps | Where-Object { $_.BundleId -eq $A.bundleId } | Select-Object -First 1
@@ -582,8 +674,8 @@ function Invoke-EngineCommand([string]$Cmd, $A) {
             $kept = if (Test-Path -LiteralPath $app.File) { (Get-Item -LiteralPath $app.File).LastWriteTime } else { [datetime]::MinValue }
             $newer = @(Find-Ipas) | Where-Object { $_.bundleId -eq $app.BundleId -and (Get-Item -LiteralPath $_.path).LastWriteTime -gt $kept } |
                 Sort-Object { (Get-Item -LiteralPath $_.path).LastWriteTime } -Descending | Select-Object -First 1
-            if ($newer) { return Invoke-Install $newer.path }
-            return Invoke-Install $app.File
+            if ($newer) { return Invoke-Install $newer.path ([bool]$A.wifi) }
+            return Invoke-Install $app.File ([bool]$A.wifi)
         }
         'forget' {
             $store = Get-Store
@@ -592,6 +684,26 @@ function Invoke-EngineCommand([string]$Cmd, $A) {
             return , @(Get-AppsList)
         }
         'findIpas' { return , @(Find-Ipas) }
+        # Wi-Fi installs: set a plugged-in phone up for Wi-Fi (once, quietly); the phones set up, and where they are now
+        'wifiPair' { return @{ paired = (Invoke-WifiPair ([string]$A.udid) ([string]$A.name)) } }
+        # cable-free pairing (hub/api/pairhost.mjs does it): the tools first, then remember the phone it paired
+        'wifiTools' { Install-WifiTools; return @{ ready = $true } }
+        'wifiRemember' {
+            Set-WifiPhone ([string]$A.udid) @{ name = ([string]$A.name).Replace([string][char]0x2019, "'"); pairedAt = (Get-Date).ToString('o') }
+            return $null
+        }
+        'wifiApps' {
+            $ip = Find-WifiPhone ([string]$A.udid)
+            return , @((Invoke-Wifi "apps $(Q-Bash ([string]$A.udid)) $(Q-Bash $ip)").apps)
+        }
+        'wifiPhones' {
+            $s = Get-WifiState
+            return , @($s.Keys | ForEach-Object {
+                $p = $s[$_]; $ip = $null
+                if ($A.look) { try { $ip = Find-WifiPhone $_ } catch { } }
+                @{ udid = $_; name = [string]$p.name; ip = $(if ($A.look) { $ip } else { [string]$p.ip }); reachable = [bool]$ip }
+            })
+        }
         'checkUpdate' { return Invoke-UpdateCheck }
         'version' { return @{ version = Get-AppVersion } }
         default { throw "Unknown command: $Cmd" }

@@ -12,7 +12,8 @@ const GUIDE = [
   ['Before you start', `<ul><li>A Windows 11 PC (version 22H2 or newer).</li><li>A USB cable that carries data. Some cables only charge.</li><li>A free Apple ID. See <i>Which Apple ID to use</i> below.</li><li>The app as an <b>.ipa</b> file. Ones already on this PC show under <i>Found on this PC</i>.</li></ul>`],
   ['Connect your iPhone or iPad', `<ol><li>Plug it in and unlock it.</li><li>Tap <b>Trust</b> and enter the passcode.</li></ol><p>Not showing up? Try another cable or USB port, plugged straight into the PC. If you once tapped <i>Don't Trust</i>: Settings › General › Transfer or Reset › Reset › <b>Reset Location &amp; Privacy</b>, then plug in again.</p>`],
   ['After the first install on each device', `<p>Apps won't open until you do this, once per iPhone or iPad:</p><ol><li>Settings › Privacy &amp; Security › <b>Developer Mode</b> › On. It restarts and asks you to confirm. The switch only appears after an app is installed.</li><li>Settings › General › <b>VPN &amp; Device Management</b> › your Apple ID › <b>Trust</b>.</li></ol>`],
-  ['Every 7 days: renew', `<p>Apps signed with a free Apple ID stop opening after 7 days. Plug in and press <b>Renew</b>. Nothing on the device is lost.</p>`],
+  ['No cable: pair over Wi-Fi', `<p>On iOS 27 and newer an iPhone can pair with this PC without a cable:</p><ol><li>On the Connect screen, press <b>Pair without a cable</b>.</li><li>On the iPhone: Settings › <b>Developer</b> › <b>Paired Macs</b>, and tap this PC under <i>Other Devices</i>.</li><li>Type the 6-digit code X Tools shows.</li></ol><p>The <i>Developer</i> menu appears once Developer Mode is on. On a brand-new iPhone that usually needs one first install with a cable.</p>`],
+  ['Every 7 days: renew', `<p>Apps signed with a free Apple ID stop opening after 7 days. Press <b>Renew</b>. Nothing on the device is lost.</p><p>No cable needed after the first time: once an iPhone has been plugged in here, X Tools also reaches it over Wi-Fi while it is unlocked and on the same Wi-Fi as this PC.</p>`],
   ['Which Apple ID to use', `<p>Any Apple ID works, and it's free. A <b>separate Apple ID just for installing apps</b> is a good idea: it keeps your personal account apart.</p><ul><li>Create one at <a href="https://account.apple.com" target="_blank" rel="noopener">account.apple.com</a>.</li><li>Its 6-digit sign-in codes go to that account's trusted phone number or devices.</li><li>You don't need to sign in to it on the iPhone itself.</li></ul>`],
   ['Limits of a free Apple ID', `<ul><li><b>3 apps</b> at a time on each iPhone or iPad.</li><li><b>10 new apps</b> per week per Apple ID. Renewing doesn't count.</li><li>Apps last <b>7 days</b>, then need a renew.</li></ul><p>A paid Apple Developer account ($99 a year) removes the 3-app limit and makes apps last a year.</p>`],
   ['Something went wrong', `<ul><li><b>Lost the connection:</b> unplug, plug back in, unlock, try again.</li><li><b>Asked to replace a certificate:</b> a free Apple ID holds only a few. Replacing one means apps signed by the old one need a renew.</li><li><b>App won't open:</b> check both steps under <i>After the first install</i>.</li></ul>`],
@@ -38,7 +39,7 @@ export function mountXtools(root, { esc, toast }) {
   function paintBar() {
     const pill = document.getElementById('pageState');
     if (!pill) return;
-    pill.innerHTML = `${st.device ? `<i class="dot"></i>${esc(st.device.name)}<span class="xt-sep"></span>` : st.waiting ? `<i class="dot wait"></i>Waiting for Trust<span class="xt-sep"></span>` : ''}<button class="tbtn" id="xtGuide">${svg(I.book)}Guide</button>`;
+    pill.innerHTML = `${st.device ? `<i class="dot"></i>${esc(st.device.name)}${st.device.link === 'wifi' ? ' · Wi-Fi' : ''}<span class="xt-sep"></span>` : st.waiting ? `<i class="dot wait"></i>Waiting for Trust<span class="xt-sep"></span>` : ''}<button class="tbtn" id="xtGuide">${svg(I.book)}Guide</button>`;
     document.getElementById('xtGuide').onclick = openGuide;
   }
 
@@ -50,6 +51,8 @@ export function mountXtools(root, { esc, toast }) {
     if (m.event === 'progress') { const f = $('#pFill'); if (f) { f.style.width = m.data.pct + '%'; $('#pLabel').textContent = m.data.label; $('#pPct').textContent = m.data.pct + '%'; } }
     if (m.event === 'ask') ask(m.data);
     if (m.event === 'device') onDevice(m.data);
+    if (m.event === 'dev') onDevEvent(m.data);
+    if (m.event === 'pair') onPair(m.data);
   };
   // the plugged-in device changed (plugged in, pulled out, another one, now trusted): follow it at once
   let gotDevice = false;
@@ -63,7 +66,7 @@ export function mountXtools(root, { esc, toast }) {
     if (st.screen === 'connect') return route();
     if (st.screen === 'apps') { if (before?.udid !== st.device.udid) openApps(); else { renderApps(); renderFound(); } }
   }
-  const lookAgain = async () => { try { const r = await (await fetch('/api/xtools/device', { method: 'POST', headers: { 'x-hub': '1' } })).json(); if (r.ok) onDevice(r.data); } catch {} };
+  const lookAgain = async (wifiNow) => { try { const r = await (await fetch('/api/xtools/device' + (wifiNow ? '?wifi=now' : ''), { method: 'POST', headers: { 'x-hub': '1' } })).json(); if (r.ok) onDevice(r.data); } catch {} };
 
   async function boot() {
     st.screen = 'boot';
@@ -118,7 +121,8 @@ export function mountXtools(root, { esc, toast }) {
   function openConnect() {
     st.screen = 'connect';
     screen(`<div class="xt-center xt-hero"><div class="xt-phone" id="xtDev"><i class="xt-notch"></i>${loader()}</div><h1 class="xt-h" id="xtConnH"></h1><p class="xt-sub" id="xtConnS"></p>
-      <ol class="xt-how" id="xtHow"></ol></div>`);
+      <ol class="xt-how" id="xtHow"></ol><button class="tbtn" id="xtPairWifi">No cable? Pair over Wi-Fi</button></div>`);
+    $('#xtPairWifi').onclick = pairWifi;
     paintConnect();
     clearInterval(morph); morph = setInterval(() => { const e = $('#xtDev'); if (!e || st.screen !== 'connect') return clearInterval(morph); e.classList.toggle('tablet'); }, 2600);
     clearInterval(connectPoll); connectPoll = setInterval(() => { if (st.screen !== 'connect' || !alive) return clearInterval(connectPoll); lookAgain(); }, 5000);
@@ -127,9 +131,30 @@ export function mountXtools(root, { esc, toast }) {
     if (st.screen !== 'connect') return;
     const w = st.waiting;   // plugged in, but this PC isn't trusted yet
     $('#xtConnH').textContent = w ? `Unlock your ${w.kind === 'iPad' ? 'iPad' : 'iPhone'}` : 'Connect your iPhone or iPad';
-    $('#xtConnS').textContent = w ? 'Then tap Trust and enter the passcode. X Tools carries on by itself.' : 'X Tools installs and renews your apps over a cable.';
+    $('#xtConnS').textContent = w ? 'Then tap Trust and enter the passcode. X Tools carries on by itself.' : 'Plug it in once. After that X Tools also finds it over Wi-Fi when it is unlocked.';
     $('#xtHow').innerHTML = w ? '<li><b>1</b>Unlock it</li><li><b>2</b>Tap <i>Trust</i></li><li><b>3</b>Enter the passcode</li>'
       : '<li><b>1</b>Plug it in with a cable</li><li><b>2</b>Unlock it</li><li><b>3</b>Tap <i>Trust</i></li>';
+  }
+
+  // ---------- pair without a cable (iOS 27): the iPhone finds this PC in Settings and the person types the code
+  async function pairWifi() {
+    box(`<div class="xt-center" id="pairBox">${loader()}<h2>Pair without a cable</h2><p class="xt-sub" id="pairMsg">Getting ready…</p>
+      <p class="xt-pin" id="pairPin" hidden></p><button class="tbtn" id="pairCancel">Cancel</button></div>`, (d) => {
+      $('#pairCancel', d).onclick = () => { fetch('/api/xtools/pair/stop', { method: 'POST', headers: { 'x-hub': '1' } }).catch(() => {}); closeBox(); };
+    }, true);
+    try {
+      const r = await (await fetch('/api/xtools/pair/start', { method: 'POST', headers: { 'x-hub': '1' } })).json();
+      if (!r.ok) throw new Error(r.error);
+    } catch (e) { alertBox("Can't pair now", e.message); }
+  }
+  function onPair(e) {
+    const msg = $('#pairMsg'), pin = $('#pairPin');
+    if (!msg) return;
+    if (e.step === 'waiting') msg.innerHTML = `On your iPhone: Settings › <b>Developer</b> › <b>Paired Macs</b>, then tap <b>${esc(e.name)}</b> under <i>Other Devices</i>.`;
+    if (e.step === 'iPhone connected') msg.textContent = 'Your iPhone found this PC…';
+    if (e.pin) { msg.textContent = 'Type this code on your iPhone:'; pin.textContent = String(e.pin).replace(/(\d{3})(\d{3})/, '$1 $2'); pin.hidden = false; }
+    if (e.paired) { closeBox(); toast(`${e.paired.name.replace(/’/g, "'")} is paired. X Tools now finds it over Wi-Fi.`); lookAgain(true); }
+    if (e.error) alertBox("Couldn't pair", e.error);
   }
 
   // ---------- 3. sign in with Apple
@@ -160,8 +185,11 @@ export function mountXtools(root, { esc, toast }) {
       <label class="bm-drop card" id="xtDrop"><input type="file" id="xtPick" accept=".ipa" hidden><span class="mod-ic">${svg(I.up)}</span><b>Add an app</b><small>Drop an .ipa file here, or click to choose</small></label>
       <div class="card"><div id="apps"></div></div>
       <div class="card" id="notOn" hidden><div class="bm-h"><h2 id="notOnH"></h2></div><div id="notOnList"></div></div>
-      <div class="card" id="found" hidden><div class="bm-h"><h2>Found on this PC</h2></div><div id="foundList"></div></div></div>`);
-    renderApps(); renderFound();
+      <div class="card" id="found" hidden><div class="bm-h"><h2>Found on this PC</h2></div><div id="foundList"></div></div>
+      <div class="card" id="devCard" hidden><div class="bm-h"><h2>Shivo Labs from the source</h2></div>
+        <p class="xt-note" id="devLine"></p>
+        <div class="xt-actions"><button class="btn" id="devDetails" hidden>Details</button><button class="btn" id="devHub">Send laptop update</button><button class="btn" id="devOta">Send phone update</button><button class="btn pri" id="devBuild">Build iPhone app</button></div></div></div>`);
+    renderApps(); renderFound(); renderDev();
     $('#acct').onclick = () => box(`<h2>Apple ID</h2><p>${esc(st.appleId)}</p><div class="xt-actions"><button class="btn" data-close>Close</button><button class="btn" id="signOutBtn">Sign out</button></div>`, (d) => {
       $('#signOutBtn', d).onclick = async () => { await call('signOut').catch(() => {}); st.appleId = null; closeBox(); route(); };
     });
@@ -221,8 +249,57 @@ export function mountXtools(root, { esc, toast }) {
     } catch (e) { alertBox("Can't open this file", e.message); }
   }
   function confirmInstall(f) {
-    box(`<h2>Install ${esc(f.name)}?</h2><p>${esc(f.version ? 'Version ' + f.version + ' · ' : '')}${(f.size / 1048576).toFixed(1)} MB</p><p>Keep your iPhone unlocked and connected.</p>
+    box(`<h2>Install ${esc(f.name)}?</h2><p>${esc(f.version ? 'Version ' + f.version + ' · ' : '')}${(f.size / 1048576).toFixed(1)} MB</p><p>${st.device?.link === 'wifi' ? 'Keep your iPhone unlocked and on this Wi-Fi.' : 'Keep your iPhone unlocked and connected.'}</p>
       <div class="xt-actions"><button class="btn" data-close>Cancel</button><button class="btn pri" id="goBtn">Install</button></div>`, (d) => { $('#goBtn', d).onclick = () => install({ path: f.path }); });
+  }
+
+  // ---------- from the source (only on a PC with the Shivo Labs code): build the iPhone app here, without a Mac or
+  // GitHub's build minutes, and send the phone app's screens over the air (hub/api/xtools.mjs, phone/local-build)
+  const dev = { state: null, last: '', timer: 0 };
+  async function renderDev() {
+    try { const r = await (await fetch('/api/xtools/dev')).json(); if (r.ok) dev.state = r.data; } catch {}
+    dev.last = dev.state?.tail?.[dev.state.tail.length - 1] || '';
+    paintDev();
+  }
+  function onDevEvent(d) {
+    if (!dev.state) return;
+    if (d.done) { dev.state.running = null; dev.state.result = d; if (d.kind === 'build') renderFound(); }
+    else { dev.state.running = d.kind; dev.last = d.line; (dev.state.tail ||= []).push(d.line); if (dev.state.tail.length > 400) dev.state.tail.splice(0, 200); }
+    paintDev();
+  }
+  const mins = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  function paintDev() {
+    const c = $('#devCard'), s = dev.state;
+    clearInterval(dev.timer);
+    if (!c || !s) return;
+    c.hidden = !s.available;
+    if (c.hidden) return;
+    const run = s.running, res = s.result, line = $('#devLine');
+    $('#devBuild').disabled = $('#devOta').disabled = $('#devHub').disabled = !!run;
+    $('#devBuild').textContent = run === 'build' ? 'Building…' : 'Build iPhone app';
+    $('#devOta').textContent = run === 'ota' ? 'Sending…' : 'Send phone update';
+    $('#devHub').textContent = run === 'hub' ? 'Sending…' : 'Send laptop update';
+    $('#devDetails').hidden = !(run || res);
+    if (run) {
+      const show = () => { line.textContent = `${run === 'build' ? 'Building the iPhone app' : run === 'hub' ? 'Sending the laptop update' : 'Sending the phone update'} · ${mins(Date.now() - (s.started || Date.now()))} · ${dev.last}`; };
+      show(); dev.timer = setInterval(show, 1000);
+    } else if (res && !res.ok) line.textContent = res.kind === 'build' ? "The iPhone app didn't build. Details shows why." : `The ${res.kind === 'hub' ? 'laptop' : 'phone'} update wasn't sent. Details shows why.`;
+    else if (res) line.innerHTML = res.kind === 'build' ? `Built: ShivoLabs.ipa in Downloads. <button class="tbtn" id="devInstall">Install it</button>`
+      : res.kind === 'hub' ? 'Laptop update sent. Installed Shivo Labs on other PCs install it within 15 minutes.' : 'Phone update sent. Phones switch to it the next time the app opens.';
+    else line.textContent = "Build iPhone app: makes the app from this PC's files, ready to install. Send phone update: sends the phone app's screens, as they are on GitHub, to every phone. Send laptop update: sends Shivo Labs for Windows, as it is on GitHub, to every installed PC.";
+    const inst = $('#devInstall');
+    if (inst) inst.onclick = async () => { try { confirmInstall(await call('summary', { path: res.path })); } catch (e) { alertBox("Can't open the app", e.message); } };
+    $('#devDetails').onclick = () => { box(`<h2>${run ? 'Working' : res?.ok ? 'Done' : 'What happened'}</h2><pre class="xt-log">${esc((run ? s.tail : res?.tail || s.tail || []).slice(-40).join('\n'))}</pre><div class="xt-actions"><button class="btn pri" data-close>Close</button></div>`); $('#xtDialog').classList.add('wide'); };
+    const go = (what) => async () => {
+      try {
+        const r = await (await fetch('/api/xtools/dev/' + what, { method: 'POST', headers: { 'x-hub': '1' } })).json();
+        if (!r.ok) throw new Error(r.error);
+        dev.state = r.data; dev.last = 'Starting'; paintDev();
+      } catch (e) { alertBox(what === 'build' ? "Can't build now" : "Can't send now", e.message); }
+    };
+    $('#devBuild').onclick = go('build');
+    $('#devHub').onclick = () => box(`<h2>Send the laptop update?</h2><p>Shivo Labs for Windows, as it is on GitHub now, goes to every PC where it is installed. They install it by themselves within 15 minutes.</p><div class="xt-actions"><button class="btn" data-close>Cancel</button><button class="btn pri" id="hubGo">Send</button></div>`, (d) => { $('#hubGo', d).onclick = () => { closeBox(); go('hub')(); }; });
+    $('#devOta').onclick = () => box(`<h2>Send the phone update?</h2><p>The phone app's screens, as they are on GitHub now, go to every phone with Shivo Labs. They switch to it the next time the app opens.</p><div class="xt-actions"><button class="btn" data-close>Cancel</button><button class="btn pri" id="otaGo">Send</button></div>`, (d) => { $('#otaGo', d).onclick = () => { closeBox(); go('ota')(); }; });
   }
 
   // ---------- install / renew, with progress
@@ -231,9 +308,9 @@ export function mountXtools(root, { esc, toast }) {
     box(`<div class="xt-center">${loader()}<p class="xt-plabel" id="pLabel">Preparing</p><div class="xt-track big"><i id="pFill"></i></div><p class="xt-pct" id="pPct">0%</p>
       <button class="tbtn" id="xtCancel">Cancel</button></div>`, (d) => { $('#xtCancel', d).onclick = () => call('cancel').catch(() => {}); }, true);
     try {
-      const udid = st.device.udid, wasOn = renew && onDev(renew);
-      const r = renew ? await call('renew', { bundleId: renew.bundleId, udid }) : await call('install', { path, udid });
-      st.apps = r.apps; await lookAgain(); renderApps(); renderFound(); done(r.name, wasOn);
+      const udid = st.device.udid, wasOn = renew && onDev(renew), wifi = st.device.link === 'wifi';
+      const r = renew ? await call('renew', { bundleId: renew.bundleId, udid, wifi }) : await call('install', { path, udid, wifi });
+      st.apps = r.apps; await lookAgain(true); renderApps(); renderFound(); done(r.name, wasOn);
     } catch (e) { if (e.message === 'Cancelled.') return closeBox(); alertBox(renew ? "Couldn't renew" : "Couldn't install", e.message); }
   }
   function done(name, renewed) {
@@ -290,7 +367,7 @@ export function mountXtools(root, { esc, toast }) {
 
   boot();
   return () => {
-    alive = false; events.close(); clearInterval(morph); clearInterval(connectPoll); document.removeEventListener('keydown', onKey);
+    alive = false; events.close(); clearInterval(morph); clearInterval(dev.timer); clearInterval(connectPoll); document.removeEventListener('keydown', onKey);
     fetch('/api/xtools/stop', { method: 'POST', headers: { 'x-hub': '1' } }).catch(() => {});
   };
 }

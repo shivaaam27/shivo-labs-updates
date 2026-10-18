@@ -12,6 +12,25 @@ PORT = 8765
 HOME = Path(os.environ.get("APPDATA", Path.home())) / "Beam"
 OUTBOX = HOME / "outbox"
 INBOX = Path.home() / "Downloads" / "Beam"
+# where a file is written while it arrives: a hidden folder inside Downloads\Beam (same drive, so a finished file
+# takes its real name in one step). Only complete files ever appear in Downloads\Beam; a send that is cut short
+# leaves nothing behind there (before, an empty or cut-off file showed up next to the real ones).
+STAGE = INBOX / ".incoming"
+
+
+class CutShort(Exception):
+    """The phone stopped sending before the whole file arrived."""
+
+
+def stage_dir():
+    STAGE.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetFileAttributesW(str(STAGE), 0x2)  # hidden
+        except Exception:
+            pass
+    return STAGE
 CHUNK = 1024 * 1024
 ASSETS = {"/apple-touch-icon.png": "apple-touch-icon.png", "/icon.png": "logo.png",
           **{f"/fonts/{n}": f"fonts/{n}" for n in ("Sora-Light.ttf", "Sora-SemiBold.ttf",
@@ -491,16 +510,16 @@ class Handler(BaseHTTPRequestHandler):
                 while left:
                     b = self.rfile.read(min(CHUNK, left))
                     if not b:
-                        return
+                        raise CutShort("the upload stopped part-way")
                     left -= len(b)
                     yield b
                 self.rfile.readline()
         else:
             left = int(self.headers.get("Content-Length", 0))
             while left:
-                b = self.rfile.read(min(CHUNK, left))
+                b = self.rfile.read(min(CHUNK, left))   # (a stalled phone: the 30 s timeout ends it)
                 if not b:
-                    return
+                    raise CutShort("the upload stopped part-way")
                 left -= len(b)
                 yield b
 
@@ -607,23 +626,33 @@ class Handler(BaseHTTPRequestHandler):
             f"{self.headers.get('Content-Length') or self.headers.get('Transfer-Encoding')}")
         boundary = re.search(r'boundary="?([^";]+)"?', full_ctype)
         if full_ctype.lower().startswith("multipart/form-data") and boundary:
-            n = self.receive_multipart(boundary.group(1).encode())
+            try:
+                n = self.receive_multipart(boundary.group(1).encode())
+            except CutShort as e:
+                log(f"  cut short: {e}")
+                return self.reply(400, "The upload stopped part-way. Send it again.")
             log(f"  saved {n} file(s)")
             return self.reply(200 if n else 400, "Sent to PC" if n else "No file in the upload")
-        self.receive(header(self.headers, "X-Name"), header(self.headers, "X-Ext"),
-                     full_ctype.split(";")[0].strip().lower(), self.body_chunks())
+        try:
+            self.receive(self.param("name") or header(self.headers, "X-Name"), self.param("ext") or header(self.headers, "X-Ext"),
+                         full_ctype.split(";")[0].strip().lower(), self.body_chunks())
+        except CutShort as e:
+            log(f"  cut short: {e}")
+            return self.reply(400, "The upload stopped part-way. Send it again.")
         self.reply(200, "Sent to PC")
 
     def receive_multipart(self, boundary):
         """Shortcuts' "Request Body: Form" upload. The body is spooled to disk, then each file part is
         cut out of it, so even multi-GB videos never sit in memory."""
         INBOX.mkdir(parents=True, exist_ok=True)
-        spool = INBOX / f".beam-{secrets.token_hex(8)}.part"  # per request: uploads can arrive in parallel
-        with open(spool, "wb") as f:
-            for b in self.body_chunks():
-                f.write(b)
+        spool = stage_dir() / f"spool-{secrets.token_hex(8)}.part"  # per request: uploads can arrive in parallel
         n = 0
         try:
+            with open(spool, "wb") as f:
+                for b in self.body_chunks():
+                    f.write(b)
+            if not spool.stat().st_size:
+                return 0
             with open(spool, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
                 delim = b"--" + boundary
                 pos = m.find(delim)
@@ -685,12 +714,15 @@ class Handler(BaseHTTPRequestHandler):
             dest.write_bytes(data)
         else:
             INBOX.mkdir(parents=True, exist_ok=True)
-            dest = unique(INBOX, safe_name(name, ext))
-            part = dest.with_name(dest.name + ".part")
-            with open(part, "wb") as f:
-                for b in chunks:
-                    f.write(b)
-            part.replace(dest)
+            part = stage_dir() / f"in-{secrets.token_hex(8)}.part"
+            try:
+                with open(part, "wb") as f:
+                    for b in chunks:
+                        f.write(b)
+                dest = publish(part, INBOX, safe_name(name, ext))
+            except BaseException:
+                part.unlink(missing_ok=True)
+                raise
 
         received_notice(self.server.batch, dest.name)
         if on_received:
@@ -742,6 +774,14 @@ def make_server():
     join_duplicates()   # one card per phone (older engines could list a phone twice)
     for stale in [*OUTBOX.glob(".*"), *OUTBOX.glob("*.part"), *OUTBOX.glob("d-*/.*")]:  # temp files from a send that was cut short
         stale.unlink(missing_ok=True)
+    # uploads that were cut short: what earlier engines left in Downloads\Beam (".beam-….part", "name.pdf.part"),
+    # and anything still in the staging folder
+    for stale in [*INBOX.glob(".beam-*.part"), *INBOX.glob("*.part"), *(STAGE.glob("*") if STAGE.is_dir() else [])]:
+        try:
+            if stale.is_file():
+                stale.unlink()
+        except OSError:
+            pass
     return srv
 
 

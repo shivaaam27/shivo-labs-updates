@@ -86,6 +86,14 @@ async function muxRequest(msg) {
   });
 }
 
+// Every device Apple's service sees, on USB or over Wi-Fi: [{ deviceId, udid, link: "usb" | "wifi" }]. A device shows
+// over Wi-Fi once its Wi-Fi connections are on (enableWifi) and it is on the same network as this PC.
+export async function listAll() {
+  const r = await muxRequest({ MessageType: "ListDevices" });
+  return (r.DeviceList || []).map((d) => d.Properties || {})
+    .map((p) => ({ deviceId: p.DeviceID, udid: p.SerialNumber, link: p.ConnectionType === "USB" ? "usb" : "wifi" }));
+}
+
 // USB devices only: [{ deviceId, udid }]
 export async function listUsb() {
   const r = await muxRequest({ MessageType: "ListDevices" });
@@ -114,9 +122,15 @@ export function watch() {
   return ev;
 }
 
-// A plain connection to a port on the device (through usbmuxd).
-async function connectPort(deviceId, port) {
-  const s = await muxConnect();
+// A plain connection to a port on the device: straight to its Wi-Fi address when dev.ip is known (no Bonjour or
+// Apple service needed for that), otherwise through usbmuxd.
+async function connectPort(dev, port) {
+  if (dev.ip) return new Promise((ok, no) => {
+    const s = net.connect({ host: dev.ip, port }, () => { s.setTimeout(0); ok(s); });
+    s.setTimeout(8000, () => s.destroy(new Error("The device didn't answer over Wi-Fi")));
+    s.once("error", no);
+  });
+  const deviceId = dev.deviceId, s = await muxConnect();
   await new Promise((ok, no) => {
     s.once("error", no);
     muxReader(s, (m) => { if (m.Number === 0) ok(); else no(new Error(m.Number === 3 ? "The device refused the connection" : `usbmuxd error ${m.Number}`)); return false; });
@@ -166,30 +180,35 @@ export async function describe(dev, { apps = true } = {}) {
   const rec = await muxRequest({ MessageType: "ReadPairRecord", PairRecordID: dev.udid });
   if (!rec.PairRecordData) throw new Error("This PC isn't trusted by the device yet: unlock it and tap Trust.");
   const pair = parsePlist(Buffer.from(rec.PairRecordData));
-  const lock = plistChannel(await connectPort(dev.deviceId, 62078));
+  const lock = plistChannel(await connectPort(dev, 62078));
   let lockTls = null;
-  try {
-    const name = (await lock.ask({ Label: "shivo-labs", Request: "GetValue", Key: "DeviceName" })).Value || "Device";
-    const kind = (await lock.ask({ Label: "shivo-labs", Request: "GetValue", Key: "DeviceClass" })).Value || "iPhone";
-    const model = (await lock.ask({ Label: "shivo-labs", Request: "GetValue", Key: "ProductType" })).Value || "";
-    const ios = (await lock.ask({ Label: "shivo-labs", Request: "GetValue", Key: "ProductVersion" })).Value || "";
-    const out = { udid: dev.udid, name: String(name).replace(/’/g, "'"), kind, model, ios, link: "usb" };
-    if (!apps) return out;
-    // installed apps: a session, then the installation service
+  const session = async () => {
     const ses = await lock.ask({ Label: "shivo-labs", Request: "StartSession", HostID: pair.HostID, SystemBUID: pair.SystemBUID });
     if (ses.Error) throw new Error(ses.Error === "InvalidHostID" ? "This PC isn't trusted by the device yet: unlock it and tap Trust." : ses.Error);
     if (ses.EnableSessionSSL) lockTls = plistChannel(await upgrade(lock.release(), pair));
+  };
+  try {
+    if (dev.ip) await session();   // (over Wi-Fi the device hangs up on any question asked before the session)
+    const Q = lockTls || lock;
+    const name = (await Q.ask({ Label: "shivo-labs", Request: "GetValue", Key: "DeviceName" })).Value || "Device";
+    const kind = (await Q.ask({ Label: "shivo-labs", Request: "GetValue", Key: "DeviceClass" })).Value || "iPhone";
+    const model = (await Q.ask({ Label: "shivo-labs", Request: "GetValue", Key: "ProductType" })).Value || "";
+    const ios = (await Q.ask({ Label: "shivo-labs", Request: "GetValue", Key: "ProductVersion" })).Value || "";
+    const out = { udid: dev.udid, name: String(name).replace(/’/g, "'"), kind, model, ios, link: dev.ip ? "wifi" : "usb" };
+    if (!apps) return out;
+    // installed apps: a session, then the installation service
+    if (!dev.ip) await session();
     const L = lockTls || lock;
     const svc = await L.ask({ Label: "shivo-labs", Request: "StartService", Service: "com.apple.mobile.installation_proxy" });
     if (!svc.Port) throw new Error("The device didn't open its app list (" + (svc.Error || "no port") + ")");
-    let sock = await connectPort(dev.deviceId, svc.Port);
+    let sock = await connectPort(dev, svc.Port);
     if (svc.EnableServiceSSL) sock = await upgrade(sock, pair);
     const ip = plistChannel(sock);
     ip.send({ Command: "Browse", ClientOptions: { ApplicationType: "User", ReturnAttributes: ["CFBundleIdentifier", "CFBundleDisplayName", "CFBundleName", "CFBundleShortVersionString", "CFBundleVersion"] } });
     const list = [];
     for (;;) {
       const m = await ip.next(30000);
-      for (const a of m.CurrentList || []) list.push({ bundleId: a.CFBundleIdentifier, name: a.CFBundleDisplayName || a.CFBundleName || a.CFBundleIdentifier, version: a.CFBundleShortVersionString || a.CFBundleVersion || "" });
+      for (const a of m.CurrentList || []) list.push({ bundleId: a.CFBundleIdentifier, name: a.CFBundleDisplayName || a.CFBundleName || a.CFBundleIdentifier, version: a.CFBundleShortVersionString || a.CFBundleVersion || "", build: a.CFBundleVersion || "" });
       if (m.Status === "Complete" || m.Error) break;
     }
     ip.close();
@@ -200,7 +219,7 @@ export async function describe(dev, { apps = true } = {}) {
     try {
       const mis = await L.ask({ Label: "shivo-labs", Request: "StartService", Service: "com.apple.misagent" });
       if (mis.Port) {
-        let ms = await connectPort(dev.deviceId, mis.Port);
+        let ms = await connectPort(dev, mis.Port);
         if (mis.EnableServiceSSL) ms = await upgrade(ms, pair);
         const mc = plistChannel(ms);
         const r = await mc.ask({ MessageType: "CopyAll", ProfileType: "Provisioning" }, 20000);
@@ -217,4 +236,75 @@ export async function describe(dev, { apps = true } = {}) {
     } catch {}
     return out;
   } finally { lockTls?.close(); lock.close(); }
+}
+
+// The device's live system log (syslog_relay), line by line: onLine(text). Returns stop(). For finding out why
+// something native fails on the phone (phone/install/iphone-log.mjs).
+export async function syslog(dev, onLine) {
+  const rec = await muxRequest({ MessageType: "ReadPairRecord", PairRecordID: dev.udid });
+  if (!rec.PairRecordData) throw new Error("This PC isn't trusted by the device yet: unlock it and tap Trust.");
+  const pair = parsePlist(Buffer.from(rec.PairRecordData));
+  const lock = plistChannel(await connectPort(dev, 62078));
+  let lockTls = null;
+  try {
+    const ses = await lock.ask({ Label: "shivo-labs", Request: "StartSession", HostID: pair.HostID, SystemBUID: pair.SystemBUID });
+    if (ses.Error) throw new Error(ses.Error);
+    if (ses.EnableSessionSSL) lockTls = plistChannel(await upgrade(lock.release(), pair));
+    const svc = await (lockTls || lock).ask({ Label: "shivo-labs", Request: "StartService", Service: "com.apple.syslog_relay" });
+    if (!svc.Port) throw new Error("The device didn't open its log (" + (svc.Error || "no port") + ")");
+    let sock = await connectPort(dev, svc.Port);
+    if (svc.EnableServiceSSL) sock = await upgrade(sock, pair);
+    let buf = "";
+    sock.on("data", (d) => {
+      buf += d.toString("utf8").replace(/\0/g, "\n");
+      let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) onLine(l); }
+    });
+    sock.on("error", () => {});
+    return () => sock.destroy();
+  } finally { lockTls?.close(); try { lock.close(); } catch {} }
+}
+
+// The provisioning profiles installed on the device (misagent), as raw signed blobs: [Buffer]. For signing an app for
+// this device away from the cable (phone/install tools).
+export async function copyProfiles(dev) {
+  const rec = await muxRequest({ MessageType: "ReadPairRecord", PairRecordID: dev.udid });
+  if (!rec.PairRecordData) throw new Error("This PC isn't trusted by the device yet: unlock it and tap Trust.");
+  const pair = parsePlist(Buffer.from(rec.PairRecordData));
+  const lock = plistChannel(await connectPort(dev, 62078));
+  let lockTls = null;
+  try {
+    const ses = await lock.ask({ Label: "shivo-labs", Request: "StartSession", HostID: pair.HostID, SystemBUID: pair.SystemBUID });
+    if (ses.Error) throw new Error(ses.Error);
+    if (ses.EnableSessionSSL) lockTls = plistChannel(await upgrade(lock.release(), pair));
+    const mis = await (lockTls || lock).ask({ Label: "shivo-labs", Request: "StartService", Service: "com.apple.misagent" });
+    if (!mis.Port) throw new Error("The device didn't open its profiles (" + (mis.Error || "no port") + ")");
+    let ms = await connectPort(dev, mis.Port);
+    if (mis.EnableServiceSSL) ms = await upgrade(ms, pair);
+    const mc = plistChannel(ms);
+    const r = await mc.ask({ MessageType: "CopyAll", ProfileType: "Provisioning" }, 20000);
+    mc.close();
+    return (r.Payload || []).map((b) => Buffer.from(b));
+  } finally { lockTls?.close(); try { lock.close(); } catch {} }
+}
+
+// Lets the device be reached over Wi-Fi by this PC from now on (installs and renews without the cable): lockdown's
+// com.apple.mobile.wireless_lockdown EnableWifiConnections, the switch Apple's "Show this iPhone when on Wi-Fi" sets.
+// Returns true when it is on.
+export async function enableWifi(dev) {
+  const rec = await muxRequest({ MessageType: "ReadPairRecord", PairRecordID: dev.udid });
+  if (!rec.PairRecordData) throw new Error("This PC isn't trusted by the device yet: unlock it and tap Trust.");
+  const pair = parsePlist(Buffer.from(rec.PairRecordData));
+  const lock = plistChannel(await connectPort(dev, 62078));
+  let lockTls = null;
+  try {
+    const ses = await lock.ask({ Label: "shivo-labs", Request: "StartSession", HostID: pair.HostID, SystemBUID: pair.SystemBUID });
+    if (ses.Error) throw new Error(ses.Error);
+    if (ses.EnableSessionSSL) lockTls = plistChannel(await upgrade(lock.release(), pair));
+    const L = lockTls || lock, domain = "com.apple.mobile.wireless_lockdown";
+    const now = await L.ask({ Label: "shivo-labs", Request: "GetValue", Domain: domain, Key: "EnableWifiConnections" });
+    if (now.Value === true) return true;
+    const r = await L.ask({ Label: "shivo-labs", Request: "SetValue", Domain: domain, Key: "EnableWifiConnections", Value: true });
+    if (r.Error) throw new Error(r.Error);
+    return true;
+  } finally { lockTls?.close(); try { lock.close(); } catch {} }
 }
