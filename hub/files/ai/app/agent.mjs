@@ -121,6 +121,22 @@ export const TOOLS = [
     input_schema: { type: "object", properties: { pid: { type: "integer" } }, required: ["pid"] },
   },
   {
+    name: "wait_for_process",
+    description:
+      "Watch a background process and wake up when something happens: returns as soon as its new output matches `pattern` (a regular expression, e.g. 'error|ready|listening'), " +
+      "or the process ends, or timeout_seconds pass. Returns only the output that is new since you last read it. " +
+      "Use it instead of sleeping and re-checking, e.g. to wait for a build to finish or a server to be ready.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pid: { type: "integer" },
+        pattern: { type: "string", description: "Regex to wait for (case-insensitive). Leave out to wait until the process ends." },
+        timeout_seconds: { type: "integer", description: "Default 120, max 600" },
+      },
+      required: ["pid"],
+    },
+  },
+  {
     name: "stop_process",
     description: "Stop a background process you started, by its process id.",
     input_schema: { type: "object", properties: { pid: { type: "integer" } }, required: ["pid"] },
@@ -492,15 +508,22 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onBefor
           cwd: sh.cwd, windowsHide: true, env: { ...(sh.env || process.env), FORCE_COLOR: "0", ...secrets },
         });
         if (shellFile && !bg) child.on("close", () => saveShell(shellFile, workDir, Object.keys(secrets)));
-        let out = "";
-        const add = (d) => { const s = d.toString(); out += s; if (!bg || out.length < 20000) onOutput(scrub(s)); if (out.length > 200000) out = out.slice(-100000); };
+        let out = "", total = 0; const wake = new Set(); // wake: waiters to call on new output or exit
+        const add = (d) => { const s = d.toString(); out += s; total += s.length; if (!bg || out.length < 20000) onOutput(scrub(s)); if (out.length > 200000) out = out.slice(-100000); for (const w of wake) w(); };
         child.stdout.on("data", add); child.stderr.on("data", add);
         const finish = (text) => resolveRun(text.length > 30000 ? text.slice(0, 15000) + "\n…(output trimmed)…\n" + text.slice(-15000) : text);
         if (bg) {
-          const entry = { child, command, get output() { return out; } };
+          const entry = { child, command, wake, read: 0, get output() { return out; }, get total() { return total; },
+            unread() { const n = Math.min(total - this.read, out.length); this.read = total; return n > 0 ? out.slice(-n) : ""; } };
           background.set(child.pid, entry);
-          child.on("exit", () => setTimeout(() => background.delete(child.pid), 60000));
-          setTimeout(() => finish(`Started in the background (process ${child.pid}). Use check_process to read more output later. First output:\n${out || "(no output yet)"}`), 6000);
+          child.on("exit", () => { for (const w of wake) w(); setTimeout(() => background.delete(child.pid), 60000); });
+          // Return early when it is clearly ready (a local URL, "ready", "listening") or has ended; otherwise after 6 s.
+          let done = false, t;
+          const report = () => { if (done) return; done = true; wake.delete(check); clearTimeout(t);
+            const ended = child.exitCode !== null ? ` It already ended (exit code ${child.exitCode}).` : "";
+            finish(`Started in the background (process ${child.pid}).${ended} Use wait_for_process to wait for an event (ready, error, done) or check_process to read more. First output:\n${entry.unread() || "(no output yet)"}`); };
+          const check = () => { if (child.exitCode !== null || /https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)[:\/]|\b(ready|listening|compiled)\b/i.test(out)) setTimeout(report, 300); };
+          wake.add(check); t = setTimeout(report, 6000);
           return;
         }
         const limit = Math.min(600, Math.max(5, timeout_seconds)) * 1000;
@@ -516,7 +539,30 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onBefor
       const p = background.get(Number(pid));
       if (!p) return `No background process ${pid} (it may have finished more than a minute ago).`;
       const state = p.child.exitCode === null ? "still running" : `exited with code ${p.child.exitCode}`;
+      p.read = p.total;
       return `Process ${pid} is ${state}. Latest output:\n${p.output.slice(-8000) || "(no output)"}`;
+    },
+    wait_for_process({ pid, pattern, timeout_seconds = 120 }, signal) {
+      const p = background.get(Number(pid));
+      if (!p) return `No background process ${pid} (it may have finished more than a minute ago).`;
+      let re = null;
+      if (pattern) { try { re = new RegExp(pattern, "i"); } catch (e) { throw new Error("Bad pattern: " + e.message); } }
+      const limit = Math.min(600, Math.max(1, timeout_seconds)) * 1000, started = p.read;
+      return new Promise((done) => {
+        let over = false, t;
+        const end = (why) => { if (over) return; over = true; p.wake.delete(look); clearTimeout(t);
+          let fresh = p.unread(); if (fresh.length > 12000) fresh = "…" + fresh.slice(-12000);
+          const state = p.child.exitCode === null ? "still running" : `ended with exit code ${p.child.exitCode}`;
+          done(`${why} Process ${pid} is ${state}. New output:\n${fresh || "(none)"}`); };
+        const look = () => {
+          const n = Math.min(p.total - started, p.output.length);
+          if (re && re.test(n > 0 ? p.output.slice(-n) : "")) return end(`Matched /${pattern}/.`);
+          if (p.child.exitCode !== null) end("The process ended.");
+        };
+        t = setTimeout(() => end(`Nothing matched within ${limit / 1000}s.`), limit);
+        signal?.addEventListener("abort", () => end("Stopped."), { once: true });
+        p.wake.add(look); look();
+      });
     },
     stop_process({ pid }) {
       return killProcess(pid) ? `Stopped process ${pid}.` : `No background process ${pid}.`;

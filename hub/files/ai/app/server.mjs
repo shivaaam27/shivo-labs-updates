@@ -792,7 +792,7 @@ const STUDIO_NAMES = new Set(STUDIO_TOOLS.map((t) => t.name));
 const STUDIO_READ_TOOLS = STUDIO_TOOLS.filter((t) => ["read_artifact", "browser", "view_file"].includes(t.name));
 // Tools that only look, so several in one reply can run at the same time (view_file stays out: it may
 // open Office, which shouldn't run twice at once).
-const PARALLEL_TOOLS = new Set(["read_file", "list_files", "search_files", "fetch_url", "search_web", "check_process", "read_artifact", "use_skill", "delegate_task"]);
+const PARALLEL_TOOLS = new Set(["read_file", "list_files", "search_files", "fetch_url", "search_web", "check_process", "wait_for_process", "read_artifact", "use_skill", "delegate_task"]);
 // Optional API features; if the account rejects them, we retry once without.
 let useExtras = true;
 

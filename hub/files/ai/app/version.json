@@ -1,7 +1,7 @@
 {
-    "version": "2.0.12",
+    "version": "2.0.13",
     "notes": [
-        "Commands remember where they were: the folder the AI moved into, environment changes and variables carry over to the next command in the same chat.",
-        "Stopping a chat or a command timing out now also ends the programs that command started (such as dev servers)."
+        "The AI can now watch a background job and react the moment something happens (a build finishes, a server is ready, an error appears) instead of guessing and checking.",
+        "Starting a dev server reports back as soon as it is ready, instead of always waiting 6 seconds."
     ]
 }
