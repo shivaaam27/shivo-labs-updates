@@ -1,7 +1,7 @@
 {
-    "version": "2.0.14",
+    "version": "2.0.15",
     "notes": [
-        "The AI can keep an eye on a long job after it has finished replying (a build, an install, a server). When the job fails, finishes or prints what it was told to watch for, the chat wakes up by itself and the AI tells you what happened.",
-        "Small fixes: clearer wording when a background job ends, and a 'Watching...' label while the AI waits on one."
+        "Real terminal for the AI: it can now answer questions programs ask, move through arrow-key menus, and use tools like setup wizards, Python, ssh or interactive git, reading the screen just as you would see it.",
+        "Colours in the terminal panel: red errors, green success and other coloured output now show in colour."
     ]
 }

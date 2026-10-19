@@ -6,6 +6,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { release } from "node:os";
 import { WEB_TOOLS, fetchUrl, searchWeb } from "./web.mjs";
+import { PTY_TOOLS, ptyHandlers, closeTerminals } from "./pty.mjs";
 
 // $ per million tokens (input, output). Cache writes cost 1.25x input, reads 0.1x.
 const PRICES = {
@@ -210,6 +211,7 @@ export const TOOLS = [
   },
 ];
 
+TOOLS.push(...PTY_TOOLS); // real interactive terminals (pty.mjs)
 TOOLS.push(...WEB_TOOLS); // research tools (search_web, fetch_url), for every model
 
 // How many searches and page fetches Claude's own web tools may use per request, by research depth.
@@ -229,7 +231,7 @@ export const serverToolsFor = (depth) => {
 export const SERVER_TOOLS = serverToolsFor("normal");
 
 // Tools that change things, and so need the user's OK in "ask" mode.
-export const WRITE_TOOLS = new Set(["write_file", "edit_file", "run_command", "stop_process"]);
+export const WRITE_TOOLS = new Set(["write_file", "edit_file", "run_command", "stop_process", "terminal_open", "terminal_send", "terminal_close"]);
 // Tools a helper agent may use (look, don't touch).
 export const HELPER_TOOLS = TOOLS.filter((t) => ["read_file", "list_files", "search_files", "fetch_url", "search_web"].includes(t.name));
 
@@ -617,6 +619,13 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
       if (r.isError) throw new Error(r.text);
       return r.text;
     },
+    // Real terminals: only for chats (they have a shell file), started in the chat's current folder.
+    ...(shellFile ? ptyHandlers({
+      owner: shellFile,
+      cwd: () => loadShell(shellFile, workDir).cwd,
+      env: () => ({ ...(loadShell(shellFile, workDir).env || process.env) }),
+      onRaw: (d) => onOutput(scrub(d)),
+    }) : {}),
     update_plan({ todos }) {
       return `Plan updated (${todos.filter((t) => t.status === "completed").length}/${todos.length} done).`;
     },
@@ -632,6 +641,7 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
 
 export function stopBackgroundProcesses() {
   for (const pid of background.keys()) killProcess(pid);
+  closeTerminals();
 }
 
 export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills = [], depth = "normal", secrets = [], toolSecrets = [], autoMemory = null }) {
@@ -660,7 +670,7 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
     "To find files anywhere on the computer, use list_files (it skips node_modules and system folders and is fast), never a recursive Get-ChildItem, which can run for minutes. " +
       `Match loosely (e.g. pattern "*cv*" or "*.html" in a likely folder) and check the obvious folders first. The user's home folder is ${process.env.USERPROFILE}; their projects are mostly in Documents. If a search finds nothing, say so and ask rather than searching for long.`,
     "For git work, use git and the GitHub CLI (gh) through run_command. Only commit or push when the user asks. If gh says it isn't logged in, tell the user to sign in under Settings → GitHub & command line (you can't answer its login prompts).",
-    "Commands run in a non-interactive PowerShell (cd, $env: and $variables carry over between commands): nothing can be typed into a prompt, so use flags that skip questions (--yes, -Force, --with-token) instead.",
+    "Commands run in a non-interactive PowerShell (cd, $env: and $variables carry over between commands): nothing can be typed into a prompt there, so prefer flags that skip questions (--yes, -Force, --with-token). When a program must be answered interactively (wizards, arrow-key menus, REPLs, ssh), use terminal_open and terminal_send instead, and close the terminal when done.",
     "Cloudflare (Workers, KV, R2, D1, Durable Objects): use `npx wrangler` in the project folder. Check the sign-in first with `npx wrangler whoami`. If it isn't signed in, run `npx wrangler login` with timeout_seconds 300: it opens the user's browser, so tell them to choose their account and press Allow; or ask them to save a Cloudflare API token as the secret CLOUDFLARE_API_TOKEN under Settings → Secrets. " +
       "Cloudflare connectors (Settings → Connectors) can also manage the account and read Workers logs once signed in. Check which account a connector or wrangler is using before changing anything, and ask before deploying, deleting or changing anything live.",
     secrets.length

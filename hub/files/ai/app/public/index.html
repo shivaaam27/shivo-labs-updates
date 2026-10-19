@@ -1361,10 +1361,10 @@ const md = (t) => DOMPurify.sanitize(marked.parse(t || ""));
 function nearBottom() { const s = $("scroll"); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
 function scrollDown(force) { const s = $("scroll"); if (force || nearBottom()) s.scrollTop = s.scrollHeight; }
 
-const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched" };
-const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "Helper is researching…" };
+const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched" };
+const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "Helper is researching…" };
 function detail(name, i = {}) {
-  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task })[name] || "";
+  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task })[name] || "";
 }
 // Line count; a final line break doesn't count as an extra line.
 function lines(s) { return s ? String(s).replace(/\r?\n$/, "").split("\n").length : 0; }
@@ -1427,7 +1427,7 @@ function fkLoader(k) {
 function fkKind(name, input = {}) {
   if (name === "run_command") return /^\s*(git|gh)\b/i.test(input.command || "") ? "git" : "run";
   return ({ read_file: "read", use_skill: "read", view_file: "read", read_artifact: "read", write_file: "write", create_artifact: "write", update_artifact: "write",
-    edit_file: "edit", list_files: "search", search_files: "search", check_process: "run", wait_for_process: "run", watch_process: "run", stop_process: "run",
+    edit_file: "edit", list_files: "search", search_files: "search", check_process: "run", wait_for_process: "run", watch_process: "run", terminal_open: "run", terminal_send: "run", terminal_read: "run", terminal_close: "run", stop_process: "run",
     web_search: "web", web_fetch: "web", search_web: "web", fetch_url: "web", update_plan: "plan", delegate_task: "agent", browser: "look", ask_user: "wait" })[name] || "think";
 }
 // Swap the loader's animation, only when the kind actually changes (so it doesn't restart).
@@ -1508,7 +1508,7 @@ const STEP_WORDS = {
   read_file: ["read", "file"], view_file: ["looked at", "file"], write_file: ["edited", "file"], edit_file: ["edited", "file"],
   run_command: ["ran", "command"], list_files: ["searched", "time"], search_files: ["searched", "time"],
   web_search: ["searched the web", ""], web_fetch: ["read", "web page"], search_web: ["searched the web", ""], fetch_url: ["read", "web page"], browser: ["checked in the browser", ""],
-  delegate_task: ["asked a helper", ""], check_process: ["checked a server", ""], wait_for_process: ["waited for a process", ""], watch_process: ["set a watch on", "process"], stop_process: ["stopped", "process"],
+  delegate_task: ["asked a helper", ""], check_process: ["checked a server", ""], wait_for_process: ["waited for a process", ""], watch_process: ["set a watch on", "process"], terminal_open: ["opened", "terminal"], terminal_send: ["typed in a terminal", ""], terminal_read: ["read a terminal", ""], terminal_close: ["closed", "terminal"], stop_process: ["stopped", "process"],
   create_artifact: ["made", "artifact"], update_artifact: ["updated", "artifact"], read_artifact: ["read", "artifact"],
   use_skill: ["used", "skill"],
 };
@@ -2756,10 +2756,52 @@ $("pvUrl").addEventListener("keydown", (e) => { if (e.key === "Escape") { $("pvM
 
 // ---------- terminal panel
 const termOut = $("termOut");
+// Colours in command output (ANSI codes); other control codes (cursor moves, titles) are dropped.
+const ANSI16 = ["#4b4b4b", "#d9534f", "#3c9a5f", "#c9a227", "#4a7fd4", "#b05fc4", "#3aa6b9", "#c8c8c8", "#7a7a7a", "#ff6b66", "#5cc77f", "#e8c547", "#6f9fff", "#d68be8", "#5fd0e0", "#ffffff"];
+const ansi = { fg: null, bg: null, bold: false, dim: false, ul: false, rest: "" };
+function ansi256(n) {
+  if (n < 16) return ANSI16[n];
+  if (n >= 232) { const v = 8 + (n - 232) * 10; return `rgb(${v},${v},${v})`; }
+  n -= 16; const c = (x) => (x ? 55 + x * 40 : 0);
+  return `rgb(${c(Math.floor(n / 36))},${c(Math.floor(n / 6) % 6)},${c(n % 6)})`;
+}
+function ansiSgr(params) {
+  const p = params === "" ? [0] : params.split(";").map(Number);
+  for (let i = 0; i < p.length; i++) {
+    const n = p[i];
+    if (n === 0) Object.assign(ansi, { fg: null, bg: null, bold: false, dim: false, ul: false });
+    else if (n === 1) ansi.bold = true; else if (n === 2) ansi.dim = true; else if (n === 4) ansi.ul = true;
+    else if (n === 22) ansi.bold = ansi.dim = false; else if (n === 24) ansi.ul = false;
+    else if (n >= 30 && n <= 37) ansi.fg = ANSI16[n - 30]; else if (n >= 90 && n <= 97) ansi.fg = ANSI16[n - 82]; else if (n === 39) ansi.fg = null;
+    else if (n >= 40 && n <= 47) ansi.bg = ANSI16[n - 40]; else if (n >= 100 && n <= 107) ansi.bg = ANSI16[n - 92]; else if (n === 49) ansi.bg = null;
+    else if ((n === 38 || n === 48) && p[i + 1] === 5) { ansi[n === 38 ? "fg" : "bg"] = ansi256(p[i + 2] || 0); i += 2; }
+    else if ((n === 38 || n === 48) && p[i + 1] === 2) { ansi[n === 38 ? "fg" : "bg"] = `rgb(${p[i + 2] | 0},${p[i + 3] | 0},${p[i + 4] | 0})`; i += 4; }
+  }
+}
+function ansiAppend(el, text) {
+  text = ansi.rest + text; ansi.rest = "";
+  const cut = text.lastIndexOf("\x1b"); // an escape code split across two chunks: keep it for the next one
+  if (cut >= 0 && cut > text.length - 32 && !/^\x1b(\[[0-9;?]*[A-Za-z@`~]|\][^\x07]*(\x07|\x1b\\)|[^\[\]])/.test(text.slice(cut))) { ansi.rest = text.slice(cut); text = text.slice(0, cut); }
+  const re = /\x1b\[([0-9;?]*)([A-Za-z@`~])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[^\[\]]|\r(?!\n)/g;
+  let last = 0, m;
+  const put = (s) => {
+    if (!s) return;
+    if (!ansi.fg && !ansi.bg && !ansi.bold && !ansi.dim && !ansi.ul) return el.appendChild(document.createTextNode(s));
+    const sp = document.createElement("span"); sp.textContent = s;
+    if (ansi.fg) sp.style.color = ansi.fg; if (ansi.bg) sp.style.background = ansi.bg;
+    if (ansi.bold) sp.style.fontWeight = "700"; if (ansi.dim) sp.style.opacity = ".7"; if (ansi.ul) sp.style.textDecoration = "underline";
+    el.appendChild(sp);
+  };
+  while ((m = re.exec(text))) {
+    put(text.slice(last, m.index)); last = re.lastIndex;
+    if (m[2] === "m") ansiSgr(m[1]);
+  }
+  put(text.slice(last));
+}
 function termWrite(text, cls) {
   const near = termOut.scrollHeight - termOut.scrollTop - termOut.clientHeight < 40;
   if (cls) { const s = document.createElement("span"); s.className = cls; s.textContent = text; termOut.appendChild(s); }
-  else termOut.appendChild(document.createTextNode(text));
+  else ansiAppend(termOut, text);
   // Keep the panel light: drop the oldest output past ~200k characters.
   while (termOut.textContent.length > 200000 && termOut.firstChild) termOut.removeChild(termOut.firstChild);
   if (near) termOut.scrollTop = termOut.scrollHeight;
