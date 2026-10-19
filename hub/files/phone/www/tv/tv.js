@@ -11,6 +11,7 @@
 // Layout: one column on a phone; on an iPad or any wide screen the controls sit on the left, the content on the right.
 import { deviceName } from '../engine/beam.js';
 import * as atv from './atvremote.js';
+import { mountFamily, mountFeatures, mountHealth, mountShop, mountSport, mountTogether } from './family.js';
 
 const PORT = 8799;
 const RELAY = 'https://shivo-tv-relay-test.ishivamparmar.workers.dev';   // tv/relay; finds the TV by this phone's key fingerprint
@@ -47,7 +48,7 @@ const IC = {
 const BIG = [/youtube/, /netflix/, /amazonvideo/, /disneyplus/, /showmax/, /spotify/, /apple\.atve/, /hbo|\.max\b/, /google\.android\.videos/];
 const HIDE = /tvlauncher|launcherx|setupwraith|com\.android\.vending|tcl\.settings|tclhome_passive|webview_shell|android\.tv\.settings/;
 
-export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
+export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null } = {}) {
   const buzz = (k = 'light') => { try { haptic(k); } catch {} };
   let tvs = []; try { tvs = JSON.parse(localStorage.getItem('sl.tv') || '[]'); } catch {}
   const save = () => { try { localStorage.setItem('sl.tv', JSON.stringify(tvs)); } catch {} };
@@ -74,21 +75,22 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
   const relayUrl = (path, q = {}) => `${cur.relay || `${RELAY}/k/${cur.kh}`}${path}?${qs(q)}`;
   const hasRelay = () => !!(cur?.relay || cur?.kh);
   const base = (path, q) => away && hasRelay() ? relayUrl(path, q) : url(cur.host, path, q);
-  async function get(u, ms, post) {
+  async function get(u, ms, post, body) {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
-    try { return await fetch(u, { method: post ? 'POST' : 'GET', signal: ctl.signal, cache: 'no-store' }); }
+    // a body goes as plain text (no extra round trip for the browser's permission check); the TV reads it as JSON
+    try { return await fetch(u, { method: post || body != null ? 'POST' : 'GET', signal: ctl.signal, cache: 'no-store', ...(body != null ? { body } : {}) }); }
     finally { clearTimeout(t); }
   }
   // one request to the TV (at home, or through the relay); gives the Response itself, for pictures that are not JSON
-  async function send(path, q = {}, { host, ms = 6000, post = false } = {}) {
+  async function send(path, q = {}, { host, ms = 6000, post = false, body } = {}) {
     let r = null;
-    if (host) r = await get(url(host, path, q), ms, post).catch(() => null);   // pairing: only ever on the Wi-Fi
+    if (host) r = await get(url(host, path, q), ms, post, body).catch(() => null);   // pairing: only ever on the Wi-Fi
     else {
       // at home: straight to the TV; away: the relay, with a quick look every half minute whether the TV is near again
       const tryHome = !away || !hasRelay() || Date.now() - lastHome > 30000;
-      if (tryHome) { lastHome = Date.now(); r = await get(url(cur.host, path, q), away ? 1500 : Math.min(ms, hasRelay() ? 2500 : ms), post).catch(() => null); }
+      if (tryHome) { lastHome = Date.now(); r = await get(url(cur.host, path, q), away ? 1500 : Math.min(ms, hasRelay() ? 2500 : ms), post, body).catch(() => null); }
       if (r) { if (away) { away = false; paintWhere(); } }
-      else if (hasRelay()) { r = await get(relayUrl(path, q), ms + 4000, post).catch(() => null); if (r && r.status !== 503 && !away) { away = true; paintWhere(); } }
+      else if (hasRelay()) { r = await get(relayUrl(path, q), ms + 4000, post, body).catch(() => null); if (r && r.status !== 503 && !away) { away = true; paintWhere(); } }
     }
     if (!r) throw new Error(hasRelay() && !host ? "Can't reach the TV. Check it is on and has internet." : "Can't reach the TV. Check it is on, showing Shivo Labs, and on the same Wi-Fi as this phone.");
     if (r.status === 401) throw Object.assign(new Error('This phone is no longer paired with the TV. Pair it again.'), { unpaired: true });
@@ -96,6 +98,15 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     return r;
   }
   async function call(path, q = {}, opts = {}) { return await (await send(path, q, opts)).json(); }
+  // the same, to another paired TV (Watch together): straight to it on the Wi-Fi, else through the relay
+  async function callOn(t, path, q = {}, { post = false, body, ms = 6000 } = {}) {
+    if (!t.kh && t.key) { try { t.kh = await sha(t.key); } catch {} }
+    const qq = new URLSearchParams({ ...q, k: t.key });
+    let r = t.host ? await get(`http://${t.host}:${PORT}${path}?${qq}`, 2500, post, body).catch(() => null) : null;
+    if (!r && (t.relay || t.kh)) r = await get(`${t.relay || `${RELAY}/k/${t.kh}`}${path}?${qq}`, ms + 4000, post, body).catch(() => null);
+    if (!r || !r.ok) throw new Error(`Can't reach ${t.name || 'the other TV'}`);
+    return r.json();
+  }
   // where the phone reaches the TV from, under the TV's name
   const whereText = () => offline ? 'Not connected' : away ? 'Connected from anywhere' : `Connected · ${cur.host}`;
   function paintWhere() {
@@ -121,7 +132,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
       const u = URL.createObjectURL(await r.blob()); blobs.set(path, u); img.src = u;
     } catch { img.dispatchEvent(new Event('error')); }
   }
-  const pics = () => root.querySelectorAll('img[data-tvpic]:not([src])').forEach(pic);
+  const pics = (el = root) => (el || root).querySelectorAll('img[data-tvpic]:not([src])').forEach(pic);
   const web = (a) => /^https?:/.test(a || '') ? a : '';
   const label = (pkg) => apps.find((a) => a.pkg === pkg)?.label || '';
   // what was watched, newest first; a YouTube video has its own thumbnail and resumes at the same point
@@ -326,10 +337,11 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     </section>`;
   }
   function contentHtml() {
+    if (tab === 'family' || tab === 'features') return '<div id="tvFam"><div class="tvx-wait"><p>Asking the TV…</p></div></div>';
     if (tab === 'apps') {
       return `<div class="tvx-apps">${appList().map((a) => `<button class="tvx-app${a.banner ? '' : ' ic'}" data-open="${esc(a.pkg)}">
         <span class="tvx-app-p">${a.banner ? `<img data-tvpic="/banner/${esc(a.pkg)}" alt="" onerror="this.closest('.tvx-app').classList.add('ic');this.remove()">` : ''}<img class="tvx-app-i" data-tvpic="/icon/${esc(a.pkg)}" alt="" onerror="this.remove()"></span>
-        <span class="tvx-app-l">${esc(a.label)}</span></button>`).join('')}</div>`;
+        <span class="tvx-app-l">${esc(a.label)}</span></button>`).join('')}</div><div id="tvShop"></div>`;
     }
     if (tab === 'more') {
       const sc = (attr, ic, t, s) => `<button class="tvx-input" ${attr}><span>${ic}</span><b>${t}</b><small>${s}</small></button>`;
@@ -345,19 +357,23 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
         ${sc('data-setting="bluetooth"', IC.remote, 'Remotes', 'Bluetooth')}
         ${sc('data-setting="all"', IC.gear, 'All settings', 'Everything else')}
         ${sc('data-tvupdate="1"', IC.tv, 'Update the TV', dev.version ? `Shivo Labs TV ${dev.version}` : 'Newest version')}</div>
-        <div id="tvCodeBox"></div>`;
+        <div id="tvCodeBox"></div>
+        <h3 class="tvx-h">Video in a corner</h3>
+        <section class="tvx-ctl tvx-corner"><small>A second YouTube video, small in a corner of the TV, over whatever is on. Paste a YouTube link.</small>
+          <input class="field" id="tvCornerUrl" placeholder="https://youtu.be/…" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <div class="tvx-corner-b"><button class="btn sm pri" data-corner="mute">In the corner</button><button class="btn sm" data-corner="sound">With sound</button><button class="btn sm" data-corner="close">Close it</button></div></section>`;
     }
     if (tab === 'inputs') {
       return inputs.length ? `<div class="tvx-inputs">${inputs.map((x) => `<button class="tvx-input" data-input="${esc(x.id)}"><span>${/hdmi/i.test(x.label) ? IC.hdmi : IC.input}</span><b>${esc(x.label)}</b><small>Switch the TV to this</small></button>`).join('')}</div>`
         : '<p class="tvx-none">This TV has no inputs to switch to.</p>';
     }
-    const rows = rowsOf(), w = watched();
+    const rows = rowsOf(), w = watched(), sport = '<div id="tvTogether"></div><div id="tvSport"></div>';
     const contHtml = w.length ? `<h3 class="tvx-h">Continue watching</h3>
       <div class="tvx-strip">${w.map((h, i) => `<button class="tvx-thumb" data-resume="${i}"><span class="tvx-thumb-p">${histPic(h)}${pct(h) ? `<i class="tvx-thumb-bar"><i style="width:${pct(h)}%"></i></i>` : ''}</span>
         <b>${esc(h.title)}</b><small class="tvx-thumb-s">${esc(label(h.pkg))}</small></button>`).join('')}</div>` : '';
-    if (!rows.length && w.length) return contHtml;
-    if (!rows.length) return '<p class="tvx-none">Nothing to suggest yet. Apps like YouTube fill this in once they have been opened on the TV.</p>';
-    return contHtml + rows.map((r) => `<h3 class="tvx-h">${esc(label(r.pkg))}<span>${esc(r.name)}</span></h3>
+    if (!rows.length && w.length) return sport + contHtml;
+    if (!rows.length) return sport + '<p class="tvx-none">Nothing to suggest yet. Apps like YouTube fill this in once they have been opened on the TV.</p>';
+    return sport + contHtml + rows.map((r) => `<h3 class="tvx-h">${esc(label(r.pkg))}<span>${esc(r.name)}</span></h3>
       <div class="tvx-strip">${r.items.slice(0, 14).map((it) => `<button class="tvx-thumb" data-uri="${esc(it.uri || '')}" data-pkg="${esc(r.pkg)}">
         <span class="tvx-thumb-p">${web(it.art) ? `<img src="${esc(web(it.art))}" alt="" loading="lazy">` : ''}</span><b>${esc(it.title)}</b></button>`).join('')}</div>`).join('');
   }
@@ -382,15 +398,17 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
           </div>
         </section>
         <div id="tvRemote">${remoteHtml()}</div>
+        <div id="tvHealth"></div>
       </aside>
       <main class="tvx-main">
         ${offline ? `<div class="tvx-offline"><span>${IC.wifi}</span><div><b>Not connected to ${esc(cur.name || 'the TV')}</b><small>${esc(offline)} Showing what it had last time.</small></div><button class="btn sm" id="tvRetry">Try again</button></div>` : ''}
-        <div class="seg tvx-seg">${[['foryou', 'For you'], ['apps', 'Apps'], ['inputs', 'Inputs'], ['more', 'Shortcuts']].map(([id, n]) => `<button data-tab="${id}" class="${tab === id ? 'on' : ''}">${n}</button>`).join('')}</div>
+        <div class="seg tvx-seg">${[['foryou', 'For you'], ['family', 'Family'], ['apps', 'Apps'], ['features', 'Features'], ['inputs', 'Inputs'], ['more', 'Shortcuts']].map(([id, n]) => `<button data-tab="${id}" class="${tab === id ? 'on' : ''}">${n}</button>`).join('')}</div>
         <div class="tvx-content" id="tvContent">${contentHtml()}</div>
         <button class="tvx-forget" id="tvForget">Forget this TV</button>
       </main>
     </div>`;
     wire();
+    if (!offline) mountHealth(root.querySelector('#tvHealth'), { call, toast, buzz });
     root.querySelector('#tvRetry')?.addEventListener('click', () => refresh(true));
     pics();
   }
@@ -638,7 +656,23 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
       act('/media', { a: p.pkg, b: b.dataset.media }).then(() => setTimeout(pollNow, 700));
     }));
   }
+  // the Family and Features tabs live in family.js; they ask the TV themselves
+  let famTab = null;
+  function mountTab() {
+    famTab?.stop(); famTab = null;
+    const opts = { call, toast, buzz, pics, ai, nowPlaying: () => playing()[0] || null, appsOnTv: () => apps, tvName: () => cur?.name || 'the TV' };
+    const shop = root.querySelector('#tvShop'); if (shop) { famTab = mountShop(shop, opts); return; }
+    const sp = root.querySelector('#tvSport');
+    if (sp) {
+      const a = mountSport(sp, opts), b = mountTogether(root.querySelector('#tvTogether'), { ...opts, callOn, otherTvs: () => tvs.filter((t) => t !== cur && t.key) });
+      famTab = { stop() { a.stop(); b.stop(); } };
+      return;
+    }
+    const el = root.querySelector('#tvFam'); if (!el) return;
+    famTab = tab === 'family' ? mountFamily(el, opts) : mountFeatures(el, opts);
+  }
   function wireContent() {
+    mountTab();
     root.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => act('/open', { a: b.dataset.open }, `Opening ${label(b.dataset.open)} on the TV`)));
     root.querySelectorAll('[data-input]').forEach((b) => (b.onclick = () => act('/input', { a: b.dataset.input }, 'Switching the TV')));
     root.querySelectorAll('[data-setting]').forEach((b) => (b.onclick = () => act('/setting', { a: b.dataset.setting }, 'Opening it on the TV')));
@@ -650,6 +684,15 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
         toast(r.ok ? 'The TV is getting the newest version. It installs as soon as nothing is playing.'
           : 'This TV needs Shivo Labs TV 1.0.10 for this button; it gets there by itself.');
       } catch (e) { toast(e.message); }
+    }));
+    root.querySelectorAll('[data-corner]').forEach((b) => (b.onclick = async () => {
+      buzz();
+      if (b.dataset.corner === 'close') return act('/corner/close', {}, 'Corner video closed');
+      const u = root.querySelector('#tvCornerUrl').value.trim();
+      const m = u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/) || u.match(/^([A-Za-z0-9_-]{11})$/), t = u.match(/[?&]t=(\d+)/);
+      if (!m) return toast('Paste a YouTube link first');
+      try { const r = await call('/corner', { a: m[1], b: t ? t[1] : 0, c: b.dataset.corner }, { post: true }); toast(r.ok ? 'Playing in the corner of the TV' : r.error || 'That did not work'); }
+      catch (e) { toast(e.message); }
     }));
     root.querySelectorAll('[data-dream]').forEach((b) => (b.onclick = () => act('/dream', {}, 'Screensaver on')));
     root.querySelectorAll('[data-code]').forEach((b) => (b.onclick = async () => {
@@ -831,6 +874,6 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
   return {
     // the screen is shown: fresh look, then what is playing every few seconds
     start() { alive = true; refresh(!apps.length); clearInterval(timer); timer = setInterval(() => { if (!alive || !cur || document.hidden) return; if (offline) { if (Date.now() - lastTry > 10000) refresh(true); } else if (apps.length) pollNow(); }, 5000); },
-    stop() { alive = false; clearInterval(timer); stopFind?.(); stopFind = null; scanning = false; rc?.close(); rc = null; },
+    stop() { alive = false; clearInterval(timer); famTab?.stop(); stopFind?.(); stopFind = null; scanning = false; rc?.close(); rc = null; },
   };
 }

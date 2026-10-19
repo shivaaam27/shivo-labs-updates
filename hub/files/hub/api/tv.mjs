@@ -261,6 +261,8 @@ async function home(ip, what) {
     await sh(ip, `cmd appops set ${PKG} SYSTEM_ALERT_WINDOW allow`);
     // it updates itself over the air (Android still asks once on screen for each update)
     await sh(ip, `cmd appops set ${PKG} REQUEST_INSTALL_PACKAGES allow`);
+    // TV health and App doctor: how long each app is used and how big it is
+    await sh(ip, `cmd appops set ${PKG} GET_USAGE_STATS allow`);
     // switched off and on, so Android starts the service again after an update
     await sh(ip, `cmd notification disallow_listener ${PKG}/${PKG}.NowPlaying`);
     await sh(ip, `cmd notification allow_listener ${PKG}/${PKG}.NowPlaying`);
