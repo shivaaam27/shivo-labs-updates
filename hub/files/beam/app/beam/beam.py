@@ -3,7 +3,7 @@
 The iPhone talks to it over whatever network both devices share (home Wi-Fi,
 the iPhone's Personal Hotspot, ...). Nothing leaves that network.
 """
-import itertools, json, mimetypes, mmap, os, re, secrets, shutil, socket, subprocess, sys, threading, time, urllib.parse, webbrowser
+import hashlib, itertools, json, mimetypes, mmap, os, re, secrets, shutil, socket, subprocess, sys, threading, time, urllib.parse, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -57,6 +57,106 @@ def config():
 
 def save_config(cfg):
     (HOME / "config.json").write_text(json.dumps(cfg))
+
+
+# ---------- away from home: the relay on Cloudflare ----------
+# The hub keeps this PC connected to a small relay (beam/relay), so a phone can reach Beam from any network, and find it
+# at home without depending on beam.local. This file is the engine's part:
+#   relay.json       this PC's relay address (id), the secret that proves it is this PC, and "local": a secret only the
+#                    hub knows, which it sends with every request it passes on from the relay. Written once, kept.
+#   relay-keys.json  one key per phone. A phone gets its key when it is accepted over the home Wi-Fi (the answer to /ping);
+#                    through the relay it must show that key, and nothing else (the pairing code and "accept this
+#                    phone" don't apply there). Removing a phone on the PC deletes its key.
+RELAY_URL = "https://shivo-labs-beam-relay.ishivamparmar.workers.dev"
+RELAY = HOME / "relay.json"
+KEYS = HOME / "relay-keys.json"
+_keys, _key_lock = None, threading.Lock()
+RELAY_PATHS = re.compile(r"^/(ping|outbox|pull|next|done|clear|upload|file/[^/]+)$")
+
+
+def relay_identity():
+    """This PC's relay address and secrets (made the first time)."""
+    HOME.mkdir(parents=True, exist_ok=True)
+    try:
+        r = json.loads(RELAY.read_text())
+        if r.get("id") and r.get("secret") and r.get("local"):
+            return r
+    except (OSError, ValueError):
+        pass
+    r = {"id": secrets.token_hex(16), "secret": secrets.token_hex(24), "local": secrets.token_hex(16), "url": RELAY_URL}
+    tmp = RELAY.with_suffix(".tmp")
+    tmp.write_text(json.dumps(r))
+    os.replace(tmp, RELAY)
+    return r
+
+
+def _hash(key):
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def keys():
+    global _keys
+    if _keys is None:
+        try:
+            _keys = json.loads(KEYS.read_text())
+        except (OSError, ValueError):
+            _keys = {}
+    return _keys
+
+
+def _save_keys():
+    try:
+        tmp = KEYS.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_keys))
+        os.replace(tmp, KEYS)
+    except OSError:
+        pass
+
+
+def device_for_key(key):
+    if not key:
+        return None
+    with _key_lock:
+        return keys().get(_hash(key))
+
+
+def new_key(did):
+    """A key for this device. The phone asks the PC's addresses in parallel, so two keys can be made at once: the last
+    few stay valid, whichever one the phone ends up keeping."""
+    key = secrets.token_urlsafe(24)
+    with _key_lock:
+        ks = keys()
+        mine = [h for h, d in ks.items() if d == did]
+        for h in mine[:max(0, len(mine) - 5)]:   # (dicts keep the order keys were made in)
+            del ks[h]
+        ks[_hash(key)] = did
+        _save_keys()
+    return key
+
+
+def revoke_device(did):
+    with _key_lock:
+        ks = keys()
+        gone = [h for h, d in ks.items() if d == did]
+        for h in gone:
+            del ks[h]
+        if gone:
+            _save_keys()
+    return len(gone)
+
+
+def lan_ips():
+    """This PC's addresses on the networks a phone could be on (the main one first). The phone tries them straight
+    away when beam.local doesn't answer."""
+    out = [lan_ip()]
+    try:
+        for a in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = a[4][0]
+            if ip not in out:
+                out.append(ip)
+    except OSError:
+        pass
+    return [ip for ip in out if not ip.startswith(("127.", "169.254.", "100."))][:4]
 
 
 # ---------- your devices: each one gets its own waiting list ----------
@@ -400,12 +500,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403, "")
         self.send_response(204)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "X-Token, X-Name, X-Beam-Id, X-Beam-Name, X-Beam-Kind, Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "X-Token, X-Name, X-Beam-Id, X-Beam-Name, X-Beam-Kind, X-Beam-Key, Content-Type")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
     def param(self, key):
         return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get(key, [""])[0]
+
+    def via_relay(self):
+        """True when the hub passed this request on from the relay (it adds the secret only it knows)."""
+        local = self.server.relay.get("local", "")
+        return bool(local) and secrets.compare_digest(self.headers.get("X-Beam-Relay", ""), local)
 
     def mac(self):
         """This device's Wi-Fi address (cached a minute, like trust)."""
@@ -420,6 +525,8 @@ class Handler(BaseHTTPRequestHandler):
         app on that same phone if it has checked in, so one phone is one device however it asks."""
         if getattr(self, "_did", None):
             return self._did
+        if self.via_relay():   # the phone is whoever holds the key (set in authed)
+            return ""
         given = re.sub(r"[^A-Za-z0-9-]", "", self.headers.get("X-Beam-Id", "") or self.param("bid"))[:64]
         if given:
             self._did = canonical("app:" + given, self.mac())
@@ -430,6 +537,18 @@ class Handler(BaseHTTPRequestHandler):
         return self._did
 
     def authed(self, path=""):
+        if self.via_relay():
+            # from the relay: only a phone with its key gets in. No pairing code, no "accept this phone" question.
+            key = self.headers.get("X-Beam-Key", "") or self.param("k")
+            did = device_for_key(key)
+            if not RELAY_PATHS.match(path or "/"):
+                self.reply(404, "Not found")
+                return False
+            if not did:
+                self.reply(401, "This phone isn't set up for use away from home. Open Beam once on the same Wi-Fi as your PC.")
+                return False
+            self._did = did
+            return True
         tok = self.server.cfg["token"]
         cookie = re.search(r"beam=([\w-]+)", self.headers.get("Cookie", ""))
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("t", [""])[0]
@@ -564,7 +683,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.seen()
         if path == "/ping":
-            return self.reply(200, json.dumps({"ok": True, "pc": socket.gethostname()}), "application/json")
+            info = {"ok": True, "pc": socket.gethostname(), "lan": lan_ips()}
+            if self.via_relay():
+                return self.reply(200, json.dumps(info), "application/json")
+            # over the home Wi-Fi: hand the phone its relay address and key (once; it keeps them), so it can still reach
+            # this PC when beam.local doesn't answer, or from another network
+            did = self.device()
+            key = self.headers.get("X-Beam-Key", "") or self.param("k")
+            info["relay"] = {"id": self.server.relay["id"], "url": self.server.relay.get("url", RELAY_URL)}
+            if device_for_key(key) != did:
+                info["key"] = new_key(did)
+            return self.reply(200, json.dumps(info), "application/json")
         if path == "/outbox":
             items = [{"name": p.name, "size": p.stat().st_size, "kind": "media" if is_media(p) else "file"} for p in outbox(self.device())]
             return self.reply(200, json.dumps(items), "application/json")
@@ -589,17 +718,22 @@ class Handler(BaseHTTPRequestHandler):
         try:
             did = self.device()
             kind = re.sub(r"[^a-z]", "", (self.headers.get("X-Beam-Kind", "") or self.param("bkind")).lower())[:12]
-            if not kind:
+            if not kind and not self.via_relay():
                 ua = self.headers.get("User-Agent", "")
                 kind = ("ipad" if "iPad" in ua else "iphone" if re.search(r"iPhone|iPod|CFNetwork|Darwin", ua)
                         else "android" if "Android" in ua else "")
             note_device(did, urllib.parse.unquote(self.headers.get("X-Beam-Name", "") or self.param("bname"))[:60].strip(),
-                        kind, self.mac() if did.startswith("app:") else "")
+                        kind, self.mac() if did.startswith("app:") and not self.via_relay() else "")
         except Exception:  # never let bookkeeping get in the way of a transfer
             pass
 
     def do_POST(self):
         path = self.route()
+        if path == "/revoke":   # the hub, when you remove a phone on the PC: its key stops working
+            if self.client_address[0] != "127.0.0.1" or not self.via_relay():
+                return self.reply(403, "Not allowed")
+            n = revoke_device(self.param("did"))
+            return self.reply(200, json.dumps({"ok": True, "revoked": n}), "application/json")
         if not self.authed(path):
             return
         self.seen()
@@ -769,6 +903,7 @@ def make_server():
     except OSError:
         return None
     srv.cfg, srv.batch = cfg, {"n": 0, "t": 0}
+    srv.relay = relay_identity()
     INBOX.mkdir(parents=True, exist_ok=True)
     OUTBOX.mkdir(parents=True, exist_ok=True)
     join_duplicates()   # one card per phone (older engines could list a phone twice)

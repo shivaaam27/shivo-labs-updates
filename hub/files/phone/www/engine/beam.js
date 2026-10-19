@@ -1,14 +1,33 @@
 // Beam inside the phone app: send photos and files to the PC, and receive what the PC sends.
-// Talks straight to Beam on the PC over the shared Wi-Fi (beam.local:8765). Nothing goes online.
-// The first time, Beam on the PC asks its owner to accept this phone (like AirDrop).
+// Talks straight to Beam on the PC over the shared Wi-Fi (beam.local:8765, or the PC's own addresses it told us last
+// time). Nothing goes online. The first time, Beam on the PC asks its owner to accept this phone (like AirDrop).
 // Received photos and videos go into Photos; other files go into the Files app
 // (On My iPhone > Shivo Labs > Beam).
+//
+// Finding the PC does not depend on one name any more. Each time, the phone tries beam.local and the PC's addresses it
+// remembers at once, and if none answers it goes through the Beam relay on Cloudflare (the PC stays connected to it),
+// which works from any network, and when beam.local is slow, blocked or iOS's Local Network permission was reset by an
+// update. The phone gets the relay address and its own key when the PC accepts it over the home Wi-Fi (the answer to
+// /ping); the relay never sees more than the PC lets through.
 import { plugin } from './native.js';
 
 export const SHARE_URL = 'https://shivamparmar.vercel.app/beam';
 let host = 'beam.local';
-export const setHost = (h) => { host = String(h || 'beam.local').trim().replace(/^https?:\/\//, '').replace(/[:/].*$/, '') || 'beam.local'; };
-const base = () => `http://${host}:8765`;
+export const setHost = (h) => {
+  const n = String(h || 'beam.local').trim().replace(/^https?:\/\//, '').replace(/[:/].*$/, '') || 'beam.local';
+  if (n !== host) { host = n; route.at = 0; }
+};
+
+const RK = 'sl.beamRelay';   // { url, id, key }: this PC's relay address and this phone's key
+const LK = 'sl.beamLan';     // the PC's addresses on the home network, as it last told us
+const rd = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+const wr = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+// where requests go now: 'lan' (a base address on the home Wi-Fi) or 'relay'; at = when it was last confirmed
+const route = { mode: 'lan', base: '', at: 0 };
+const lanBase = (h) => `http://${h}:8765`;
+const relayBase = (r) => `${r.url}/p/${r.id}`;
+const base = () => route.base || lanBase(host);
+export const viaRelay = () => route.mode === 'relay';
 
 // Who this is, so the PC can show it as its own card and send files to it alone: a random id kept on this device,
 // and its kind (iphone, ipad, android, tablet). Sent in the address, because downloads can't carry headers.
@@ -40,29 +59,102 @@ export const deviceName = () => { try { return localStorage.getItem('sl.beamName
 export const setDeviceName = (n) => { try { localStorage.setItem('sl.beamName', String(n || '').trim().slice(0, 40)); } catch {} };
 const who = (path) => {
   const id = deviceId(); if (!id) return path;
-  const name = deviceName();
-  return path + (path.includes('?') ? '&' : '?') + 'bid=' + id + '&bkind=' + deviceKind() + (name ? '&bname=' + encodeURIComponent(name) : '');
+  const name = deviceName(), key = rd(RK)?.key;
+  return path + (path.includes('?') ? '&' : '?') + 'bid=' + id + '&bkind=' + deviceKind() + (name ? '&bname=' + encodeURIComponent(name) : '') + (key ? '&k=' + encodeURIComponent(key) : '');
 };
 
-async function call(path, opts = {}, ms = 8000) {
+const NOT_ACCEPTED = 'Not accepted on the PC yet. Click Accept on the PC, then try again.';
+const REFUSED = 'The PC did not accept this phone. Try again and click Accept on the PC.';
+const cantReach = () => new Error(rd(RK)?.key
+  ? "Can't reach your PC. Check Shivo Labs is open on it and that it is online."
+  : "Can't reach Beam. Check Shivo Labs is open on the PC and both are on the same Wi-Fi (once is enough: after that your PC is found from anywhere).");
+
+// one try of /ping at a base address: the PC's answer, { denied: status } when it answered but didn't accept us, or null
+async function probe(b, ms) {
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
   try {
-    const r = await fetch(base() + who(path), { ...opts, signal: ctl.signal, cache: 'no-store' });
-    if (r.status === 403) throw new Error('Not accepted on the PC yet. Click Accept on the PC, then try again.');
-    if (r.status === 401) throw new Error('The PC did not accept this phone. Try again and click Accept on the PC.');
-    return r;
-  } catch (e) {
-    if (e.name === 'AbortError' || e instanceof TypeError) throw new Error("Can't reach Beam. Check Beam is open on the PC and both are on the same Wi-Fi.");
-    throw e;
-  } finally { clearTimeout(t); }
+    const r = await fetch(b + who('/ping'), { signal: ctl.signal, cache: 'no-store' });
+    if (r.status === 403 || r.status === 401) return { denied: r.status };
+    if (!r.ok) return null;
+    const j = await r.json(); return j && j.ok ? j : null;
+  } catch { return null; } finally { clearTimeout(t); }
 }
+const firstOf = (list) => new Promise((done) => {
+  let left = list.length, denied = null;
+  if (!left) return done(null);
+  for (const p of list) p.then((v) => {
+    if (v && !v.denied) return done(v);
+    if (v?.denied) denied = v;
+    if (--left === 0) done(denied);
+  });
+});
+// remember what the PC told us: its relay address and (once) our key, and its addresses on the home network
+function learn(j) {
+  if (!j) return;
+  if (Array.isArray(j.lan)) wr(LK, j.lan.slice(0, 4));
+  if (j.relay?.id) { const old = rd(RK) || {}; wr(RK, { url: j.relay.url, id: j.relay.id, key: j.key || old.key || '' }); }
+}
+
+// Find the PC now: the home Wi-Fi first (beam.local and its last known addresses, all at once), then the relay.
+// Returns the PC's answer to /ping, or null. A phone that has been accepted before gives the Wi-Fi only a few seconds;
+// a new one waits as long as asked, since the PC's owner may be clicking Accept.
+let resolving = null;
+export function resolve(ms = 8000) {
+  return resolving ??= (async () => {
+    const R = rd(RK);
+    const lan = [lanBase(host), ...(rd(LK) || []).filter((ip) => ip !== host).map(lanBase)];
+    const hit = await firstOf(lan.map((b) => probe(b, R?.key ? Math.min(ms, 3500) : ms).then((j) => (j && !j.denied ? { ...j, _base: b } : j))));
+    if (hit && !hit.denied) { route.mode = 'lan'; route.base = hit._base; route.at = Date.now(); route.denied = 0; learn(hit); return hit; }
+    if (R?.key && R.url && R.id) {
+      const j = await probe(relayBase(R), 10000);
+      if (j && !j.denied) { route.mode = 'relay'; route.base = relayBase(R); route.at = Date.now(); route.denied = 0; learn(j); return j; }
+    }
+    route.denied = hit?.denied || 0;
+    return null;
+  })().finally(() => { resolving = null; });
+}
+// away from home we sit on the relay; check now and then whether the home Wi-Fi is back (without making anyone wait)
+let lastLan = 0;
+function maybeHome() {
+  if (route.mode !== 'relay' || Date.now() - lastLan < 60000) return;
+  lastLan = Date.now(); resolve(3500).catch(() => {});
+}
+
+async function once(path, opts, ms) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(base() + who(path), { ...opts, signal: ctl.signal, cache: 'no-store' }); }
+  finally { clearTimeout(t); }
+}
+async function call(path, opts = {}, ms = 8000) {
+  if (!route.at) { if (!(await resolve(ms))) throw denial() || cantReach(); }   // first call since the app opened: find the PC (home Wi-Fi or relay)
+  else maybeHome();
+  let r;
+  try { r = await once(path, opts, ms); }
+  catch (e) {
+    if (e.name !== 'AbortError' && !(e instanceof TypeError)) throw e;
+    if (!(await resolve(ms))) throw denial() || cantReach();   // it moved (or the Wi-Fi changed): find it again, once
+    try { r = await once(path, opts, ms); } catch (e2) {
+      if (e2.name === 'AbortError' || e2 instanceof TypeError) throw cantReach();
+      throw e2;
+    }
+  }
+  if (r.status === 403) throw new Error(NOT_ACCEPTED);
+  if (r.status === 401) throw new Error(viaRelay() ? 'This phone is not set up for use away from home. Open Beam once on the same Wi-Fi as your PC.' : REFUSED);
+  if (viaRelay() && r.status >= 502 && r.status <= 504) {   // the relay is fine but the PC isn't there
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.error || 'Your PC is not online.');
+  }
+  if (viaRelay() && r.status === 413) throw new Error((await r.json().catch(() => ({}))).error || 'Too big to send away from home.');
+  return r;
+}
+const denial = () => (route.denied === 403 ? new Error(NOT_ACCEPTED) : route.denied === 401 ? new Error(REFUSED) : null);
 
 // Is Beam there? Returns the PC's name. The first call may wait while the owner clicks Accept,
 // so the default wait is long; background checks pass a short one.
 export async function ping(ms = 75000) {
-  const r = await call('/ping', {}, ms);
-  if (!r.ok) throw new Error('Beam answered ' + r.status);
-  return (await r.json()).pc || 'PC';
+  const j = await resolve(ms);
+  if (!j) throw denial() || cantReach();
+  return j.pc || 'PC';
 }
 
 export async function waiting(ms = 75000) {

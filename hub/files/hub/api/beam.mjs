@@ -12,6 +12,7 @@ import { pipeline } from "node:stream/promises";
 import { randomBytes, createHash } from "node:crypto";
 import { spawn, execFile } from "node:child_process";
 import net from "node:net";
+import { startBeamRelay, relayState, revokeKey } from "./beamrelay.mjs";
 
 const HOME = join(process.env.APPDATA || homedir(), "Beam");
 const OUTBOX = join(HOME, "outbox");
@@ -185,7 +186,10 @@ export const beamEngine = { python: PYW, host: HOST_PY };
 export function superviseBeam() {
   managing = true;
   setTimeout(() => startBeam().then(addToExplorer).catch(() => {}), 1500);
-  setInterval(() => { startBeam().catch(() => {}); addToExplorer(true).catch(() => {}); }, 60000);
+  // (a stopped engine is noticed within 10 s: it used to take up to a minute, which is how long the phone said "Can't reach")
+  setInterval(() => startBeam().catch(() => {}), 10000);
+  setInterval(() => addToExplorer(true).catch(() => {}), 60000);
+  startBeamRelay();   // the connection that lets a phone reach this PC from any network, and find it at home
   // a new phone, or a new name: into the right-click menu at once (it used to wait for the next minute)
   let soon = 0;
   try {
@@ -284,6 +288,7 @@ export async function beamApi(req, res, path, url) {
       shortcut: SHORTCUT_URL, web: cfg.token ? `http://${hostname()}.local:${port}/p/${cfg.token}` : null,
       webIp: cfg.token ? `http://${ip}:${port}/p/${cfg.token}` : null,
       waiting: await files(OUTBOX), received: await files(INBOX, 8), devices: await deviceList(),
+      relay: { connected: relayState.connected, since: relayState.since, error: relayState.error },
     }), true;
   }
   if (req.method === "GET" && what === "asks") {  // the hub page checks for questions every couple of seconds
@@ -342,7 +347,7 @@ export async function beamApi(req, res, path, url) {
     const { id, name, remove } = JSON.parse(body || "{}");
     const names = await readJsonFile(NAMES), n = names[id] || {};
     if (typeof name === "string" && name.trim()) { n.name = name.trim().slice(0, 40); n.at = Date.now() / 1000; }
-    if (remove) { n.hidden = Date.now() / 1000; rmSync(devDir(id), { recursive: true, force: true }); }
+    if (remove) { n.hidden = Date.now() / 1000; rmSync(devDir(id), { recursive: true, force: true }); revokeKey(id); }
     names[id] = n; await mkdir(HOME, { recursive: true }); await writeFile(NAMES, JSON.stringify(names));
     addToExplorer().catch(() => {});
     return json(res, 200, { ok: true }), true;

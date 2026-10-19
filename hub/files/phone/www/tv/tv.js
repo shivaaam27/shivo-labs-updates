@@ -343,7 +343,8 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
         ${sc('data-setting="sound"', IC.vol, 'Sound', 'Mode, output')}
         ${sc('data-setting="network"', IC.wifi, 'Network', 'Wi-Fi, internet')}
         ${sc('data-setting="bluetooth"', IC.remote, 'Remotes', 'Bluetooth')}
-        ${sc('data-setting="all"', IC.gear, 'All settings', 'Everything else')}</div>
+        ${sc('data-setting="all"', IC.gear, 'All settings', 'Everything else')}
+        ${sc('data-tvupdate="1"', IC.tv, 'Update the TV', dev.version ? `Shivo Labs TV ${dev.version}` : 'Newest version')}</div>
         <div id="tvCodeBox"></div>`;
     }
     if (tab === 'inputs') {
@@ -459,13 +460,34 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     const sheet = document.createElement('div');
     sheet.className = 'tvx-pointer';
     sheet.innerHTML = `<div class="tvx-pt-top"><b>Pointer</b><button class="tvx-pt-x" aria-label="Close">${IC.back}</button></div>
-      <div class="tvx-pt-pad" id="ptPad"><span>${IC.pointer}</span><p>${navigator.maxTouchPoints > 0 ? 'Point the phone at the TV and move it, or slide a finger here.' : 'Drag here with the mouse or touchpad.'}</p><small>${navigator.maxTouchPoints > 0 ? 'Tap to click · two fingers to scroll · Motion off to stop' : 'Click to click · drag with two fingers to scroll'}</small></div>
-      <div class="tvx-pt-row"><button class="tvx-q" id="ptMotion">${IC.pointer}<span>Motion on</span></button><button class="tvx-q" data-pk="back">${IC.back}<span>Back</span></button><button class="tvx-q" data-pk="home">${IC.home}<span>Home</span></button></div>`;
+      <div class="tvx-pt-pad" id="ptPad"><span>${IC.pointer}</span><p>${navigator.maxTouchPoints > 0 ? 'Point the phone at the TV and move it, or slide a finger here.' : 'Drag here with the mouse or touchpad.'}</p><small>Tap: press what the pointer is on (on a video: show its controls) · two fingers: scroll, or skip on a video</small></div>
+      <div class="tvx-pt-keys">
+        <div class="tvx-pt-dpad"><button data-k2="up" aria-label="Up">${IC.up}</button><button data-k2="left" aria-label="Left">${IC.left}</button><button data-k2="ok" class="ok">OK</button><button data-k2="right" aria-label="Right">${IC.right}</button><button data-k2="down" aria-label="Down">${IC.down}</button></div>
+        <div class="tvx-pt-grid">
+          <button class="tvx-q" data-k2="back">${IC.back}<span>Back</span></button><button class="tvx-q" data-k2="home">${IC.home}<span>Home</span></button><button class="tvx-q" data-k2="playPause">${IC.playpause}<span>Play</span></button>
+          <button class="tvx-q" data-k2="volDown">${IC.minus}<span>Quieter</span></button><button class="tvx-q" data-k2="volUp">${IC.plus}<span>Louder</span></button><button class="tvx-q" data-k2="mute">${IC.mute}<span>Mute</span></button>
+          <button class="tvx-q" id="ptMotion">${IC.pointer}<span>Motion on</span></button><button class="tvx-q" id="ptKbd">${IC.kbd}<span>Type</span></button><button class="tvx-q" data-k2="recents">${IC.grid}<span>Apps</span></button>
+        </div>
+      </div>
+      <form class="tvx-pt-type" id="ptType" hidden><input id="ptText" autocomplete="off" autocapitalize="off" placeholder="Type, it goes to the TV's search box"><button class="btn sm" type="button" id="ptDel">Delete</button></form>`;
     document.body.appendChild(sheet);
     const ws = new WebSocket(`ws://${cur.host}:${PORT}/mouse?${new URLSearchParams({ k: cur.key })}`);
     let dx = 0, dy = 0, raf = 0, motion = true, closed = false;
     const sendSoon = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (ws.readyState === 1 && (Math.abs(dx) >= 1 || Math.abs(dy) >= 1)) { ws.send(`m ${dx.toFixed(1)} ${dy.toFixed(1)}`); dx = 0; dy = 0; } }); };
     const send = (m) => { if (ws.readyState === 1) ws.send(m); };
+    let told = false;
+    const viaGoogle = async (k) => {
+      const map = { up: 'up', down: 'down', left: 'left', right: 'right', ok: 'ok', back: 'back', home: 'home', volUp: 'volUp', volDown: 'volDown', mute: 'mute', playPause: 'playPause', recents: 'menu' };
+      if (atv.available() && atv.isPaired(cur.host) && map[k]) { try { const r = await remote(); await r.key(atv.KEY[map[k]]); return; } catch {} }
+      if (!told) { told = true; toast('This TV needs the full remote for that button. Set it up once on the TV screen in Shivo Labs.'); }
+    };
+    ws.onmessage = (e) => {
+      const m = String(e.data);
+      if (m === 'x type') return typeViaGoogle();
+      if (m.startsWith('x ')) viaGoogle(m.slice(2));
+    };
+    // a remote button: the TV presses it itself (fast, over the pointer link); Google's remote if it can't
+    const key = (k) => { buzz(); if (ws.readyState === 1) send(`k ${k}`); else viaGoogle(k); };
     ws.onerror = () => { if (!closed) toast('Can’t reach the TV’s pointer. Update Shivo Labs on the TV.'); };
     let src = 'none', nMotion = 0;   // where motion comes from, and whether readings arrive (for the fallback below)
     // the pad: slide moves, a quick tap clicks, two fingers scroll (pts: fingers on the pad, also "hold to point")
@@ -512,18 +534,44 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     };
     const stopMotion = () => { removeEventListener('devicemotion', onMotion); T?.motionStop?.().catch(() => {}); nativeSub?.remove?.(); nativeSub = null; };
     startMotion();
-    let down = 0, moved = 0;
-    pad.addEventListener('pointerdown', (e) => { pad.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 1) { down = Date.now(); moved = 0; } });
+    let down = 0, moved = 0, scrollAcc = 0, scrollX = 0, scrollT = 0, two = false;
+    pad.addEventListener('pointerdown', (e) => { try { pad.setPointerCapture(e.pointerId); } catch {} pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 1) { down = Date.now(); moved = 0; two = false; } if (pts.size >= 2) two = true; });
     pad.addEventListener('pointermove', (e) => {
       const p = pts.get(e.pointerId); if (!p) return;
       const mx = e.clientX - p[0], my = e.clientY - p[1]; pts.set(e.pointerId, [e.clientX, e.clientY]); moved += Math.abs(mx) + Math.abs(my);
-      if (pts.size >= 2) { send(`s ${(my * 3).toFixed(0)}`); return; }
+      // two fingers: the moves are added up and sent a few times a second (each one is a whole scroll step on the TV)
+      if (pts.size >= 2) {
+        scrollAcc += my / pts.size; scrollX += mx / pts.size;
+        if (!scrollT) scrollT = setTimeout(() => {
+          scrollT = 0;
+          if (Math.abs(scrollAcc) >= 8 || Math.abs(scrollX) >= 8) { send(`S ${(scrollX * 3).toFixed(0)} ${(scrollAcc * 3).toFixed(0)}`); buzz(); }
+          scrollAcc = 0; scrollX = 0;
+        }, 160);
+        return;
+      }
       dx += mx * 2.6; dy += my * 2.6; sendSoon();
     });
-    const up = (e) => { if (!pts.delete(e.pointerId)) return; if (!pts.size && moved < 12 && Date.now() - down < 300) { send('c'); buzz(); } };
+    // a tap clicks: one finger, hardly moved, quick (a pointer that drifts a little with motion on still counts)
+    const up = (e) => { if (!pts.delete(e.pointerId)) return; if (!pts.size && !two && moved < 24 && Date.now() - down < 400) { send('c'); buzz('medium'); } };
     pad.addEventListener('pointerup', up); pad.addEventListener('pointercancel', up);
     sheet.querySelector('#ptMotion').onclick = () => { motion = !motion; sheet.querySelector('#ptMotion span').textContent = motion ? 'Motion on' : 'Motion off'; if (motion) startMotion(); };
-    sheet.querySelectorAll('[data-pk]').forEach((b) => (b.onclick = () => press(b.dataset.pk)));
+    sheet.querySelectorAll('[data-k2]').forEach((b) => (b.onclick = () => key(b.dataset.k2)));
+    // typing: each letter goes to the TV's focused box as it is typed (the TV fills it in), Delete takes one back
+    const form = sheet.querySelector('#ptType'), input = sheet.querySelector('#ptText');
+    let typeFallback = false;
+    function typeViaGoogle() {
+      if (typeFallback) return; typeFallback = true;
+      if (!(atv.available() && atv.isPaired(cur.host))) toast('Pick a search box on the TV first (move the pointer to it and tap).');
+    }
+    sheet.querySelector('#ptKbd').onclick = () => { form.hidden = !form.hidden; if (!form.hidden) input.focus(); };
+    input.addEventListener('input', async (e) => {
+      const t = e.data || '';
+      if (!t) return;
+      if (typeFallback && atv.available() && atv.isPaired(cur.host)) { try { const r = await remote(); await r.text(t); } catch (err) { toast(err.message); } return; }
+      send(`t ${t}`);
+    });
+    sheet.querySelector('#ptDel').onclick = () => { buzz(); input.value = input.value.slice(0, -1); if (typeFallback && atv.available() && atv.isPaired(cur.host)) { remote().then((r) => r.key(atv.KEY.del)).catch(() => {}); return; } send('t \b'); };
+    form.addEventListener('submit', (e) => { e.preventDefault(); key('ok'); });
     sheet.querySelector('.tvx-pt-x').onclick = () => { closed = true; send('h'); stopMotion(); try { ws.close(); } catch {} sheet.remove(); };
   }
 
@@ -595,6 +643,14 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     root.querySelectorAll('[data-input]').forEach((b) => (b.onclick = () => act('/input', { a: b.dataset.input }, 'Switching the TV')));
     root.querySelectorAll('[data-setting]').forEach((b) => (b.onclick = () => act('/setting', { a: b.dataset.setting }, 'Opening it on the TV')));
     root.querySelectorAll('[data-shivo]').forEach((b) => (b.onclick = () => act('/shivo', { a: b.dataset.shivo }, 'Opening it on the TV')));
+    root.querySelectorAll('[data-tvupdate]').forEach((b) => (b.onclick = async () => {
+      buzz();
+      try {
+        const r = await call('/update', {}, { post: true });
+        toast(r.ok ? 'The TV is getting the newest version. It installs as soon as nothing is playing.'
+          : 'This TV needs Shivo Labs TV 1.0.10 for this button; it gets there by itself.');
+      } catch (e) { toast(e.message); }
+    }));
     root.querySelectorAll('[data-dream]').forEach((b) => (b.onclick = () => act('/dream', {}, 'Screensaver on')));
     root.querySelectorAll('[data-code]').forEach((b) => (b.onclick = async () => {
       // a code for another phone: they type it in Shivo Labs > TV > Use a code from the TV (any network, 10 minutes)
@@ -639,47 +695,89 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     if (!document.getElementById('tvLiveCss')) {
       const st = document.createElement('style'); st.id = 'tvLiveCss';
       st.textContent = `.tvl{position:fixed;inset:0;z-index:9999;background:#000;color:#eceee9;display:flex;flex-direction:column;font:15px/1.4 system-ui,sans-serif}
-        .tvl-top{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px}.tvl-top b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .tvl-sas{font-variant-numeric:tabular-nums;letter-spacing:.06em;padding:4px 10px;border-radius:99px;background:#1d2a22;color:#9be3b0}
+        .tvl-top{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px}.tvl-top b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .tvl-sas{font-variant-numeric:tabular-nums;letter-spacing:.06em;padding:4px 10px;border-radius:99px;background:#1d2a22;color:#9be3b0;font-size:13px}
         .tvl-x{border:0;border-radius:99px;padding:8px 16px;background:#2a2c2f;color:#eceee9;font:inherit}
-        .tvl-view{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}.tvl-view img{max-width:100%;max-height:100%;display:block}
-        .tvl-msg{position:absolute;left:16px;right:16px;text-align:center;color:#c9ccc6}.tvl-fine{margin:0;padding:10px 16px calc(env(safe-area-inset-bottom) + 12px);font-size:12.5px;color:#9a9d97;text-align:center}`;
+        .tvl-view{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
+        .tvl-view img{max-width:100%;max-height:100%;display:block;touch-action:none;user-select:none;-webkit-user-drag:none}
+        .tvl-msg{position:absolute;left:16px;right:16px;text-align:center;color:#c9ccc6}
+        .tvl-chip{position:absolute;top:10px;left:50%;transform:translateX(-50%);padding:5px 12px;border-radius:99px;background:rgba(30,31,34,.85);color:#c9ccc6;font-size:12.5px;white-space:nowrap}
+        .tvl-hid{position:absolute;left:16px;right:16px;bottom:16px;padding:14px 16px;border-radius:16px;background:rgba(30,31,34,.92)}.tvl-hid b{display:block}.tvl-hid small{color:#9a9d97}
+        .tvl-dot{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:2px solid #fff;pointer-events:none;animation:tvlp .5s ease-out forwards}@keyframes tvlp{to{transform:scale(1.8);opacity:0}}
+        .tvl-bar{display:flex;gap:10px;justify-content:center;padding:10px 16px 4px}.tvl-bar button{border:0;border-radius:99px;padding:9px 20px;background:#2a2c2f;color:#eceee9;font:inherit}
+        .tvl-fine{margin:0;padding:6px 16px calc(env(safe-area-inset-bottom) + 12px);font-size:12px;color:#9a9d97;text-align:center}`;
       document.head.appendChild(st);
     }
     const box = document.createElement('div'); box.className = 'tvl'; box.id = 'tvLiveBox';
     box.innerHTML = `<div class="tvl-top"><b>${esc(cur.name || 'TV')}</b><span class="tvl-sas" id="tvlSas" hidden></span><button class="tvl-x" id="tvlX">Close</button></div>
-      <div class="tvl-view"><img id="tvlImg" alt="" hidden><p class="tvl-msg" id="tvlMsg">Connecting to the TV…</p></div>
-      <p class="tvl-fine">${away ? 'Uses mobile data: about 3 MB a minute. ' : ''}A red badge shows on the TV while you watch. Scrambled from the TV to this phone; check that the TV's badge shows the same number as above.</p>`;
+      <div class="tvl-view" id="tvlView"><img id="tvlImg" alt="" hidden><p class="tvl-msg" id="tvlMsg">Connecting to the TV…</p><span class="tvl-chip" id="tvlChip" hidden></span><div class="tvl-hid" id="tvlHid" hidden></div></div>
+      <div class="tvl-bar"><button data-lk="back">Back</button><button data-lk="home">Home</button></div>
+      <p class="tvl-fine">Tap the picture to press there on the TV, swipe to scroll. ${away ? 'Uses mobile data: about 3 MB a minute. ' : ''}A small dot shows on the TV while you watch; the number above matches the one in the TV's Settings › Live view.</p>`;
     document.body.appendChild(box);
-    const img = box.querySelector('#tvlImg'), msg = box.querySelector('#tvlMsg'), sasEl = box.querySelector('#tvlSas');
-    let open = true, objUrl = '', sess = null;
+    const view = box.querySelector('#tvlView'), img = box.querySelector('#tvlImg'), msg = box.querySelector('#tvlMsg'), sasEl = box.querySelector('#tvlSas'), chip = box.querySelector('#tvlChip'), hid = box.querySelector('#tvlHid');
+    let open = true, objUrl = '', sess = null, fails = 0, first = true, kick = null;
+    // after a tap the next picture is asked for at once, not after the usual pause
+    const soon = () => { if (kick) { const k = kick; kick = null; k(); } };
     const say = (t) => { msg.textContent = t || ''; msg.hidden = !t; };
+    // a problem after the first picture: the last picture stays, with a small note on top
+    const note = (t) => { if (img.hidden) return say(t); chip.textContent = t || ''; chip.hidden = !t; };
     box.querySelector('#tvlX').onclick = async () => { open = false; box.remove(); if (objUrl) URL.revokeObjectURL(objUrl); try { await call('/view/stop', {}, { post: true, ms: 4000 }); } catch {} };
+    box.querySelectorAll('[data-lk]').forEach((b) => (b.onclick = () => { buzz(); call('/key', { a: b.dataset.lk }, { post: true }).then(() => setTimeout(soon, 400)).catch((e) => { note(e.message); setTimeout(() => note(''), 4000); }); }));
+    // touch: a tap presses that spot on the TV, a drag swipes (places as fractions of the TV's screen)
+    let down = null;
+    const at = (e) => { const r = img.getBoundingClientRect(); if (!r.width || !r.height) return [NaN, NaN]; return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+    img.addEventListener('pointerdown', (e) => { down = at(e); });
+    img.addEventListener('pointerup', (e) => {
+      if (!down || !sess) return;
+      const [x1, y1] = down, [x2, y2] = at(e), far = Math.hypot(x2 - x1, y2 - y1) > 0.04; down = null;
+      if (![x1, y1, x2, y2].every(Number.isFinite)) return;   // no picture on screen yet
+      const vr = view.getBoundingClientRect(), dot = document.createElement('i'); dot.className = 'tvl-dot';
+      dot.style.left = `${e.clientX - vr.left}px`; dot.style.top = `${e.clientY - vr.top}px`;
+      view.appendChild(dot); setTimeout(() => dot.remove(), 600);
+      buzz();
+      const f = (n) => n.toFixed(4);
+      const req = far ? call('/view/swipe', { a: `${f(x1)},${f(y1)}`, b: `${f(x2)},${f(y2)}` }, { post: true }) : call('/view/tap', { a: f(x1), b: f(y1) }, { post: true });
+      // (the app's toasts sit behind this full screen, so notes show on the picture)
+      req.then(() => setTimeout(soon, 350));
+      req.then((j) => { if (j && j.ok === false) { note('The TV did not take the tap. It may still be updating to the newest Shivo Labs TV.'); setTimeout(() => note(''), 4000); } })
+        .catch((err) => { note(err.message); setTimeout(() => note(''), 4000); });
+    });
     while (open) {
       const t0 = Date.now();
       try {
         if (document.hidden) { await nap(1000); continue; }
         if (!sess) {
           try { sess = await liveBegin(); } catch (e) { say(e.message || "The TV couldn't start Live view."); break; }   // no retry loop: Close, fix it, open again
-          sasEl.textContent = sess.sas; sasEl.hidden = false; say('Waiting for the first picture…');
+          sasEl.textContent = sess.sas; sasEl.hidden = false; if (img.hidden) say('Waiting for the first picture…');
         }
-        const resp = await send('/view/frame', {}, { ms: 9000 });
-        if ((resp.headers.get('content-type') || '').includes('json')) {
+        const resp = await send('/view/frame', first ? { a: '1' } : {}, { ms: 9000 });
+        const type = resp.headers.get('content-type') || '';
+        if (type.includes('json')) {
           const j = await resp.json();
-          if (j.restart) { sess = null; sasEl.hidden = true; continue; }
-          say(j.error || 'The TV cannot show its screen just now.'); await nap(2000); continue;
+          if (j.restart) { sess = null; first = true; sasEl.hidden = true; continue; }
+          if (j.same) { fails = 0; note(''); await new Promise((r) => { kick = r; setTimeout(r, 500); }); kick = null; continue; }   // nothing changed on the TV
+          // a missed picture now and then is normal (Android limits how often); say something only if it keeps happening
+          if (++fails >= 4) note(j.error || 'The TV is slow to show its screen…');
+          await nap(j.busy ? 300 : 1500); continue;
         }
         const buf = new Uint8Array(await resp.arrayBuffer());
         const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, sess.aes, buf.slice(12));
         if (!open) break;
         const u = URL.createObjectURL(new Blob([plain], { type: 'image/jpeg' }));
-        img.src = u; img.hidden = false; say('');
+        img.src = u; img.hidden = false; say(''); fails = 0; note(''); first = false;
         if (objUrl) URL.revokeObjectURL(objUrl); objUrl = u;
+        // video the TV keeps out of screen pictures: say what is playing instead of a black box
+        if (type.includes('hidden')) {
+          const p = playing()[0];
+          hid.innerHTML = `<b>${esc(p?.title || 'A video is playing')}</b><small>${esc(label(p?.pkg) || 'This app')} keeps its video out of screen pictures. Tap, Back and Home still work.</small>`;
+          hid.hidden = false;
+        } else hid.hidden = true;
       } catch (e) {
         if (!open) break;
-        say(e.message || "Can't reach the TV."); await nap(3000);
+        if (++fails >= 3) note(e.message || "Can't reach the TV.");
+        await nap(2000);
       }
-      await nap(Math.max(150, 900 - (Date.now() - t0)));
+      await new Promise((r) => { kick = r; setTimeout(r, Math.max(100, 700 - (Date.now() - t0))); }); kick = null;
     }
   }
   async function act(path, q, msg) {

@@ -76,7 +76,8 @@ export function mountBeam(root, { esc, toast, openModule }) {
   }
   function paint() {
     const pill = document.getElementById('pageState');
-    if (pill) pill.innerHTML = st.running ? `<i class="dot"></i>${esc(st.host)}` : `<button class="tbtn" id="bmStart">Start Beam</button>`;
+    // (the relay is what lets a phone find this PC from anywhere, and at home when beam.local doesn't answer)
+    if (pill) pill.innerHTML = st.running ? `<i class="dot"></i>${esc(st.host)}${st.relay?.connected ? ' · reachable from anywhere' : ''}` : `<button class="tbtn" id="bmStart">Start Beam</button>`;
     document.getElementById('bmStart')?.addEventListener('click', () => openModule('beam', true));
     const devs = st.devices || [];
     for (const id of picked) if (!devs.some((d) => d.id === id)) picked.delete(id);
