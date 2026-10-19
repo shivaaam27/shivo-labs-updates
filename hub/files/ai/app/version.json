@@ -1,7 +1,8 @@
 {
-    "version": "2.0.5",
+    "version": "2.0.6",
     "notes": [
-        "Faster work: when the AI reads or searches several files, opens several web pages, or sends out several helpers at once, they now run at the same time instead of one after another. Changes to files and commands still run one at a time, in order.",
-        "Smoother long replies: the reply is redrawn at most once per screen refresh instead of on every word, so long answers no longer slow the app down."
+        "New Settings window, laid out like the Claude app: pages on the left (General, Claude, Other AI providers, Research, Connectors, GitHub, Secrets), one page at a time on the right, and a search box. Changes save as you make them; the API key has its own Save button.",
+        "Connectors now live in Settings with two tabs: Yours (what you've added, with Test, Sign in and a ⋯ menu) and Discover (ready-made connectors, added with one click).",
+        "New Chrome connector: the AI can use your own Chrome, where you're already signed in, for example to make images in Gemini or ChatGPT. One-time step in Chrome: open chrome://inspect/#remote-debugging and switch it on. There's also a separate Chrome window option where you sign in once."
     ]
 }

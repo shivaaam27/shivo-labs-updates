@@ -533,13 +533,14 @@ const openInBrowser = (url) => spawn("rundll32.exe", ["url.dll,FileProtocolHandl
 const connectorCfg = (name, cwd) => connectors.configsFor(cwd || "")[name] || connectors.load().mcpServers?.[name];
 const mask = (o = {}) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v).length > 6 ? String(v).slice(0, 3) + "…" + String(v).slice(-2) : "…"]));
 app.get("/api/connectors", async (req, res) => {
+  await mcpAuth.ready(); // so "signed in" is right straight after the app starts
   const cwd = req.query.cwd ? String(req.query.cwd) : "";
   const own = connectors.load().mcpServers || {};
   const all = connectors.configsFor(cwd);
   // Secrets in env and headers are never sent back in full.
   const list = Object.entries({ ...Object.fromEntries(Object.entries(own).map(([n, c]) => [n, { ...c, source: "app" }])), ...all })
     .map(([name, c]) => ({ name, source: c.source, disabled: !!c.disabled, kind: c.url ? "remote" : "local", url: c.url, command: c.command, args: c.args, env: mask(c.env), headers: mask(c.headers), headersHelper: c.headersHelper,
-      signedIn: c.url ? mcpAuth.signedIn(connectors.urlOf(c)) : false }));
+      signedIn: c.url ? mcpAuth.signedIn(connectors.urlOf(c)) : false, usesSignIn: c.url ? mcpAuth.usesSignIn(connectors.urlOf(c)) : false }));
   res.json(list);
 });
 app.post("/api/connectors", (req, res) => {
@@ -905,7 +906,7 @@ app.post("/api/chat", async (req, res) => {
   const memory = loadMemory(workDir, extraDirs);
   const skills = loadSkills(workDir, skillsDir);
   await secretsReady();
-  const system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames(), toolSecrets: toolSecretNotes(), autoMemory: loadAutoMemory(workDir) }) +
+  let system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames(), toolSecrets: toolSecretNotes(), autoMemory: loadAutoMemory(workDir) }) +
     (mode === "plan" ? "\n\nPLAN MODE: Only read and investigate. Do not change any files or run commands. End with a clear step-by-step plan for the user to approve." : "") +
     // Other providers' free tiers allow few requests per minute, and every reply is one request:
     // ask for fewer, fuller turns (several tool calls at once).
@@ -962,6 +963,13 @@ app.post("/api/chat", async (req, res) => {
       for (const s of mcp.status.filter((x) => !x.ok)) send({ type: "error", text: `The "${s.name}" connector couldn't connect: ${s.error}` });
     } catch (e) { send({ type: "error", text: "Connectors failed to load: " + (e.message || e) }); }
   }
+  // A Chrome connector (chrome-devtools-mcp) drives a real Chrome: say how to use it for the jobs people
+  // want it for, like making images on sites the user is signed in to.
+  const chromeTools = mcp.defs.filter((d) => /^mcp__chrome[^_]*__/i.test(d.name));
+  if (chromeTools.length) system += "\n\nCHROME: the mcp__chrome… tools drive a real Chrome window where the user is signed in to their sites. " +
+    "To make an image with Gemini (gemini.google.com) or ChatGPT (chatgpt.com) there: open the site in a new page, type the user's request into its message box and send it, " +
+    "wait until the image has finished (take a snapshot or screenshot to check; it can take a minute), then use the site's own download button so the file lands in the user's Downloads folder, and give the full path. " +
+    "If the site asks the user to sign in or confirm something, stop and tell them; never type passwords. Only use this Chrome for what the user asked.";
 
   const client = new Anthropic({ apiKey, maxRetries: 3 });
   // Snapshot each file the first time this reply changes it, so the user can undo.

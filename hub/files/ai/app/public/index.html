@@ -726,6 +726,95 @@ textarea{font-size:14.5px;padding:4px 0 6px}
 .kv div{border-radius:12px}
 #setModal .card{border-radius:24px}
 #setModal input,#setModal select{border-radius:12px;padding:9px 12px}
+/* Settings as a two-pane window, like the Claude app: pages on the left, one page on the right. */
+#setModal .card.setwin{width:min(1020px,100%);height:min(760px,88vh);max-height:none;flex-direction:row}
+.setnav{flex:0 0 236px;display:flex;flex-direction:column;gap:2px;padding:14px 12px;background:var(--side);border-right:1px solid var(--line);overflow-y:auto}
+.setsearch{display:flex;align-items:center;gap:8px;margin:0 0 10px;padding:0 12px;height:38px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--muted);cursor:text}
+.setsearch .i{width:16px;height:16px;flex:none}
+#setModal .setsearch input{flex:1;min-width:0;border:0;padding:0;background:none;border-radius:0;font:13.5px var(--body);color:var(--text)}
+.setgrp{padding:12px 10px 6px;font-size:12px;color:var(--muted)}
+.setgrp:first-of-type{padding-top:4px}
+.setnav button{display:flex;align-items:center;gap:11px;height:38px;padding:0 10px;border-radius:10px;font-size:14px;color:var(--text);text-align:left;width:100%}
+.setnav button .i{width:18px;height:18px;flex:none;color:var(--muted)}
+.setnav button:hover{background:var(--hover)}
+.setnav button.on{background:var(--hover);font-weight:500}
+.setnav button.on .i{color:var(--text)}
+.setnav button.dim{opacity:.4}
+.setmain{flex:1;min-width:0;position:relative;display:flex;flex-direction:column}
+.setx{position:absolute;top:16px;right:16px;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:var(--muted);z-index:2}
+.setx:hover{background:var(--hover);color:var(--text)}
+.setx .i{width:18px;height:18px}
+#setModal .setmain .ubody{flex:1;padding:30px 48px 40px;overflow-y:auto}
+#setModal .sg{padding:0 0 26px;border:0;max-width:760px}
+#setModal .ubody.searching .sg:not([hidden])~.sg:not([hidden]){border-top:1px solid var(--line);padding-top:24px}
+#setModal .sg>h2,#setModal .chead h2{margin:0 0 18px;font:600 24px/1.2 var(--display);letter-spacing:-.01em}
+#setModal .hint.lead{font-size:13px;margin:-6px 0 16px}
+#setModal .sr>label{flex:0 0 150px}
+#setModal .btn.sm.pri,#setModal .btn.pri{background:var(--text);color:var(--bg);border-color:var(--text)}
+#setModal .btn.sm{display:inline-flex;align-items:center;gap:6px;border-radius:10px;padding:6px 13px}
+#setModal .btn.sm .i{width:14px;height:14px}
+.snone{color:var(--muted);font-size:13px}
+/* Connectors page */
+.chead{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding-right:44px}
+#setModal .chead h2{margin:0}
+.chead .sp{flex:1}
+.ctabs{display:inline-flex;padding:3px;border-radius:12px;background:var(--hover);gap:2px}
+.ctabs button{padding:6px 14px;border-radius:9px;font-size:13.5px;color:var(--muted)}
+.ctabs button.on,.seg button.on{background:var(--panel);color:var(--text);font-weight:500;box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.08)}
+.ctile{flex:none;width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--bg);display:grid;place-items:center;font:600 14px var(--display);color:var(--text);letter-spacing:-.02em}
+.cmid{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.cgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.ccard{display:flex;align-items:flex-start;gap:14px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
+.ccard b{font-size:14.5px;font-weight:600}
+.ccard .cdesc{font-size:13px;color:var(--muted);line-height:1.45}
+.ccard small{font-size:12px;color:var(--faint)}
+.cadd{flex:none;width:32px;height:32px;border-radius:9px;border:1px solid var(--line);display:grid;place-items:center;color:var(--text);background:var(--panel)}
+.cadd:hover{background:var(--hover)}
+.cadd.done{background:var(--hover);border-color:transparent}
+.cadd .i{width:16px;height:16px}
+#connList{display:flex;flex-direction:column;gap:10px}
+.crow{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
+.crow.off{opacity:.6}
+.cname{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cname b{font-size:14.5px;font-weight:600}
+.cchip{font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--hover);color:var(--muted)}
+.cwhere{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cst{font-size:12px;color:var(--faint)}
+.cst:empty{display:none}
+.cacts{display:flex;align-items:center;gap:6px;flex:none;position:relative}
+.cpop{position:absolute;top:calc(100% + 6px);right:0;z-index:3;min-width:150px;padding:5px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.14);display:flex;flex-direction:column}
+.cpop button{padding:8px 10px;border-radius:8px;text-align:left;font-size:13.5px}
+.cpop button:hover{background:var(--hover)}
+.cpop button.bad{color:var(--err)}
+.cempty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:40px 20px;border:1px dashed var(--line);border-radius:16px;text-align:center;color:var(--muted);font-size:13px}
+.cempty b{color:var(--text);font-size:14.5px}
+.cempty .btn{margin-top:8px}
+.cform{margin-top:18px;padding:18px;border:1px solid var(--line);border-radius:16px;background:var(--bg);display:flex;flex-direction:column;gap:8px}
+.cfh{display:flex;align-items:center;justify-content:space-between}
+.cfh b{font-size:14.5px}
+#setModal .cform input,#setModal .cform textarea{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);font:13px var(--body);outline:0}
+#setModal .cform textarea{font:12px var(--mono);resize:vertical}
+#setModal .cform #cLocalF,#setModal .cform #cRemoteF{display:flex;flex-direction:column;gap:8px}
+#setModal .cform #cLocalF[hidden],#setModal .cform #cRemoteF[hidden]{display:none}
+.seg{display:inline-flex;align-self:flex-start;padding:3px;border-radius:12px;background:var(--hover);gap:2px}
+.seg button{padding:5px 12px;border-radius:9px;font-size:13px;color:var(--muted)}
+.seg button.on{background:var(--panel);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.cff{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.cff .hint{margin:0!important}
+#cTopMsg{margin:0 0 12px}
+#setModal [hidden]{display:none!important}
+@media (max-width:760px){
+  #setModal .card.setwin{flex-direction:column;height:92vh}
+  .setnav{flex:none;flex-direction:row;align-items:center;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:10px 12px;gap:4px}
+  .setsearch,.setgrp{display:none}
+  .setnav button{width:auto;flex:none;height:34px;font-size:13px;white-space:nowrap}
+  #setModal .setmain .ubody{padding:20px 16px 28px}
+  .setx{top:8px;right:8px}
+  .cgrid{grid-template-columns:1fr}
+  .chead{flex-wrap:wrap;padding-right:40px}
+  #setModal .sr{flex-wrap:wrap}
+  #setModal .sr>label{flex-basis:100%}
+}
 .prov{border-radius:14px}
 
 /* preview: the workspace side panel, opened on request */
@@ -785,6 +874,8 @@ body.focus #scroll{padding-top:40px}
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-8.3 8.3a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></symbol>
     <symbol id="i-slash" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M14 8l-4 8"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c1.2-3.3 3.8-5 7-5s5.8 1.7 7 5"/></symbol>
     <symbol id="i-plug" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><path d="M16.75 14v5.5M14 16.75h5.5"/></symbol>
     <symbol id="i-right" viewBox="0 0 24 24"><path d="M10 7l5 5-5 5"/></symbol>
     <symbol id="i-expand" viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></symbol>
@@ -993,38 +1084,6 @@ body.focus #scroll{padding-top:40px}
     <div class="acts"><button class="btn" data-close>Cancel</button><button class="btn pri" id="seSave">Save task</button></div>
   </div>
 </div>
-<div class="modal" id="connModal">
-  <div class="card" style="width:min(640px,100%)">
-    <h3>Connectors</h3>
-    <div class="sub">Let the AI use other services (GitHub, Notion, Supabase, databases, your own systems) through MCP, the same standard Claude Code uses. A project's own <code>.mcp.json</code> is picked up automatically.</div>
-    <div class="ubody">
-      <div id="connList"></div>
-      <div class="fld" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
-        <label>Add a connector</label>
-        <select id="cPreset" style="width:100%;margin-bottom:6px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
-          <option value="">Quick add…</option>
-          <option value="github">GitHub: issues, pull requests, code, Actions</option>
-          <option value="context7">Context7: up-to-date docs for any library</option>
-          <option value="cloudflare">Cloudflare: your whole account (Workers, KV, R2, D1, DNS…)</option>
-          <option value="cloudflare-bindings">Cloudflare Workers, KV, R2 and D1</option>
-          <option value="cloudflare-logs">Cloudflare Workers logs</option>
-          <option value="cloudflare-docs">Cloudflare docs</option>
-          <option value="browser">Browser control (Playwright): a real browser the AI drives</option>
-          <option value="google">Gmail and Google Drive…</option>
-        </select>
-        <div style="display:flex;gap:6px;margin-bottom:6px"><button class="pvb on" id="ckLocal" type="button">Local program</button><button class="pvb" id="ckRemote" type="button">Remote URL</button></div>
-        <input id="cName" placeholder="Name, e.g. github" style="margin-bottom:6px">
-        <div id="cLocalF"><input id="cCmd" placeholder="Command, e.g. npx -y @modelcontextprotocol/server-github" style="margin-bottom:6px">
-          <textarea id="cEnv" rows="2" placeholder="Secrets / settings, one per line: GITHUB_PERSONAL_ACCESS_TOKEN=..." style="width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font:12px var(--mono)"></textarea></div>
-        <div id="cRemoteF" hidden><input id="cUrl" placeholder="https://example.com/mcp" style="margin-bottom:6px">
-          <textarea id="cHead" rows="2" placeholder="Headers, one per line: Authorization: Bearer ..." style="width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font:12px var(--mono)"></textarea></div>
-        <div class="msg" id="cMsg"></div>
-        <div style="color:var(--muted);font-size:12px">Secrets are stored only on this computer and never shown again in full.</div>
-      </div>
-    </div>
-    <div class="acts"><button class="btn" data-close>Close</button><button class="btn pri" id="cAdd">Add and test</button></div>
-  </div>
-</div>
 <div class="modal" id="galModal">
   <div class="card" style="width:min(720px,100%)">
     <h3>Artifacts</h3>
@@ -1042,56 +1101,95 @@ body.focus #scroll{padding-top:40px}
 </div>
 <div class="overlay" id="updOverlay"><div><svg class="fl" viewBox="-8 -8 80 80" style="width:42px;height:42px"><g transform="rotate(15 32 32)"><rect class="p1" x="0" y="46" width="18" height="18" rx="4.5"/><rect class="p2" x="46" y="0" width="18" height="18" rx="4.5"/><rect class="p3" x="0" y="23" width="18" height="18" rx="4.5"/><rect class="p4" x="23" y="0" width="18" height="18" rx="4.5"/><rect class="p5" x="23" y="23" width="18" height="18" rx="4.5"/><rect class="p6" x="0" y="0" width="18" height="18" rx="4.5"/></g></svg><p style="margin-top:14px;color:var(--muted)" id="updMsg">Installing the update…</p></div></div>
 <div class="modal" id="setModal">
-  <div class="card">
-    <h3>Settings</h3>
-    <div class="ubody">
-      <section class="sg">
-        <h4>General</h4>
-        <div class="sr"><label for="nameIn">Name</label><input id="nameIn" maxlength="40" placeholder="Your name"></div>
-        <div class="sr"><label for="langIn">Voice language</label>
-          <select id="langIn">
-            <option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="en-IN">English (India)</option>
-            <option value="en-KE">English (Kenya / East Africa)</option><option value="sw-TZ">Swahili (Tanzania)</option><option value="hi-IN">Hindi</option><option value="gu-IN">Gujarati</option>
-          </select>
-        </div>
-      </section>
-      <section class="sg">
-        <h4>Claude</h4>
-        <div class="sr"><label>API key</label><span class="val cur" id="keyCur">Not set</span><button class="btn sm" id="rmKey" type="button" hidden>Remove</button></div>
-        <div class="sr"><label for="keyIn">New key</label><input id="keyIn" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-&hellip;"><button class="btn sm" id="eyeBtn" type="button">Show</button></div>
-        <div class="msg" id="keyMsg"></div>
-        <div class="hint">Saved only in this Windows user's folder. <a href="https://platform.claude.com/settings/keys" target="_blank">Get a key</a></div>
-      </section>
-      <section class="sg">
-        <h4>Other AI providers</h4>
-        <div id="provList"></div>
-      </section>
-      <section class="sg">
-        <h4>Research</h4>
-        <div class="sr"><label for="depthIn">Search depth</label><select id="depthIn"></select></div>
-        <div class="hint" id="depthNote"></div>
-        <div class="sr"><label for="braveIn">Brave Search key</label><input id="braveIn" type="password" autocomplete="off" spellcheck="false" placeholder="Optional"><button class="btn sm" id="braveSave" type="button">Save</button></div>
-        <div class="hint" id="braveCur"></div>
-        <div class="msg" id="resMsg"></div>
-      </section>
-      <section class="sg">
-        <h4>GitHub</h4>
-        <div id="cliBox"><div class="hint">Checking&hellip;</div></div>
-        <div id="ghExtra"></div>
-        <div class="msg" id="cliMsg"></div>
-        <div id="gitBox"></div>
-        <div id="gitExtra"></div>
-        <div class="tools" id="toolsLine"></div>
-      </section>
-      <section class="sg">
-        <h4>Secrets</h4>
-        <div class="hint" style="margin:0 0 8px">Encrypted for your Windows account. The AI can use a secret but never sees its value.</div>
-        <div id="secList"></div>
-        <div class="sr" style="margin-top:8px"><input id="secName" placeholder="NAME" autocomplete="off" spellcheck="false"><input id="secVal" type="password" placeholder="Value" autocomplete="off" spellcheck="false"><button class="btn sm" id="secAdd" type="button">Add</button></div>
-        <div class="msg" id="secMsg"></div>
-      </section>
+  <div class="card setwin" role="dialog" aria-label="Settings">
+    <nav class="setnav">
+      <label class="setsearch"><svg class="i"><use href="#i-search"/></svg><input id="setSearch" placeholder="Search" autocomplete="off" spellcheck="false"></label>
+      <div class="setgrp">Settings</div>
+      <button type="button" data-pane="general"><svg class="i"><use href="#i-user"/></svg>General</button>
+      <button type="button" data-pane="claude"><svg class="i"><use href="#i-cpu"/></svg>Claude</button>
+      <button type="button" data-pane="providers"><svg class="i"><use href="#i-globe"/></svg>Other AI providers</button>
+      <button type="button" data-pane="research"><svg class="i"><use href="#i-search"/></svg>Research</button>
+      <div class="setgrp">Tools and access</div>
+      <button type="button" data-pane="connectors"><svg class="i"><use href="#i-plug"/></svg>Connectors</button>
+      <button type="button" data-pane="github"><svg class="i"><use href="#i-branch"/></svg>GitHub</button>
+      <button type="button" data-pane="secrets"><svg class="i"><use href="#i-lock"/></svg>Secrets</button>
+    </nav>
+    <div class="setmain">
+      <button class="setx" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+      <div class="ubody">
+        <section class="sg" data-pane="general">
+          <h2>General</h2>
+          <div class="sr"><label for="nameIn">Name</label><input id="nameIn" maxlength="40" placeholder="Your name"></div>
+          <div class="sr"><label for="langIn">Voice language</label>
+            <select id="langIn">
+              <option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="en-IN">English (India)</option>
+              <option value="en-KE">English (Kenya / East Africa)</option><option value="sw-TZ">Swahili (Tanzania)</option><option value="hi-IN">Hindi</option><option value="gu-IN">Gujarati</option>
+            </select>
+          </div>
+          <div class="hint">Changes save as you make them.</div>
+        </section>
+        <section class="sg" data-pane="claude">
+          <h2>Claude</h2>
+          <div class="sr"><label>API key</label><span class="val cur" id="keyCur">Not set</span><button class="btn sm" id="rmKey" type="button" hidden>Remove</button></div>
+          <div class="sr"><label for="keyIn">New key</label><input id="keyIn" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-&hellip;"><button class="btn sm" id="eyeBtn" type="button">Show</button><button class="btn sm pri" id="keySave" type="button">Save</button></div>
+          <div class="msg" id="keyMsg"></div>
+          <div class="hint">Saved only in this Windows user's folder, encrypted. <a href="https://platform.claude.com/settings/keys" target="_blank">Get a key</a></div>
+        </section>
+        <section class="sg" data-pane="providers">
+          <h2>Other AI providers</h2>
+          <div class="hint lead">Use Gemini, OpenRouter or Groq models next to Claude. Each needs its own key.</div>
+          <div id="provList"></div>
+        </section>
+        <section class="sg" data-pane="research">
+          <h2>Research</h2>
+          <div class="sr"><label for="depthIn">Search depth</label><select id="depthIn"></select></div>
+          <div class="hint" id="depthNote"></div>
+          <div class="sr"><label for="braveIn">Brave Search key</label><input id="braveIn" type="password" autocomplete="off" spellcheck="false" placeholder="Optional"><button class="btn sm" id="braveSave" type="button">Save</button></div>
+          <div class="hint" id="braveCur"></div>
+          <div class="msg" id="resMsg"></div>
+        </section>
+        <section class="sg" data-pane="connectors">
+          <div class="chead">
+            <h2>Connectors</h2>
+            <div class="ctabs" role="tablist"><button type="button" data-ctab="yours" class="on">Yours</button><button type="button" data-ctab="discover">Discover</button></div>
+            <span class="sp"></span>
+            <button class="btn sm pri" id="cNew" type="button"><svg class="i"><use href="#i-plus"/></svg>Add</button>
+          </div>
+          <div class="hint lead">Let the AI use other services through MCP, the same standard Claude Code uses. A project's own <code>.mcp.json</code> is picked up too.</div>
+          <div class="msg" id="cTopMsg"></div>
+          <div id="cYours"><div id="connList"></div></div>
+          <div id="cDiscover" hidden><div class="cgrid" id="cGrid"></div></div>
+          <div class="cform" id="cForm" hidden>
+            <div class="cfh"><b>Add your own connector</b><button class="ib" type="button" id="cFormX" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+            <div class="seg"><button class="on" id="ckLocal" type="button">Program on this PC</button><button id="ckRemote" type="button">Web address</button></div>
+            <input id="cName" placeholder="Name, e.g. github">
+            <div id="cLocalF"><input id="cCmd" placeholder="Command, e.g. npx -y @modelcontextprotocol/server-github">
+              <textarea id="cEnv" rows="2" placeholder="Secrets / settings, one per line: GITHUB_PERSONAL_ACCESS_TOKEN=..."></textarea></div>
+            <div id="cRemoteF" hidden><input id="cUrl" placeholder="https://example.com/mcp">
+              <textarea id="cHead" rows="2" placeholder="Headers, one per line: Authorization: Bearer ... (leave empty to sign in instead)"></textarea></div>
+            <div class="msg" id="cMsg"></div>
+            <div class="cff"><span class="hint">Secrets are stored only on this computer and never shown again in full.</span><button class="btn sm pri" id="cAdd" type="button">Add and test</button></div>
+          </div>
+        </section>
+        <section class="sg" data-pane="github">
+          <h2>GitHub</h2>
+          <div id="cliBox"><div class="hint">Checking&hellip;</div></div>
+          <div id="ghExtra"></div>
+          <div class="msg" id="cliMsg"></div>
+          <div id="gitBox"></div>
+          <div id="gitExtra"></div>
+          <div class="tools" id="toolsLine"></div>
+        </section>
+        <section class="sg" data-pane="secrets">
+          <h2>Secrets</h2>
+          <div class="hint lead">Encrypted for your Windows account. The AI can use a secret but never sees its value. Tools like wrangler and gh get their own token automatically.</div>
+          <div id="secList"></div>
+          <div class="sr" style="margin-top:8px"><input id="secName" placeholder="NAME" autocomplete="off" spellcheck="false"><input id="secVal" type="password" placeholder="Value" autocomplete="off" spellcheck="false"><button class="btn sm" id="secAdd" type="button">Add</button></div>
+          <div class="msg" id="secMsg"></div>
+        </section>
+        <p class="snone" id="setNone" hidden>Nothing matches.</p>
+      </div>
     </div>
-    <div class="acts"><button class="btn" data-close>Cancel</button><button class="btn pri" id="saveSet">Save</button></div>
   </div>
 </div>
 <div class="modal" id="pmModal">
@@ -2776,47 +2874,162 @@ setInterval(async () => {
 }, 20000);
 
 // ---------- connectors
+// ---------- Settings window: one page at a time, chosen in the sidebar (like the Claude app)
+function setPane(id) {
+  const win = $("setModal");
+  win.querySelectorAll(".setnav [data-pane]").forEach((b) => b.classList.toggle("on", b.dataset.pane === id));
+  win.querySelectorAll(".setmain .sg").forEach((sec) => { sec.hidden = sec.dataset.pane !== id; });
+  $("setNone").hidden = true; $("setSearch").value = ""; win.querySelector(".setmain .ubody").classList.remove("searching");
+  win.querySelector(".setmain .ubody").scrollTop = 0;
+  if (id === "connectors") showConnectors(true);
+}
+$("setModal").querySelectorAll(".setnav [data-pane]").forEach((b) => b.onclick = () => setPane(b.dataset.pane));
+// Search: shows every page whose words match, together (the sidebar dims the ones that don't).
+$("setSearch").oninput = () => {
+  const q = $("setSearch").value.trim().toLowerCase(), win = $("setModal");
+  const secs = [...win.querySelectorAll(".setmain .sg")];
+  win.querySelector(".setmain .ubody").classList.toggle("searching", !!q);
+  if (!q) { setPane(win.querySelector(".setnav .on")?.dataset.pane || "general"); return; }
+  let any = false;
+  for (const sec of secs) {
+    const hit = sec.textContent.toLowerCase().includes(q) || [...sec.querySelectorAll("option")].some((o) => o.text.toLowerCase().includes(q));
+    sec.hidden = !hit; any ||= hit;
+    win.querySelector(`.setnav [data-pane="${sec.dataset.pane}"]`)?.classList.toggle("dim", !hit);
+  }
+  $("setNone").hidden = any;
+};
+$("setSearch").onblur = () => $("setModal").querySelectorAll(".setnav .dim").forEach((b) => b.classList.remove("dim"));
+
+// ---------- Connectors: Yours (what's added) and Discover (ready-made ones, one click to add)
 let cKind = "local";
 $("ckLocal").onclick = () => { cKind = "local"; $("ckLocal").classList.add("on"); $("ckRemote").classList.remove("on"); $("cLocalF").hidden = false; $("cRemoteF").hidden = true; };
 $("ckRemote").onclick = () => { cKind = "remote"; $("ckRemote").classList.add("on"); $("ckLocal").classList.remove("on"); $("cLocalF").hidden = true; $("cRemoteF").hidden = false; };
 const pairs = (text, sep) => Object.fromEntries(text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => { const i = l.indexOf(sep); return i > 0 ? [l.slice(0, i).trim(), l.slice(i + 1).trim()] : null; }).filter(Boolean));
-async function showConnectors() {
-  const list = await (await fetch("/api/connectors?cwd=" + encodeURIComponent(current?.cwd || ""))).json();
-  const box = $("connList"); box.innerHTML = list.length ? "" : `<p style="color:var(--muted);margin:0">No connectors yet.</p>`;
+const cwdNow = () => current?.cwd || "";
+
+// Ready-made connectors (each checked Oct 2026). url: a web connector; cmd: a program on this PC.
+const DISCOVER = [
+  { id: "chrome", name: "Chrome", by: "Google", mark: "Ch", cmd: "npx -y chrome-devtools-mcp@latest --autoConnect",
+    desc: "Your own Chrome, signed in to your sites: make images in Gemini or ChatGPT, fill forms, check pages.",
+    note: "One-time step in Chrome: open chrome://inspect/#remote-debugging and switch remote debugging on. Chrome then asks you to Allow when the AI connects. Chrome must be open." },
+  { id: "chrome-window", name: "Chrome window", by: "Google", mark: "Ch", cmd: "npx -y chrome-devtools-mcp@latest",
+    desc: "A separate Chrome window just for the AI. Sign in to Gemini or ChatGPT there once; it remembers." },
+  { id: "cloudflare", name: "Cloudflare", by: "Cloudflare", mark: "Cf", url: "https://mcp.cloudflare.com/mcp", head: "Authorization: Bearer ${secret:CLOUDFLARE_API_TOKEN}",
+    desc: "Your whole account: Workers, KV, R2, D1, DNS and more." },
+  { id: "cloudflare-bindings", name: "Cloudflare Workers", by: "Cloudflare", mark: "Cf", url: "https://bindings.mcp.cloudflare.com/mcp",
+    desc: "Workers, KV, R2 and D1 storage." },
+  { id: "cloudflare-logs", name: "Cloudflare logs", by: "Cloudflare", mark: "Cf", url: "https://observability.mcp.cloudflare.com/mcp",
+    desc: "Read your Workers' logs and errors to find what went wrong." },
+  { id: "cloudflare-docs", name: "Cloudflare docs", by: "Cloudflare", mark: "Cf", url: "https://docs.mcp.cloudflare.com/mcp",
+    desc: "Search Cloudflare's documentation. No sign-in." },
+  { id: "github", name: "GitHub", by: "GitHub", mark: "Gh", url: "https://api.githubcopilot.com/mcp/", head: "Authorization: Bearer ${secret:GITHUB_TOKEN}", gh: true,
+    desc: "Issues, pull requests, code and Actions." },
+  { id: "context7", name: "Context7", by: "Upstash", mark: "C7", url: "https://mcp.context7.com/mcp",
+    desc: "Up-to-date docs for any library. No key needed." },
+  { id: "browser", name: "Playwright browser", by: "Microsoft", mark: "Pw", cmd: "npx -y @playwright/mcp@latest",
+    desc: "A fresh browser the AI clicks and types in. The first start downloads it." },
+  { id: "google", name: "Gmail and Google Drive", by: "Google", mark: "G", info: true,
+    desc: "Needs a Google sign-in app of your own; ask the AI to walk you through it." },
+];
+const markOf = (name) => (DISCOVER.find((d) => d.id === name)?.mark) || String(name || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).replace(/^./, (c) => c.toUpperCase()) || "?";
+const tile = (mark) => `<span class="ctile">${escHtml(mark)}</span>`;
+
+function connTab(which) {
+  $("setModal").querySelectorAll("[data-ctab]").forEach((b) => b.classList.toggle("on", b.dataset.ctab === which));
+  $("cYours").hidden = which !== "yours"; $("cDiscover").hidden = which !== "discover";
+}
+$("setModal").querySelectorAll("[data-ctab]").forEach((b) => b.onclick = () => connTab(b.dataset.ctab));
+$("cNew").onclick = () => { $("cForm").hidden = false; $("cName").focus(); $("cForm").scrollIntoView({ block: "nearest" }); };
+$("cFormX").onclick = () => { $("cForm").hidden = true; };
+const topMsg = (text, kind = "") => { const m = $("cTopMsg"); m.className = "msg " + kind; m.textContent = text; };
+
+let connCache = [];
+async function showConnectors(inPane) {
+  if (!inPane) return openSettings("connectors"); // the sidebar and rail buttons open Settings › Connectors
+  let list = []; try { list = await (await fetch("/api/connectors?cwd=" + encodeURIComponent(cwdNow()))).json(); } catch {}
+  connCache = list;
+  const box = $("connList"); box.innerHTML = "";
+  if (!list.length) box.innerHTML = `<div class="cempty"><b>No connectors yet</b><span>Pick one under Discover, or add your own.</span><button class="btn sm" type="button" id="cGoDisc">Discover connectors</button></div>`;
+  $("cGoDisc")?.addEventListener("click", () => connTab("discover"));
   for (const c of list) {
-    const row = document.createElement("div"); row.className = "rowl"; row.style.cssText = "align-items:center;gap:8px";
-    const signBtn = c.kind === "remote" ? (c.signedIn ? `<button class="pvb" data-a="signout">Sign out</button>` : `<button class="pvb" data-a="signin">Sign in</button>`) : "";
-    row.innerHTML = `<span style="min-width:0"><b></b> <small style="color:var(--muted)"></small><br><small class="cst" style="color:var(--faint)"></small></span><span style="display:flex;gap:4px;flex-shrink:0"><button class="pvb" data-a="test">Test</button>${signBtn}${c.source === "app" ? `<button class="pvb" data-a="toggle">${c.disabled ? "Turn on" : "Turn off"}</button><button class="pvb" data-a="del">Remove</button>` : ""}</span>`;
-    row.querySelector("b").textContent = c.name;
-    row.querySelector("small").textContent = `${c.kind === "remote" ? c.url : [c.command, ...(c.args || [])].join(" ")} · ${c.source === "project" ? "from this project's .mcp.json" : "added in the app"}${c.signedIn ? " · signed in" : ""}${c.disabled ? " · off" : ""}`;
-    row.querySelectorAll("button").forEach((b) => b.onclick = async () => {
-      if (b.dataset.a === "test") {
-        row.querySelector(".cst").textContent = "Testing…";
-        const r = await (await post("/api/connectors/test", { name: c.name, cwd: current?.cwd || "" })).json();
-        row.querySelector(".cst").textContent = r.ok ? `✓ Connected · ${r.tools.length} tools: ${r.tools.slice(0, 6).join(", ")}${r.tools.length > 6 ? "…" : ""}` : `✕ ${r.error}`;
+    const row = document.createElement("div"); row.className = "crow" + (c.disabled ? " off" : "");
+    const where = c.kind === "remote" ? c.url : [c.command, ...(c.args || [])].join(" ");
+    const chips = [c.signedIn ? "Signed in" : "", c.source === "project" ? "From this project" : "", c.disabled ? "Off" : ""].filter(Boolean);
+    row.innerHTML = `${tile(markOf(c.name))}<div class="cmid"><div class="cname"><b></b>${chips.map((x) => `<span class="cchip">${x}</span>`).join("")}</div><small class="cwhere"></small><small class="cst"></small></div>
+      <div class="cacts"><button class="btn sm" data-a="test" type="button">Test</button>${c.signedIn ? `<button class="btn sm" data-a="signout" type="button">Sign out</button>` : c.usesSignIn ? `<button class="btn sm" data-a="signin" type="button">Sign in</button>` : ""}${c.source === "app" ? `<button class="ib" data-a="more" type="button" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button>` : ""}</div>`;
+    row.querySelector(".cname b").textContent = c.name;
+    row.querySelector(".cwhere").textContent = where;
+    const st = (t) => { row.querySelector(".cst").textContent = t; };
+    row.querySelectorAll("button").forEach((b) => b.onclick = async (e) => {
+      const a = b.dataset.a;
+      if (a === "test") {
+        st("Testing…");
+        const r = await (await post("/api/connectors/test", { name: c.name, cwd: cwdNow() })).json();
+        st(r.ok ? `✓ Connected · ${r.tools.length} tools: ${r.tools.slice(0, 5).join(", ")}${r.tools.length > 5 ? "…" : ""}` : `✕ ${r.error}`);
       }
-      if (b.dataset.a === "signin") signInConnector(c.name, (t) => { row.querySelector(".cst").textContent = t; });
-      if (b.dataset.a === "signout" && confirm(`Sign out of "${c.name}"? The AI can't use it until you sign in again.`)) { await post("/api/connectors/signout", { name: c.name, cwd: current?.cwd || "" }); showConnectors(); }
-      if (b.dataset.a === "toggle") { await post("/api/connectors", { name: c.name, disabled: !c.disabled }); showConnectors(); }
-      if (b.dataset.a === "del" && confirm(`Remove the "${c.name}" connector?`)) { await post("/api/connectors", { name: c.name, remove: true }); showConnectors(); }
+      if (a === "signin") signInConnector(c.name, st);
+      if (a === "signout" && confirm(`Sign out of "${c.name}"? The AI can't use it until you sign in again.`)) { await post("/api/connectors/signout", { name: c.name, cwd: cwdNow() }); showConnectors(true); }
+      if (a === "more") { // a small dropdown of its own (the app's menu lives in the message box, under this window)
+        const open = row.querySelector(".cpop"); document.querySelectorAll("#setModal .cpop").forEach((x) => x.remove()); if (open) return;
+        const pop = document.createElement("div"); pop.className = "cpop";
+        pop.innerHTML = `<button type="button">${c.disabled ? "Turn on" : "Turn off"}</button><button type="button" class="bad">Remove</button>`;
+        pop.children[0].onclick = async () => { await post("/api/connectors", { name: c.name, disabled: !c.disabled }); showConnectors(true); };
+        pop.children[1].onclick = async () => { if (confirm(`Remove the "${c.name}" connector?`)) { await post("/api/connectors", { name: c.name, remove: true }); showConnectors(true); } };
+        b.parentElement.appendChild(pop);
+        setTimeout(() => document.addEventListener("click", () => pop.remove(), { once: true }));
+      }
     });
     box.appendChild(row);
   }
-  $("connModal").classList.add("show");
+  renderDiscover();
+}
+function renderDiscover() {
+  const have = new Set(connCache.map((c) => c.name)), grid = $("cGrid"); grid.innerHTML = "";
+  for (const d of DISCOVER) {
+    const added = have.has(d.id);
+    const card = document.createElement("div"); card.className = "ccard";
+    card.innerHTML = `${tile(d.mark)}<div class="cmid"><b></b><span class="cdesc"></span><small>by ${escHtml(d.by)}</small></div>
+      <button class="cadd${added ? " done" : ""}" type="button" aria-label="${added ? "Added" : "Add"}" data-tip="${added ? "Added" : d.info ? "How to set it up" : "Add"}"><svg class="i"><use href="#${added ? "i-check" : "i-plus"}"/></svg></button>`;
+    card.querySelector("b").textContent = d.name; card.querySelector(".cdesc").textContent = d.desc;
+    card.querySelector(".cadd").onclick = () => added ? connTab("yours") : addPreset(d);
+    grid.appendChild(card);
+  }
+}
+// One click: save the ready-made connector, test it, and sign in if the service asks for that.
+async function addPreset(d) {
+  connTab("yours");
+  if (d.info) return topMsg("Gmail and Drive need a Google sign-in app of your own (an OAuth client from Google Cloud); Google doesn't allow skipping that. Ask the AI: \"set up a Gmail connector\" and it will walk you through it.", "bad");
+  if (d.gh) {
+    const secs = await (await fetch("/api/secrets", { cache: "no-store" })).json().catch(() => []);
+    if (!secs.some((x) => x.name === "GITHUB_TOKEN")) {
+      topMsg("Copying your GitHub sign-in from this PC as the secret GITHUB_TOKEN…");
+      const r = await post("/api/secrets", { fromGh: true });
+      if (!r.ok) return topMsg((await r.json()).error + " Sign in under Settings › GitHub, or add a token as the secret GITHUB_TOKEN.", "bad");
+    }
+  }
+  const config = d.url ? { url: d.url, headers: d.head ? pairs(d.head, ":") : {} }
+    : (() => { const parts = d.cmd.split(" "); return { command: parts[0], args: parts.slice(1), env: {} }; })();
+  topMsg(`Adding ${d.name}…` + (d.cmd ? " The first start downloads it, so this can take a minute." : ""));
+  const r = await post("/api/connectors", { name: d.id, config });
+  if (!r.ok) return topMsg((await r.json()).error, "bad");
+  await showConnectors(true);
+  const t = await (await post("/api/connectors/test", { name: d.id, cwd: cwdNow() })).json();
+  if (t.needsAuth) return signInConnector(d.id, (x) => topMsg(x));
+  topMsg(t.ok ? `✓ ${d.name} is connected: ${t.tools.length} tools.` + (d.note ? " " + d.note : "") : `${d.name} is added but couldn't connect yet: ${t.error}` + (d.note ? " " + d.note : ""), t.ok ? "good" : "bad");
 }
 // Sign in to a remote connector: the service's page opens in the browser; once the user presses Allow
 // there, the app is told (checked every 3 seconds for up to 5 minutes).
 async function signInConnector(name, say) {
   say("Opening the sign-in page…");
-  const r = await post("/api/connectors/signin", { name, cwd: current?.cwd || "" }); const j = await r.json();
-  if (j.ok) { say(`✓ Connected · ${j.tools} tools`); return showConnectors(); }
+  const r = await post("/api/connectors/signin", { name, cwd: cwdNow() }); const j = await r.json();
+  if (j.ok) { say(`✓ Connected · ${j.tools} tools`); return showConnectors(true); }
   if (!j.waiting) return say(`✕ ${j.error}`);
   say("Your browser opened the sign-in page. Press Allow there, then come back here.");
   for (let i = 0; i < 100; i++) {
     await new Promise((d) => setTimeout(d, 3000));
-    const list = await (await fetch("/api/connectors?cwd=" + encodeURIComponent(current?.cwd || ""))).json().catch(() => []);
-    if (list.find((x) => x.name === name)?.signedIn) { say("✓ Signed in."); return showConnectors(); }
-    if (!$("connModal").classList.contains("show")) return;
+    const list = await (await fetch("/api/connectors?cwd=" + encodeURIComponent(cwdNow()))).json().catch(() => []);
+    if (list.find((x) => x.name === name)?.signedIn) { say(`✓ Signed in to ${name}.`); return showConnectors(true); }
+    if (!$("setModal").classList.contains("show")) return;
   }
   say("No sign-in came back yet. Press Sign in to try again.");
 }
@@ -2830,45 +3043,14 @@ $("cAdd").onclick = async () => {
   const r = await post("/api/connectors", { name, config }); const j = await r.json();
   if (!r.ok) { m.className = "msg bad"; m.textContent = j.error; return; }
   m.textContent = "Saved. Testing the connection…";
-  const t = await (await post("/api/connectors/test", { name })).json();
+  const t = await (await post("/api/connectors/test", { name, cwd: cwdNow() })).json();
   m.className = t.ok ? "msg good" : "msg bad";
   m.textContent = t.ok ? `Connected: ${t.tools.length} tools available.` : `Saved, but it couldn't connect: ${t.error}`;
-  ["cName", "cCmd", "cEnv", "cUrl", "cHead"].forEach((id) => { if (t.ok || t.needsAuth) $(id).value = ""; });
-  await showConnectors();
+  if (t.ok || t.needsAuth) ["cName", "cCmd", "cEnv", "cUrl", "cHead"].forEach((id) => { $(id).value = ""; });
+  await showConnectors(true);
   if (t.needsAuth) { m.className = "msg"; signInConnector(name, (x) => { m.textContent = x; }); }
 };
-$("connNav").onclick = showConnectors;
-// Quick add: fills the form with a connector that's known to work (checked Oct 2026).
-$("cPreset").onchange = async () => {
-  const v = $("cPreset").value, m = $("cMsg"); m.className = "msg"; m.textContent = "";
-  const remote = (name, url, head) => { $("ckRemote").onclick(); $("cName").value = name; $("cUrl").value = url; $("cHead").value = head || ""; };
-  if (v === "github") {
-    remote("github", "https://api.githubcopilot.com/mcp/", "Authorization: Bearer ${secret:GITHUB_TOKEN}");
-    const secs = await (await fetch("/api/secrets", { cache: "no-store" })).json().catch(() => []);
-    if (!secs.some((x) => x.name === "GITHUB_TOKEN")) {
-      m.textContent = "It needs a GitHub token saved as the secret GITHUB_TOKEN. Copying your GitHub sign-in from this PC…";
-      const r = await post("/api/secrets", { fromGh: true }); const j = await r.json();
-      m.className = r.ok ? "msg good" : "msg bad";
-      m.textContent = r.ok ? "Done: your GitHub sign-in is saved as the secret GITHUB_TOKEN. Click Add and test." : j.error + " Sign in under Settings → GitHub & command line, or add a token as the secret GITHUB_TOKEN.";
-    } else m.textContent = "Uses your secret GITHUB_TOKEN. Click Add and test.";
-  } else if (v === "context7") { remote("context7", "https://mcp.context7.com/mcp", ""); m.textContent = "No key needed. Click Add and test."; }
-  else if (v.startsWith("cloudflare")) {
-    const cf = { cloudflare: ["cloudflare", "https://mcp.cloudflare.com/mcp"], "cloudflare-bindings": ["cloudflare-bindings", "https://bindings.mcp.cloudflare.com/mcp"],
-      "cloudflare-logs": ["cloudflare-logs", "https://observability.mcp.cloudflare.com/mcp"], "cloudflare-docs": ["cloudflare-docs", "https://docs.mcp.cloudflare.com/mcp"] }[v];
-    // The whole-account one also takes an API token: with a secret CLOUDFLARE_API_TOKEN saved it uses that, otherwise you sign in.
-    remote(cf[0], cf[1], v === "cloudflare" ? "Authorization: Bearer ${secret:CLOUDFLARE_API_TOKEN}" : "");
-    m.textContent = v === "cloudflare-docs" ? "No sign-in needed. Click Add and test."
-      : "Click Add. Your browser opens Cloudflare: choose your account and press Allow." + (v === "cloudflare" ? " (If you saved a Cloudflare API token as the secret CLOUDFLARE_API_TOKEN, that is used instead.)" : "");
-  }
-  else if (v === "browser") {
-    $("ckLocal").onclick(); $("cName").value = "browser"; $("cCmd").value = "npx -y @playwright/mcp@latest"; $("cEnv").value = "";
-    m.textContent = "A real browser window the AI can click and type in (it can sign in to sites you show it). The first start downloads it, so the test can take a minute.";
-  } else if (v === "google") {
-    m.className = "msg bad";
-    m.textContent = "Gmail and Drive need a Google sign-in app of your own (an OAuth client from Google Cloud). Google doesn't allow skipping that step. Ask the AI: \"set up a Gmail connector\" and it will walk you through it, then add it here.";
-  }
-  $("cPreset").value = "";
-};
+$("connNav").onclick = () => showConnectors();
 
 // ---------- artifact gallery
 async function showGallery() {
@@ -3655,13 +3837,14 @@ function showMe(key) {
 async function refreshStatus() {
   try { const s = await (await fetch("/api/status")).json(); showMe(s.key); } catch {}
 }
-function openSettings() {
+function openSettings(pane) {
+  setPane(typeof pane === "string" ? pane : "general");
   $("nameIn").value = store.get("fl.name", "Shivam");
   $("langIn").value = store.get("fl.lang", "en-US");
   $("keyIn").value = ""; $("keyIn").type = "password"; $("eyeBtn").textContent = "Show";
   $("braveIn").value = ""; $("ghExtra").innerHTML = ""; delete $("ghExtra").dataset.code;
   ["keyMsg", "resMsg", "cliMsg", "secMsg"].forEach((id) => { $(id).textContent = ""; $(id).className = "msg"; });
-  $("setModal").classList.add("show"); $("setModal").querySelector(".ubody").scrollTop = 0;
+  $("setModal").classList.add("show");
   renderProviders(); renderResearch(); renderCli(); renderSecrets(); ghResume();
 }
 async function saveKey(key) {
@@ -3822,14 +4005,16 @@ $("secAdd").onclick = async () => {
 
 $("eyeBtn").onclick = () => { const s = $("keyIn").type === "password"; $("keyIn").type = s ? "text" : "password"; $("eyeBtn").textContent = s ? "Hide" : "Show"; };
 $("rmKey").onclick = async () => { if (confirm("Remove the saved API key from this computer?") && await saveKey("")) toast("Key removed"); };
-$("saveSet").onclick = async () => {
-  const n = $("nameIn").value.trim(); if (n) store.set("fl.name", n);
-  store.set("fl.lang", $("langIn").value);
-  const k = $("keyIn").value.trim();
-  if (k && !(await saveKey(k))) return;
-  $("keyIn").value = ""; $("setModal").classList.remove("show");
-  refreshStatus(); toast(k ? "Key saved. You're ready to go" : "Settings saved");
+// Like the Claude app, settings save as you change them; the key has its own Save button.
+$("nameIn").onchange = () => { const n = $("nameIn").value.trim(); if (n) { store.set("fl.name", n); refreshStatus(); toast("Saved"); } };
+$("langIn").onchange = () => { store.set("fl.lang", $("langIn").value); toast("Saved"); };
+$("keySave").onclick = async () => {
+  const k = $("keyIn").value.trim(); if (!k) return;
+  if (!(await saveKey(k))) return;
+  $("keyIn").value = ""; $("keyMsg").className = "msg good"; $("keyMsg").textContent = "Key saved. You're ready to go.";
+  refreshStatus();
 };
+$("keyIn").onkeydown = (e) => { if (e.key === "Enter") $("keySave").click(); };
 refreshStatus();
 
 // ---------- updates: offered in the sidebar, installed only when you click, never mid-task

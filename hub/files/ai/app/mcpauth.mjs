@@ -58,6 +58,8 @@ export function makeMcpAuth(dataDir, redirectUrl) {
     ready: () => ready,
     provider,
     signedIn: (url) => !!store[url]?.tokens,
+    // The service asked for a sign-in at least once (so the app registered with it): show a Sign in button.
+    usesSignIn: (url) => !!store[url],
     waitingUrl: (url) => authUrls.get(url),
     async signOut(url) { delete store[url]; authUrls.delete(url); await persist(); },
     // The browser came back from the service with a code: swap it for tokens. Returns the connector address.
