@@ -1,7 +1,7 @@
 {
-    "version": "2.0.10",
+    "version": "2.0.11",
     "notes": [
-        "Faster start: connectors (like Chrome) now connect in the background, so a message no longer waits on \"Connecting connectors…\".",
-        "Stop now stops at once, whatever step is running. A follow-up you sent while it worked is then sent straight away, so it gets done."
+        "Easier to read chat list: group names (Pinned, Today, Older) are normal-sized words instead of tiny capitals, chat titles are a little larger and darker, and the empty dot beside each chat is gone.",
+        "Photos you attach are shrunk before sending, so replies with pictures no longer crawl."
     ]
 }

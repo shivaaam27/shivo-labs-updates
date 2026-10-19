@@ -1,14 +1,14 @@
 {
- "version": "1.0.296",
- "build": 296,
- "built": "2026-10-19T06:51:54.345Z",
+ "version": "1.0.297",
+ "build": 297,
+ "built": "2026-10-19T09:05:48.838Z",
  "notes": [
+  "AI 2.0.11: easier-to-read chat list; photos shrunk before sending",
   "AI 2.0.10: connectors connect in the background; Stop ends any step at once and sends a waiting follow-up",
   "Instant one-step updates: Cloudflare signal, everything installs by itself, AI included",
   "CLAUDE.md: Cloudflare as it really is (Chat Worker not deployed, R2 off, usage numbers 19 Oct)",
   "Shivo Labs AI 2.0.9: cap huge tool results; stuck 'prompt is too long' chats recover",
-  "Shivo Labs AI 2.0.8: Chrome connector through the Playwright MCP Bridge extension",
-  "AI updates always reachable: Update"
+  "Shivo Labs AI 2.0.8: Chrome connector through the Playwright MCP Bridge extension"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11149,7 +11149,7 @@
   "ai/app/public/fonts/HankenGrotesk-SemiBold.ttf": "ae42e1902f26a717e43652e689059def24ae8ecfeabcc59c69db9829c0116682",
   "ai/app/public/fonts/Sora-Light.ttf": "6db01b5e1c003287352417d26f068f0cafbde8f6b763e7717654fb0c051f9777",
   "ai/app/public/fonts/Sora-SemiBold.ttf": "614cc019d57fb8756d4862e666c7cbbd7ba20dbf98cc48a559184da666bd2a9a",
-  "ai/app/public/index.html": "28cb62dadac6be00584834c6ce33c89c09ea1f621782468b688b30ae8d92f119",
+  "ai/app/public/index.html": "d35ec6b37af56862f5559eebca397974221a4b02342e6d7c7ea45869f14ae4dd",
   "ai/app/public/manifest.json": "f97f7c4e28c85e7602cabeddee21044f39bb4896a85e7a58c8428eabc1aaa28a",
   "ai/app/relay.mjs": "7bad97f8a4875c92d55e1f58ae46fb3b98c9aa572b21b11af9b39583bc420e8a",
   "ai/app/rules.mjs": "0a7a57aa53ec74cc47d7df6b3570216c7fee6d98a723ffd21debb4048e087128",
@@ -11157,7 +11157,7 @@
   "ai/app/server.mjs": "2508bc18a9259d2c0566436b91f9371ac4d288123418a36934486e9e1cdf757c",
   "ai/app/set-taskbar-id.ps1": "a5ba634c3742ca3bf3734591e679fed359995aecbf5970bb694901a38d5588a4",
   "ai/app/studio.mjs": "cff5dcb73110dea852c88f465b2fb0ddef9adcf2599be19166c9610c1418867a",
-  "ai/app/version.json": "d43a34a1ea14c0113648857ac0478c2dd3186e4a24c8afb67f8d16c972f2d154",
+  "ai/app/version.json": "7a7ac88c4d75e846cea1cecdf1f3b3269345447754d32d075c3cce37da0c775d",
   "ai/app/web.mjs": "16474d71d9944e117e4a5f3a642c2d1198397f8a313b518eb9fa2576736e1983",
   "beam/app/beam/assets/apple-touch-icon.png": "1950746a8b7bb364ea92d3cf1df8480587f27c27c6c59112638a4709dfeb7a2a",
   "beam/app/beam/assets/beam.ico": "f3930fd2e9e50ec45533ba8c35f7a99610f3abd22ea860f1f9d3f22d3c30a7b2",

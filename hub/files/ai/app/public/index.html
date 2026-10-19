@@ -635,10 +635,13 @@ aside{width:252px;background:var(--bg)}
 #newBtn{padding:9px 10px;border-radius:var(--r-ctl);border:1px solid var(--line);background:var(--panel);font-weight:600;box-shadow:var(--shadow-1);margin:2px 0 4px}
 #newBtn:hover{background:var(--panel);border-color:var(--faint)}
 .search{margin:2px 10px 8px;padding:8px 11px;border-radius:var(--r-ctl);background:var(--panel)}
-.sec{padding:12px 18px 4px;font:600 10.5px var(--display);letter-spacing:.12em;text-transform:uppercase}
-.ci{padding:7px 9px;border-radius:10px}
+.sec{padding:14px 18px 5px;font:600 12.5px var(--display);letter-spacing:0;text-transform:none;color:var(--muted)}
+.ci{padding:8px 10px;border-radius:10px;font-size:14px}
+.ci .t .tt{font-size:14px;line-height:1.35}
+.ci .snip{font-size:12px;color:var(--muted)}
+.ci .o{display:none}.ci.live .o{display:block}
 .ci.active{background:var(--panel);box-shadow:0 0 0 1px var(--line)}
-.grp{font:600 10.5px var(--display);letter-spacing:.1em;text-transform:uppercase;padding:12px 9px 4px}
+.grp{font:600 12.5px var(--display);letter-spacing:0;text-transform:none;color:var(--muted);padding:14px 10px 5px}
 .me{padding:12px 14px}
 .me #themeBtn,.me #setBtn{display:none}
 .upd{border-radius:14px;margin:6px 10px 8px;padding:12px 14px}
@@ -2457,9 +2460,27 @@ async function attachFile(f) {
   }
   item.uploading = false; renderThumbs();
 }
+// Photos are shrunk before sending: Claude looks at images at most ~1568 px on the long side, and a
+// full-size phone photo (8 MB+) is sent again with every step of the reply, which made replies crawl.
+function shrinkImage(src) {
+  return new Promise((done) => {
+    const im = new Image();
+    im.onload = () => {
+      const max = 1568, s = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      if (s === 1 && src.length < 1.5e6) return done(src); // already small: keep it exactly
+      const c = document.createElement("canvas");
+      c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s);
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+      const out = c.toDataURL("image/jpeg", 0.88);
+      done(out.length < src.length ? out : src);
+    };
+    im.onerror = () => done(src);
+    im.src = src;
+  });
+}
 function addImages(files) {
   for (const f of files) {
-    if (PICS.test(f.type)) { const r = new FileReader(); r.onload = () => { pending.push(r.result); renderThumbs(); }; r.readAsDataURL(f); }
+    if (PICS.test(f.type)) { const r = new FileReader(); r.onload = async () => { pending.push(await shrinkImage(r.result)); renderThumbs(); }; r.readAsDataURL(f); }
     else if (f.size || f.type || f.name) attachFile(f);
   }
 }
