@@ -8,8 +8,9 @@ import { exec, execFile, execSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import {
   Anthropic, TOOLS, SERVER_TOOLS, serverToolsFor, DEPTHS, WRITE_TOOLS, HELPER_TOOLS, costOf, makeToolRunner, systemPrompt,
-  stopBackgroundProcesses, loadMemory, loadAutoMemory, loadCommands, listProcesses, killProcess, lineDiff, loadSkills,
+  stopBackgroundProcesses, loadMemory, loadAutoMemory, loadCommands, listProcesses, killProcess, lineDiff, loadSkills, resetShell, environment,
 } from "./agent.mjs";
+import { loadAgents, findHelper, helperToolNames, helperModel, helperSystem, changesThings } from "./subagents.mjs";
 import { relayFor, probePort } from "./relay.mjs";
 import { cloudTurn, followCloud } from "./cloud.mjs";
 import { cliStatus, loginState, startWebLogin, cancelWebLogin, tokenLogin, logout as ghLogout, setIdentity } from "./cli.mjs";
@@ -917,8 +918,9 @@ app.post("/api/chat", async (req, res) => {
   for (const e of rules.errors) send({ type: "error", text: "A settings file couldn't be read: " + e });
   const memory = loadMemory(workDir, extraDirs);
   const skills = loadSkills(workDir, skillsDir);
+  const agents = loadAgents(workDir); // custom helpers from .claude/agents
   await secretsReady();
-  let system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames(), toolSecrets: toolSecretNotes(), autoMemory: loadAutoMemory(workDir) }) +
+  let system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames(), toolSecrets: toolSecretNotes(), autoMemory: loadAutoMemory(workDir), agents }) +
     (mode === "plan" ? "\n\nPLAN MODE: Only read and investigate. Do not change any files or run commands. End with a clear step-by-step plan for the user to approve." : "") +
     // Other providers' free tiers allow few requests per minute, and every reply is one request:
     // ask for fewer, fuller turns (several tool calls at once).
@@ -999,6 +1001,8 @@ app.post("/api/chat", async (req, res) => {
     if (!snapshot.has(p)) snapshot.set(p, existsSync(p) ? readFileSync(p).toString("base64") : null);
   };
   let activeToolId = null; // which step the live terminal output belongs to
+  // A dev server this reply (or one of its helpers) started is answering: open it in the preview (not this app's own address).
+  const previewTo = (url) => { try { if (!live.done && Number(new URL(url).port) !== Number(PORT)) send({ type: "preview", url }); } catch {} };
   // Folders this reply may change. It grows when the user allows a new folder mid-chat.
   const allowedDirs = [workDir, ...extraDirs, skillsDir]; // skillsDir: so it can create skills
   const isAllowed = (p) => allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
@@ -1008,7 +1012,7 @@ app.post("/api/chat", async (req, res) => {
     onWatch: req.body.unattended ? null : (ev) => autoTurn(chatId, { cwd, extraDirs, model: req.body.model, effort, mode: mode === "plan" ? "ask" : mode, fast: req.body.fast }, ev.text), searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
     onOutput: (chunk) => send({ type: "term", id: activeToolId, text: chunk }),
     // A dev server this reply started is answering: open it in the preview (not this app's own address).
-    onPreview: (url) => { try { if (!live.done && Number(new URL(url).port) !== Number(PORT)) send({ type: "preview", url }); } catch {} },
+    onPreview: (url) => previewTo(url),
   });
 
   // ask_user: show the question with buttons in the app and wait for the answer.
@@ -1116,12 +1120,22 @@ app.post("/api/chat", async (req, res) => {
   }
 
   // One request to any model (no streaming), with its cost counted.
-  async function callOnce(useModel, { system, messages, tools, effort: eff = "low" }) {
+  let cacheOk = true;
+  async function callOnce(useModel, { system, messages, tools, effort: eff = "low", signal = abort.signal }) {
     let m;
     const o = splitModel(useModel);
-    if (o?.provider === "gemini") m = await geminiWithFallback(geminiLimits, geminiChain(o.model), { key: providerKey("gemini"), system, messages, tools, effort: eff, signal: abort.signal }, geminiNotices);
-    else if (o) m = await chatStep({ provider: o.provider, key: providerKey(o.provider), model: o.model, system, messages, tools, effort: eff, signal: abort.signal });
-    else m = await client.messages.create({ model: useModel, max_tokens: 16000, output_config: { effort: eff }, system, tools: [...tools, serverToolsFor(researchDepth())[0]], messages }, { signal: abort.signal });
+    if (o?.provider === "gemini") m = await geminiWithFallback(geminiLimits, geminiChain(o.model), { key: providerKey("gemini"), system, messages, tools, effort: eff, signal }, geminiNotices);
+    else if (o) m = await chatStep({ provider: o.provider, key: providerKey(o.provider), model: o.model, system, messages, tools, effort: eff, signal });
+    else {
+      // The prompt cache keeps a helper's growing conversation cheap; dropped if the account refuses it.
+      const body = { model: useModel, max_tokens: 16000, output_config: { effort: eff }, system, messages,
+        tools: [...tools, ...(tools.some((t) => t.name === "search_web") ? [serverToolsFor(researchDepth())[0]] : [])], ...(cacheOk ? { cache_control: { type: "ephemeral" } } : {}) };
+      try { m = await client.messages.create(body, { signal }); }
+      catch (e) {
+        if (!(cacheOk && e instanceof Anthropic.BadRequestError && /cache/i.test(e.message))) throw e;
+        cacheOk = false; delete body.cache_control; m = await client.messages.create(body, { signal });
+      }
+    }
     const c = costOf(useModel, m.usage); totalCost += c; addUsage(c, m.usage, useModel); send({ type: "usage" });
     return m;
   }
@@ -1146,16 +1160,104 @@ app.post("/api/chat", async (req, res) => {
     }
     return "The helper ran out of steps before finishing.";
   }
-  const runHelper = (task) => miniAgent(model, `You are a research helper for a coding assistant on Windows. Working folder: ${workDir}. Investigate with your tools, then reply with a concise, specific report (file paths, line numbers, findings). You cannot change anything.`, task);
+
+  // Helpers (delegate_task): explore / plan only look; general and custom helpers (.claude/agents) can
+  // change things, through the same checks as the chat's own steps (permission rules, ask mode, hooks,
+  // folder access, undo), each with its own shell so its cd doesn't move the chat. Background helpers
+  // run while the chat carries on; their reports arrive as automatic messages, and the reply waits for
+  // them before it ends. Stop (or the reply ending) stops every helper.
+  const helperStop = new AbortController();
+  abort.signal.addEventListener("abort", () => helperStop.abort(), { once: true });
+  const helperStopped = new Promise((_, rej) => helperStop.signal.addEventListener("abort", () => rej(new Error("aborted")), { once: true }));
+  helperStopped.catch(() => {});
+  const bgHelpers = new Map(), helperNotes = [];
+  let helperCount = 0;
+  async function startHelper(t) {
+    const found = findHelper(t.input.agent, agents);
+    if (found.error) return { text: found.error, isError: true };
+    const names = helperToolNames(found, mcp.defs.map((d) => d.name));
+    const write = changesThings(names);
+    if (mode === "plan" && write) return { text: "Plan mode: only look-only helpers (explore, plan) can run now.", isError: true };
+    const n = ++helperCount;
+    const label = found.def?.name || (found.kind === "plan" ? "Planner" : "Helper");
+    const shellFile = write ? join(dataDir, "shells", `${safeId(chatId)}~h${n}`) : null;
+    const via = { label, prefix: `h${n}_`, allowed: new Set(names), show: write, activeId: null, signal: helperStop.signal };
+    via.runTool = write ? makeToolRunner({ workDir, allowedDirs, shellFile, onBeforeWrite, searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
+      onOutput: (chunk) => send({ type: "term", id: via.activeId, text: chunk }), onPreview: previewTo }) : helperRunner;
+    const want = (found.def?.skills || []).map((s) => s.toLowerCase());
+    const skillTexts = skills.filter((s) => want.includes(s.name.toLowerCase())).map((s) => { try { return `\n## ${s.name} (folder: ${s.dir})\n${readFileSync(s.file, "utf8")}`; } catch { return ""; } }).filter(Boolean);
+    const useModel = helperModel(found, model, { models: MODELS, canUse: (id) => isClaude(id) ? !!apiKey : !!(splitModel(id) && providerKey(splitModel(id).provider)) });
+    const eff = EFFORTS.includes(found.def?.effort) ? found.def.effort : found.kind === "explore" ? "low" : found.kind === "plan" ? "medium" : effort;
+    const job = agentLoop({ useModel, eff, via, task: String(t.input.task || ""),
+      system: helperSystem(found, { workDir, env: environment(workDir), memory, skillTexts }),
+      tools: [...TOOLS, ...mcp.defs].filter((d) => via.allowed.has(d.name)),
+      maxSteps: Math.min(150, Math.max(1, Number(found.def?.maxTurns) || (write ? 60 : 25))) })
+      .finally(() => { if (shellFile) resetShell(shellFile); });
+    const bg = t.input.background === true || (found.def?.background === true && t.input.background !== false);
+    if (!bg) return { text: await job, isError: false };
+    bgHelpers.set(n, { label, id: t.id });
+    job.then((r) => [r, false], (e) => ["The helper failed: " + friendlyError(e), true]).then(([report, bad]) => {
+      bgHelpers.delete(n);
+      if (helperStop.signal.aborted) return;
+      report = scrub(String(report));
+      helperNotes.push(`(Automatic message: background helper #${n} (${label}) has finished${bad ? " with an error" : ""}. Its report:)\n${capText(report, 30000)}`);
+      send({ type: "helper_done", id: t.id, isError: bad, text: report.slice(0, 4000) });
+    });
+    return { text: `Started helper #${n} (${label}) in the background. Carry on with other work; its report will arrive as an automatic message when it's done, and your reply waits for it before ending.`, isError: false, pending: true };
+  }
+  async function agentLoop({ useModel, system, task, tools, maxSteps, eff, via }) {
+    const msgs = [{ role: "user", content: task }];
+    for (let i = 0; i < maxSteps; i++) {
+      if (via.signal.aborted) return "Stopped by the user.";
+      const m = await Promise.race([callOnce(useModel, { system, messages: msgs, tools, effort: eff, signal: via.signal }), helperStopped]);
+      msgs.push({ role: "assistant", content: m.content, ...(m.raw ? { raw: m.raw } : {}) });
+      if (m.stop_reason === "pause_turn") continue;
+      const uses = m.content.filter((b) => b.type === "tool_use");
+      if (!uses.length) return m.content.filter((b) => b.type === "text").map((b) => b.text).join("\n") || "(no report)";
+      if (!via.show) send({ type: "status", text: `${via.label}: ${[...new Set(uses.map((u) => u.name.replace("_", " ")))].join(", ")}…` });
+      // Look-only steps next to each other run at the same time (all of them for a look-only helper); others alone, in order.
+      const results = [], together = (u) => !via.show || PARALLEL_TOOLS.has(u.name);
+      for (let a = 0; a < uses.length;) {
+        let b = a;
+        if (together(uses[a])) while (b + 1 < uses.length && together(uses[b + 1])) b++;
+        results.push(...await Promise.all(uses.slice(a, b + 1).map((u) => helperStep(u, via))));
+        a = b + 1;
+      }
+      msgs.push({ role: "user", content: results });
+    }
+    return `${via.label} ran out of steps (limit ${maxSteps}) before finishing. Check what it did so far.`;
+  }
+  async function helperStep(u, via) {
+    const id = via.prefix + u.id, t = { id, name: u.name, input: u.input };
+    if (via.show) send({ type: "tool", id, name: u.name, input: u.input, helper: via.label });
+    let out;
+    try {
+      out = !via.allowed.has(u.name) ? { text: `${u.name} isn't one of this helper's tools. It has: ${[...via.allowed].join(", ")}.`, isError: true }
+        : await Promise.race([handleTool(t, via), helperStopped]);
+    } catch (e) { out = { text: via.signal.aborted ? "Stopped by the user." : "This step failed: " + String(e?.message || e), isError: true }; }
+    finally { if (via.activeId === id) via.activeId = null; }
+    out.text = capText(out.text, 30000);
+    if (Array.isArray(out.content)) out.content = out.content.map((c) => c.type === "text" ? { type: "text", text: capText(c.text, 30000) } : c);
+    if (via.show) send({ type: "tool_result", id, isError: out.isError, text: out.text.slice(0, 4000), diff: out.diff, path: out.path });
+    return { type: "tool_result", tool_use_id: u.id, content: out.content || out.text, is_error: out.isError || undefined };
+  }
+  // The reply is about to end but background helpers are still working: wait for one to finish (or a message from the user).
+  async function waitForHelpers() {
+    send({ type: "status", text: `Waiting for background helper${bgHelpers.size > 1 ? "s" : ""} (${[...bgHelpers].map(([n, h]) => `#${n} ${h.label}`).join(", ")})…` });
+    while (bgHelpers.size && !helperNotes.length && !inbox.get(chatId)?.length) {
+      if (abort.signal.aborted) throw new Error("aborted");
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
 
   // Ask mode: wait for the user's OK in the app before changing anything.
-  async function permitted(name, input, force = false) {
+  async function permitted(name, input, force = false, helper = null) {
     // Connector tools can change things in other services, so "ask first" covers them too.
     // force: a permission rule says "ask" (even in Auto-edit).
     if (req.body.unattended && force) return false;
     if (!force && (mode !== "ask" || !(WRITE_TOOLS.has(name) || name.startsWith("mcp__")) || allowAlways.get(chatId)?.has(name))) return true;
     const reqId = crypto.randomUUID();
-    send({ type: "permission", reqId, tool: name, input });
+    send({ type: "permission", reqId, tool: name, input, ...(helper ? { helper } : {}) });
     const answer = await new Promise((done) => {
       approvals.set(reqId, done);
       abort.signal.addEventListener("abort", () => done("deny"), { once: true });
@@ -1257,8 +1359,8 @@ app.post("/api/chat", async (req, res) => {
     return body;
   }
 
-  async function handleTool(t) {
-    if (abort.signal.aborted) return { text: "Stopped by the user.", isError: true };
+  async function handleTool(t, via = null) {
+    if (abort.signal.aborted || via?.signal.aborted) return { text: "Stopped by the user.", isError: true };
     if (typeof t.input !== "object" || t.input === null) return { text: "Invalid tool input. Try again.", isError: true };
     // Missing required inputs get a clear answer (other models slip up here more than Claude).
     const def = [...TOOLS, ...STUDIO_TOOLS, ...mcp.defs].find((d) => d.name === t.name);
@@ -1268,12 +1370,12 @@ app.post("/api/chat", async (req, res) => {
     // "allow" skips the question.
     const rule = decide(rules, t.name, t.input, workDir);
     if (rule?.decision === "deny") return { text: `Blocked by the permission rule "${rule.rule}". Don't try to get around it; tell the user if you need it.`, isError: true };
-    if (rule?.decision !== "allow" && !(await permitted(t.name, t.input, rule?.decision === "ask"))) return { text: "The user declined this action. Ask them what to do instead.", isError: true };
+    if (rule?.decision !== "allow" && !(await permitted(t.name, t.input, rule?.decision === "ask", via?.label))) return { text: "The user declined this action. Ask them what to do instead.", isError: true };
     if (rules.hooks.PreToolUse) {
       const h = await runHooks(rules, "PreToolUse", { session_id: chatId, tool_name: t.name, tool_input: t.input }, { workDir, toolName: t.name });
       if (h.block) return { text: "A hook blocked this step: " + h.reason, isError: true };
     }
-    const out = await runToolInner(t);
+    const out = await runToolInner(t, via);
     // Connector, browser and artifact results don't go through the tool runner's scrub, so hide
     // any saved secret value here too, before the AI or the screen sees it.
     out.text = scrub(out.text);
@@ -1285,16 +1387,18 @@ app.post("/api/chat", async (req, res) => {
     }
     return out;
   }
-  async function runToolInner(t) {
-    if (t.name === "delegate_task") return { text: await runHelper(String(t.input.task || "")), isError: false };
-    if (STUDIO_NAMES.has(t.name)) return runStudioTool(t.name, t.input);
+  async function runToolInner(t, via = null) {
     if (mcp.has(t.name)) return mcp.call(t.name, t.input);
+    if (!via) { // the chat's own tools; helpers have none of these
+    if (t.name === "delegate_task") return startHelper(t);
+    if (STUDIO_NAMES.has(t.name)) return runStudioTool(t.name, t.input);
     if (t.name === "ask_user") return { text: "The user answered: " + (await askUser(t.input)), isError: false };
     if (t.name === "use_skill") {
       const s = skills.find((x) => x.name.toLowerCase() === String(t.input.name || "").toLowerCase());
       return s
         ? { text: `Skill "${s.name}" (its folder, for any files it mentions: ${s.dir})\n\n${readFileSync(s.file, "utf8")}`, isError: false }
         : { text: `No skill called "${t.input.name}". Available: ${skills.map((x) => x.name).join(", ") || "none"}`, isError: true };
+    }
     }
     // For file changes, remember the file before so the app can show a diff.
     let target = null, before = null;
@@ -1306,8 +1410,8 @@ app.post("/api/chat", async (req, res) => {
     }
     if (t.name === "run_command" && !(await checkCommand(t.input.command)))
       return { text: "The user declined: this command would change files outside the linked folders. Ask them first, or work inside the linked folders.", isError: true };
-    activeToolId = t.id;
-    const out = await runTool(t.name, t.input, abort.signal);
+    if (via) via.activeId = t.id; else activeToolId = t.id;
+    const out = await (via ? via.runTool : runTool)(t.name, t.input, via ? via.signal : abort.signal);
     if (target && !out.isError) {
       try { out.diff = lineDiff(before, readFileSync(target, "utf8")); out.path = target; } catch {}
     }
@@ -1324,15 +1428,15 @@ app.post("/api/chat", async (req, res) => {
 
   // Hand over anything the user typed while we were working. Returns true if there was something.
   function drainInbox() {
-    const waiting = inbox.get(chatId);
-    if (!waiting?.length) return false;
+    const waiting = inbox.get(chatId) || [], notes = helperNotes.splice(0); // notes: reports from background helpers
+    if (!waiting.length && !notes.length) return false;
     inbox.delete(chatId);
-    const blocks = waiting.map((t) => ({ type: "text", text: `(The user sent this while you were working: ${t})` }));
+    const blocks = [...notes.map((text) => ({ type: "text", text })), ...waiting.map((t) => ({ type: "text", text: `(The user sent this while you were working: ${t})` }))];
     const last = session.messages.at(-1);
     if (last?.role === "user") last.content.push(...blocks); // after any tool results, as the API requires
     else session.messages.push({ role: "user", content: blocks });
     saveSession(chatId, session);
-    send({ type: "interjected", count: waiting.length });
+    if (waiting.length) send({ type: "interjected", count: waiting.length });
     return true;
   }
 
@@ -1422,6 +1526,7 @@ app.post("/api/chat", async (req, res) => {
       const toolUses = message.content.filter((b) => b.type === "tool_use");
       if (!toolUses.length) {
         if (drainInbox()) continue; // a late message keeps it going
+        if (bgHelpers.size) { await waitForHelpers(); if (drainInbox()) continue; }
         // Sometimes the model stops right after its last tool step without writing anything, or its
         // answer is cut off by the length limit. Ask once for the closing summary so the user gets a report.
         const said = message.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
@@ -1472,7 +1577,7 @@ app.post("/api/chat", async (req, res) => {
         if (Array.isArray(out.content)) { const n = out.content.filter((c) => c.type === "text").length || 1; out.content = out.content.map((c) => c.type === "text" ? { type: "text", text: capText(c.text, Math.floor(RESULT_CAP / n)) } : c); }
         // Browser results carry a screenshot: the AI sees it, the app shows it in the step.
         const image = out.content?.find((b) => b.type === "image");
-        send({ type: "tool_result", id: t.id, isError: out.isError, text: out.text.slice(0, 4000), image: image ? `data:${image.source.media_type};base64,${image.source.data}` : undefined, diff: out.diff, path: out.path });
+        send({ type: "tool_result", id: t.id, isError: out.isError, pending: out.pending || undefined, text: out.text.slice(0, 4000), image: image ? `data:${image.source.media_type};base64,${image.source.data}` : undefined, diff: out.diff, path: out.path });
         return { type: "tool_result", tool_use_id: t.id, content: out.content || out.text, is_error: out.isError || undefined };
       }
       // Steps that only look (read, search, fetch, helpers) and sit next to each other run at the
@@ -1506,6 +1611,9 @@ app.post("/api/chat", async (req, res) => {
     }
     send(resultEvent());
   } finally {
+    // Background helpers end with the reply.
+    for (const h of bgHelpers.values()) send({ type: "helper_done", id: h.id, isError: true, text: "Stopped before it finished." });
+    helperStop.abort();
     running.delete(chatId);
     // A message typed in the final moment wasn't read: give it back so it isn't lost.
     const late = inbox.get(chatId);

@@ -1,8 +1,8 @@
 {
-    "version": "2.0.16",
+    "version": "2.0.17",
     "notes": [
-        "The preview now opens by itself when the AI starts a website: it waits until the site is ready, then shows it. Sites made with Vite (and others that only listen on the newer IPv6 address) now show instead of \"Nothing is answering\", and appear in the preview's list of local sites.",
-        "The AI can start a project's dev servers by name from .claude/launch.json (the same file Claude Code uses), picks a free port when one is busy, and reopens a server that's already running instead of starting it twice.",
-        "Links like **http://localhost:5173** in bold, in brackets or written as localhost:5173 now open the preview too."
+        "Helpers can now do real work: the AI can hand a separate job to a \"general\" helper that edits files and runs commands. It goes through the same permission questions, folder checks and Undo as the AI itself, and its steps show in the chat.",
+        "New helper types like Claude Code: explore (looks only), plan (looks and writes a plan) and general. Your own helpers from .claude/agents files (the same format Claude Code uses) work too, with their own tools, model and instructions.",
+        "Helpers can run in the background while the AI carries on; their report arrives by itself, and the reply waits for them before it ends. Stop stops them too."
     ]
 }

@@ -1362,7 +1362,12 @@ function nearBottom() { const s = $("scroll"); return s.scrollHeight - s.scrollT
 function scrollDown(force) { const s = $("scroll"); if (force || nearBottom()) s.scrollTop = s.scrollHeight; }
 
 const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", preview_start: "Started the preview of", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched" };
-const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", preview_start: "Starting the dev server…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "Helper is researching…" };
+const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", preview_start: "Starting the dev server…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "A helper is working…" };
+// A helper's step title: its type (explore, plan, general, or a custom helper's name).
+function helperTitle(i = {}) {
+  const a = String(i.agent || "explore").toLowerCase();
+  return (a === "explore" ? "Helper researched" : a === "plan" ? "Helper planned" : /^general/.test(a) ? "Helper worked on" : `Helper "${i.agent}"`) + (i.background ? " (background)" : "");
+}
 function detail(name, i = {}) {
   return ({ read_file: i.path, write_file: i.path, edit_file: i.path, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, preview_start: i.name || "the project", terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task })[name] || "";
 }
@@ -1565,7 +1570,7 @@ function addStep(body, t) {
   d.className = "st" + (t.done ? (t.isError ? " bad" : " ok") : "");
   d.dataset.name = t.name; if (t.input?.path) d.dataset.path = t.input.path;
   d.innerHTML = `<summary><i class="s"></i><b></b><span class="d"></span></summary><pre></pre>`;
-  d.querySelector("b").textContent = VERBS[t.name] || prettyTool(t.name);
+  d.querySelector("b").textContent = (t.helper ? t.helper + " · " : "") + (t.name === "delegate_task" ? helperTitle(t.input) : VERBS[t.name] || prettyTool(t.name));
   d.querySelector(".d").textContent = detail(t.name, t.input);
   d.querySelector("pre").textContent = t.result || "Working…";
   const list = stepsBox(body); list.appendChild(d); refreshGroup(list); return d;
@@ -1633,7 +1638,7 @@ function shrinkCard(d, text, no) {
 }
 function addPerm(body, pr, chat) {
   const d = document.createElement("div"); d.className = "perm";
-  const [what, det] = permSummary(pr.tool, pr.input);
+  const [what0, det] = permSummary(pr.tool, pr.input), what = (pr.helper ? pr.helper + ": " : "") + what0;
   const shrink = () => shrinkCard(d, (pr.answer === "deny" ? "Denied: " : pr.answer === "always" ? "Allowed for this chat: " : "Allowed: ") + what, pr.answer === "deny");
   if (pr.answer) { shrink(); body.appendChild(d); return d; }
   d.innerHTML = `<b></b><pre></pre><div class="pa"><button class="y" data-a="allow">Allow</button><button data-a="always">Allow for this chat</button><button data-a="deny">Deny</button></div>`;
@@ -1987,7 +1992,7 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
         }
         else if (ev.type === "permission") {
           textPart = null;
-          const pr = { kind: "perm", reqId: ev.reqId, tool: ev.tool, input: ev.input };
+          const pr = { kind: "perm", reqId: ev.reqId, tool: ev.tool, input: ev.input, ...(ev.helper ? { helper: ev.helper } : {}) };
           turn.parts.push(pr); cards[pr.reqId] = place(() => addPerm(body, pr, chat));
           setLoader(think, "wait"); think.querySelector("span").textContent = "Waiting for your OK…";
         }
@@ -2014,7 +2019,7 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
         } else if (ev.type === "tool") {
           textPart = null;
           if (steps[ev.id]) continue; // a step is shown and saved once, even if announced again
-          const t = { kind: "tool", id: ev.id, name: ev.name, input: ev.input }; turn.parts.push(t);
+          const t = { kind: "tool", id: ev.id, name: ev.name, input: ev.input, ...(ev.helper ? { helper: ev.helper } : {}) }; turn.parts.push(t);
           if (ev.name === "run_command") { termWrite(`\nAI> `, "who"); termWrite(String(ev.input?.command || "") + "\n", "cmd"); }
           steps[ev.id] = { t, el: place(() => ev.name === "update_plan" ? addTodo(body, t.input) : addStep(body, t)) };
           setLoader(think, fkKind(ev.name, ev.input)); think.querySelector("span").textContent = DOING[ev.name] || "Working…";
@@ -2022,10 +2027,16 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
           const s = steps[ev.id]; if (!s) continue;
           setLoader(think, "think");
           // Keep a trimmed diff with the step, for the diff view.
-          Object.assign(s.t, { done: true, isError: ev.isError, result: ev.text, diff: ev.diff ? ev.diff.split("\n").slice(0, 200).join("\n") : undefined });
+          Object.assign(s.t, { done: !ev.pending, isError: ev.isError, result: ev.text, diff: ev.diff ? ev.diff.split("\n").slice(0, 200).join("\n") : undefined });
           const pre = s.el?.querySelector("pre");
+          if (ev.pending) { if (pre) pre.textContent = ev.text || "Working…"; continue; } // a background helper: still working
           // Screenshots are shown live but not kept in saved chats (they'd fill the browser's storage).
           if (pre) { s.el.classList.add(ev.isError ? "bad" : "ok"); pre.textContent = ev.text || "(done)"; if (ev.image) showShot(s.el, ev.image); refreshGroup(s.el.parentElement); if (s.el.classList.contains("teamc")) teamVerdict(s.el, s.t); }
+        } else if (ev.type === "helper_done") { // a background helper finished: its report replaces "started"
+          const s = steps[ev.id]; if (!s) continue;
+          Object.assign(s.t, { done: true, isError: ev.isError, result: ev.text });
+          const pre = s.el?.querySelector("pre");
+          if (pre) { s.el.classList.remove("ok", "bad"); s.el.classList.add(ev.isError ? "bad" : "ok"); pre.textContent = ev.text || "(done)"; refreshGroup(s.el.parentElement); }
         } else if (ev.type === "result") {
           chat.cost = (chat.cost || 0) + (ev.cost || 0);
           turn.result = { cost: ev.cost, turns: ev.turns, ms: ev.ms, model: ev.model || chat.model, checkpointId: ev.checkpointId, context: ev.contextTokens };

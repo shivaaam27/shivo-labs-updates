@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { release } from "node:os";
 import { WEB_TOOLS, fetchUrl, searchWeb } from "./web.mjs";
 import { PTY_TOOLS, ptyHandlers, closeTerminals } from "./pty.mjs";
+import { helpersPrompt } from "./subagents.mjs";
 import { PREVIEW_TOOLS, previewHandlers, localUrl, waitForPort } from "./preview.mjs";
 
 // $ per million tokens (input, output). Cache writes cost 1.25x input, reads 0.1x.
@@ -161,11 +162,16 @@ export const TOOLS = [
   {
     name: "delegate_task",
     description:
-      "Hand a self-contained research task to a helper agent that can read and search files and the web but cannot change anything. " +
-      "Use it to explore a large codebase or answer a side question without filling this conversation. Give it a complete, specific brief; it returns a written report.",
+      "Hand a self-contained task to a helper agent that works on its own and returns a written report, so this conversation stays focused. " +
+      "agent picks the type: explore (default; reads and searches files and the web, changes nothing), plan (read-only, returns a step-by-step plan), general (can also edit files and run commands), or a custom helper's name from your instructions. " +
+      "The helper doesn't see this conversation: give it a complete, specific brief.",
     input_schema: {
       type: "object",
-      properties: { task: { type: "string", description: "The full brief: what to find out and what to report back" } },
+      properties: {
+        task: { type: "string", description: "The full brief: what to do or find out, and what to report back" },
+        agent: { type: "string", description: "explore (default), plan, general, or a custom helper's name" },
+        background: { type: "boolean", description: "Return at once and keep working; the report arrives later as an automatic message" },
+      },
       required: ["task"],
     },
   },
@@ -271,7 +277,7 @@ export function loadAutoMemory(workDir) {
 }
 
 // What the AI should know about the moment and the machine, like Claude Code's environment block.
-function environment(workDir) {
+export function environment(workDir) {
   const now = new Date();
   const day = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -656,7 +662,7 @@ export function stopBackgroundProcesses() {
   closeTerminals();
 }
 
-export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills = [], depth = "normal", secrets = [], toolSecrets = [], autoMemory = null }) {
+export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills = [], depth = "normal", secrets = [], toolSecrets = [], autoMemory = null, agents = [] }) {
   return [
     "You are Shivo Labs AI (made by Shivo Labs, formerly Fabra Labs), a coding assistant running in a desktop app on the user's Windows PC.",
     "You can read, create and edit files, search code, and run PowerShell commands with your tools. Do the work yourself rather than telling the user to do it.",
@@ -689,7 +695,7 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
     secrets.length
       ? `Saved secrets you can use (the user added them in Settings; you never see the values): ${secrets.join(", ")}. Use one in run_command as $env:NAME (e.g. $env:${secrets[0]}); it is only filled in for commands that mention it${toolSecrets.length ? `, except these, which their tool gets on its own: ${toolSecrets.join("; ")}` : ""}. Never print, echo, write to files or send a secret anywhere except the service it belongs to. If you need a token that isn't listed, ask the user to add it under Settings → Secrets rather than pasting it into the chat.`
       : "No secrets are saved. If a task needs an API key or token, ask the user to add it under Settings → Secrets (not in the chat), then use it as $env:NAME.",
-    "Use delegate_task for broad research across many files, so this conversation stays focused.",
+    "Use delegate_task helpers (see Helpers below) for broad research or a separate piece of work, so this conversation stays focused.",
     "To save time, ask for steps that only look (read_file, list_files, search_files, fetch_url, search_web, delegate_task) together in one reply when they don't depend on each other: they run at the same time. Several delegate_task helpers in one reply work in parallel.",
     "Research and online access: search_web and fetch_url work for every model. search_web lists results, fetch_url opens any http(s) address (docs, articles, JSON, GitHub pages) and returns it as text with links you can follow; " +
       "long pages come in parts (start=). Claude's own web_search and web_fetch also exist; web_fetch only opens addresses already in the conversation, so when it refuses, use fetch_url. " +
@@ -701,6 +707,7 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
     ...(skills.length
       ? ["\n# Skills (call use_skill with the name before a task one of these covers)", ...skills.map((s) => `- ${s.name}: ${s.description}`)]
       : []),
+    helpersPrompt(agents),
     ...(memory.length
       ? ["\n# Instructions from the user's CLAUDE.md files (follow these; later, more specific files win)",
         ...memory.map((m) => `\n## ${m.path}\n${m.text}`)]
