@@ -256,7 +256,18 @@ function clipboardPaths() {
 // ---------- "Accept files from an iPhone?" (asked by the engine, answered in the hub window)
 const asks = new Map();  // id -> { ip, at, done(ok) }
 let lastLook = 0, askSeq = 0;
-const openWindow = () => spawn("wscript.exe", [join(here, "..", "Shivo Labs.vbs")], { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
+// Show the hub window for a question. If a hub window is already open (even minimized, or with the page asleep in the
+// background) it is brought forward: every question used to start another window, which piled up as blank "Shivo Labs"
+// windows. At most one start per 30 s, so a phone that keeps asking can't open more while the first is still loading.
+const FIND_WINDOW = `Add-Type 'using System;using System.Text;using System.Runtime.InteropServices;public class SW{public delegate bool P(IntPtr h,IntPtr l);[DllImport("user32.dll")]public static extern bool EnumWindows(P p,IntPtr l);[DllImport("user32.dll")]public static extern int GetWindowText(IntPtr h,StringBuilder s,int n);[DllImport("user32.dll")]public static extern int GetClassName(IntPtr h,StringBuilder s,int n);[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);[DllImport("user32.dll")]public static extern bool IsIconic(IntPtr h);[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);public static int Show(){int n=0;EnumWindows((h,l)=>{var t=new StringBuilder(64);GetWindowText(h,t,64);var c=new StringBuilder(64);GetClassName(h,c,64);if(t.ToString()=="Shivo Labs"&&c.ToString()=="Chrome_WidgetWin_1"){n++;if(n==1){if(IsIconic(h))ShowWindow(h,9);SetForegroundWindow(h);}}return true;},IntPtr.Zero);return n;}}';[Console]::Out.Write([SW]::Show())`;
+let openedAt = 0;
+function openWindow() {
+  if (Date.now() - openedAt < 30000) return; openedAt = Date.now();
+  execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", FIND_WINDOW], { windowsHide: true, timeout: 15000 }, (e, out) => {
+    if (!e && Number(String(out).trim()) > 0) return;   // one is open: brought to the front
+    spawn("wscript.exe", [join(here, "..", "Shivo Labs.vbs")], { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
+  });
+}
 
 const json = (res, code, body) => { res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
 
