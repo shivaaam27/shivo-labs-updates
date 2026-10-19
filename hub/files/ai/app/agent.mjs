@@ -137,6 +137,21 @@ export const TOOLS = [
     },
   },
   {
+    name: "watch_process",
+    description:
+      "Keep watching a background process after your reply ends. When its output matches `pattern` (case-insensitive regex) or it ends, " +
+      "this chat gets an automatic message with the new output, once, and you can act on it then (e.g. tell the user a long build failed or finished). " +
+      "Use it for jobs that take longer than your reply; use wait_for_process when you want to wait right now.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pid: { type: "integer" },
+        pattern: { type: "string", description: "Regex to watch for, e.g. 'error|failed|done'. Leave out to be told only when it ends." },
+      },
+      required: ["pid"],
+    },
+  },
+  {
     name: "stop_process",
     description: "Stop a background process you started, by its process id.",
     input_schema: { type: "object", properties: { pid: { type: "integer" } }, required: ["pid"] },
@@ -427,7 +442,7 @@ function wrapForState(command, shellFile) {
   ].join("\n");
 }
 
-export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s }) {
+export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch = null, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s }) {
   const abs = (p) => resolve(workDir, String(p || "."));
   const insideAllowed = (p) =>
     allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
@@ -552,8 +567,8 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onBefor
         let over = false, t;
         const end = (why) => { if (over) return; over = true; p.wake.delete(look); clearTimeout(t);
           let fresh = p.unread(); if (fresh.length > 12000) fresh = "…" + fresh.slice(-12000);
-          const state = p.child.exitCode === null ? "still running" : `ended with exit code ${p.child.exitCode}`;
-          done(`${why} Process ${pid} is ${state}. New output:\n${fresh || "(none)"}`); };
+          const state = p.child.exitCode === null ? "is still running" : `has ended (exit code ${p.child.exitCode})`;
+          done(`${why} Process ${pid} ${state}. New output:\n${fresh || "(none)"}`); };
         const look = () => {
           const n = Math.min(p.total - started, p.output.length);
           if (re && re.test(n > 0 ? p.output.slice(-n) : "")) return end(`Matched /${pattern}/.`);
@@ -563,6 +578,31 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onBefor
         signal?.addEventListener("abort", () => end("Stopped."), { once: true });
         p.wake.add(look); look();
       });
+    },
+    watch_process({ pid, pattern }) {
+      const p = background.get(Number(pid));
+      if (!p) return `No background process ${pid} (it may have finished more than a minute ago).`;
+      if (!onWatch) return "Watching isn't available here; use wait_for_process instead.";
+      let re = null;
+      if (pattern) { try { re = new RegExp(pattern, "i"); } catch (e) { throw new Error("Bad pattern: " + e.message); } }
+      const started = p.total;
+      let fired = false;
+      const look = () => {
+        if (fired) return;
+        const n = Math.min(p.total - started, p.output.length);
+        const hit = re && re.test(n > 0 ? p.output.slice(-n) : "");
+        if (!hit && p.child.exitCode === null) return;
+        fired = true; p.wake.delete(look);
+        // give a moment for the rest of the lines to arrive, then report once
+        setTimeout(() => {
+          let fresh = p.unread(); if (fresh.length > 6000) fresh = "…" + fresh.slice(-6000);
+          const state = p.child.exitCode === null ? "is still running" : `has ended (exit code ${p.child.exitCode})`;
+          onWatch({ pid: Number(pid), command: p.command,
+            text: `(Automatic message: a background process you asked to watch needs attention.) ${hit ? `Its output matched /${pattern}/.` : "It ended."} Process ${pid} (${p.command.slice(0, 120)}) ${state}. New output:\n${fresh || "(none)"}` });
+        }, 1500);
+      };
+      p.wake.add(look);
+      return `Watching process ${pid}${re ? ` for /${pattern}/` : ""} and for its end. You can finish your reply now: when it happens you'll get an automatic message in this chat, once.`;
     },
     stop_process({ pid }) {
       return killProcess(pid) ? `Stopped process ${pid}.` : `No background process ${pid}.`;

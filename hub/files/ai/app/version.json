@@ -1,7 +1,7 @@
 {
-    "version": "2.0.13",
+    "version": "2.0.14",
     "notes": [
-        "The AI can now watch a background job and react the moment something happens (a build finishes, a server is ready, an error appears) instead of guessing and checking.",
-        "Starting a dev server reports back as soon as it is ready, instead of always waiting 6 seconds."
+        "The AI can keep an eye on a long job after it has finished replying (a build, an install, a server). When the job fails, finishes or prints what it was told to watch for, the chat wakes up by itself and the AI tells you what happened.",
+        "Small fixes: clearer wording when a background job ends, and a 'Watching...' label while the AI waits on one."
     ]
 }

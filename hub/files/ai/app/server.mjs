@@ -792,13 +792,13 @@ const STUDIO_NAMES = new Set(STUDIO_TOOLS.map((t) => t.name));
 const STUDIO_READ_TOOLS = STUDIO_TOOLS.filter((t) => ["read_artifact", "browser", "view_file"].includes(t.name));
 // Tools that only look, so several in one reply can run at the same time (view_file stays out: it may
 // open Office, which shouldn't run twice at once).
-const PARALLEL_TOOLS = new Set(["read_file", "list_files", "search_files", "fetch_url", "search_web", "check_process", "wait_for_process", "read_artifact", "use_skill", "delegate_task"]);
+const PARALLEL_TOOLS = new Set(["read_file", "list_files", "search_files", "fetch_url", "search_web", "check_process", "wait_for_process", "watch_process", "read_artifact", "use_skill", "delegate_task"]);
 // Optional API features; if the account rejects them, we retry once without.
 let useExtras = true;
 
 // Working chats, kept after the page closes (see send() in /api/chat).
 const liveTurns = new Map(); // chatId -> { events, subs, done }
-app.get("/api/chat/live", (_req, res) => res.json([...liveTurns].filter(([, t]) => !t.claimed).map(([chatId, t]) => ({ chatId, done: t.done, events: t.events.length }))));
+app.get("/api/chat/live", (_req, res) => res.json([...liveTurns].filter(([, t]) => !t.claimed).map(([chatId, t]) => ({ chatId, done: t.done, events: t.events.length, auto: t.auto || undefined }))));
 app.get("/api/chat/attach", (req, res) => {
   const live = liveTurns.get(String(req.query.chatId || ""));
   if (!live) return res.status(404).json({ error: "That chat isn't working any more." });
@@ -947,6 +947,8 @@ app.post("/api/chat", async (req, res) => {
   const abort = new AbortController();
   running.set(chatId, abort);
   liveTurns.set(chatId, live);
+  // A turn the app started by itself (watch_process): nobody holds this request, the page attaches to it.
+  if (req.body.auto) { live.auto = String(prompt || "").slice(0, 300); live.subs.delete(res); res.end(); }
   // Closing the window no longer stops the chat (Stop and Esc still do). Scheduled runs keep the old rule.
   res.on("close", () => { live.subs.delete(res); if (req.body.unattended && !res.writableEnded) abort.abort(); });
 
@@ -999,7 +1001,9 @@ app.post("/api/chat", async (req, res) => {
   const allowedDirs = [workDir, ...extraDirs, skillsDir]; // skillsDir: so it can create skills
   const isAllowed = (p) => allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
   const runTool = makeToolRunner({
-    workDir, allowedDirs, shellFile: join(dataDir, "shells", safeId(chatId)), onBeforeWrite, searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
+    workDir, allowedDirs, shellFile: join(dataDir, "shells", safeId(chatId)), onBeforeWrite,
+    // watch_process: when the job needs attention later, start a new turn in this chat by itself.
+    onWatch: req.body.unattended ? null : (ev) => autoTurn(chatId, { cwd, extraDirs, model: req.body.model, effort, mode: mode === "plan" ? "ask" : mode, fast: req.body.fast }, ev.text), searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
     onOutput: (chunk) => send({ type: "term", id: activeToolId, text: chunk }),
   });
 
@@ -1508,6 +1512,18 @@ app.post("/api/chat", async (req, res) => {
     finish();
   }
 });
+
+// Start a turn in a chat by itself (a watched background process needs attention). Waits until the chat is idle.
+async function autoTurn(chatId, opts, text, tries = 0) {
+  if (running.has(chatId)) { if (tries < 1800) setTimeout(() => autoTurn(chatId, opts, text, tries + 1), 2000); return; }
+  try {
+    const r = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST", headers: { "Content-Type": "application/json", "x-fabra-token": TOKEN },
+      body: JSON.stringify({ chatId, prompt: text, cwd: opts.cwd || "", extraDirs: opts.extraDirs || [], model: opts.model, effort: opts.effort, mode: opts.mode, fast: opts.fast, sessionId: chatId, auto: true }),
+    });
+    await r.text();
+  } catch {}
+}
 
 function friendlyError(e) {
   if (e?.provider) return String(e.message);
