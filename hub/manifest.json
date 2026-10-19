@@ -1,8 +1,9 @@
 {
- "version": "1.0.292",
- "build": 292,
- "built": "2026-10-19T00:28:38.975Z",
+ "version": "1.0.293",
+ "build": 293,
+ "built": "2026-10-19T00:39:35.794Z",
  "notes": [
+  "Shivo Labs AI 2.0.9: cap huge tool results; stuck 'prompt is too long' chats recover",
   "Shivo Labs AI 2.0.8: Chrome connector through the Playwright MCP Bridge extension",
   "AI updates always reachable: Update"
  ],
@@ -11150,10 +11151,10 @@
   "ai/app/relay.mjs": "7bad97f8a4875c92d55e1f58ae46fb3b98c9aa572b21b11af9b39583bc420e8a",
   "ai/app/rules.mjs": "0a7a57aa53ec74cc47d7df6b3570216c7fee6d98a723ffd21debb4048e087128",
   "ai/app/secrets.mjs": "e6d84353a8417c491c2774359dae92dbaaf241defd166513b337b0683cf93647",
-  "ai/app/server.mjs": "53a0e2767303ea4ae5681681de8f2e9ff8ad9d43891995a583c6b20941d18877",
+  "ai/app/server.mjs": "3e06befb9bda5c3806eb29ee44f2679b097a6a3a719e65c0ad948f1624211f95",
   "ai/app/set-taskbar-id.ps1": "a5ba634c3742ca3bf3734591e679fed359995aecbf5970bb694901a38d5588a4",
   "ai/app/studio.mjs": "cff5dcb73110dea852c88f465b2fb0ddef9adcf2599be19166c9610c1418867a",
-  "ai/app/version.json": "5a55173cd9a23dc930c07b4c55e0d8107421993d3cec26b34de73be56cbdaa0b",
+  "ai/app/version.json": "ebbed421080f51ba98b5e8b7f909b7fda5d098bdb8522eacc6f143a988fc1043",
   "ai/app/web.mjs": "16474d71d9944e117e4a5f3a642c2d1198397f8a313b518eb9fa2576736e1983",
   "beam/app/beam/assets/apple-touch-icon.png": "1950746a8b7bb364ea92d3cf1df8480587f27c27c6c59112638a4709dfeb7a2a",
   "beam/app/beam/assets/beam.ico": "f3930fd2e9e50ec45533ba8c35f7a99610f3abd22ea860f1f9d3f22d3c30a7b2",

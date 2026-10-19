@@ -1187,6 +1187,35 @@ app.post("/api/chat", async (req, res) => {
     for (const [b, i] of found.slice(0, -2)) b.content[i] = { type: "text", text: "(An older screenshot/document was removed to save tokens. View it again if needed.)" };
   }
 
+  // A single tool result (a big web page from the Chrome connector, a huge file or log) could
+  // fill the whole context window and leave the chat unable to answer. Cap the text of each
+  // result; the AI is told it was cut so it can ask for a smaller piece.
+  const RESULT_CAP = 60000; // characters, about 15k tokens
+  function capText(t, cap = RESULT_CAP) {
+    t = String(t ?? "");
+    return t.length <= cap ? t : t.slice(0, cap) + `
+
+(Result cut: it was ${t.length.toLocaleString("en")} characters, only the first ${cap.toLocaleString("en")} are shown. Ask for a smaller part, e.g. search the page or read a section.)`;
+  }
+  // A chat that already went over the limit: shrink older tool results (and drop old pictures)
+  // so it can carry on instead of failing on every message.
+  function shrinkHistory(cap) {
+    let changed = 0;
+    for (const msg of session.messages) {
+      if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+      for (const b of msg.content) {
+        if (b.type !== "tool_result") continue;
+        if (typeof b.content === "string") { if (b.content.length > cap) { b.content = capText(b.content, cap); changed++; } }
+        else if (Array.isArray(b.content)) b.content = b.content.map((c) => {
+          if (c.type === "text" && c.text.length > cap) { changed++; return { type: "text", text: capText(c.text, cap) }; }
+          if (c.type === "image" || c.type === "document") { changed++; return { type: "text", text: "(An older screenshot/document was removed to make room.)" }; }
+          return c;
+        });
+      }
+    }
+    return changed;
+  }
+
   // The optional features are dropped for this chat only when a request is refused; the app-wide
   // switch goes off only once a retry without them works (so they really were the cause).
   let extrasOn = useExtras, extrasDropped = false;
@@ -1338,6 +1367,14 @@ app.post("/api/chat", async (req, res) => {
           break;
         } catch (e) {
           if (abort.signal.aborted) throw e;
+          // Over the context limit (usually one huge tool result): shrink old results and retry.
+          if (e instanceof Anthropic.BadRequestError && /prompt is too long/i.test(e.message) && attempt < 3) {
+            if (shrinkHistory([20000, 4000, 1000][attempt])) {
+              saveSession(chatId, session);
+              send({ type: "status", text: "This chat got too long; shortening old step results and trying again…" });
+              continue;
+            }
+          }
           // Retry once without the optional features if the request shape was rejected.
           if (e.provider) throw e; // other providers: the message already says what went wrong
           // (Not for used-up credits: that has nothing to do with the request's shape.)
@@ -1416,7 +1453,8 @@ app.post("/api/chat", async (req, res) => {
         try { out = await handleTool(t); }
         catch (e) { out = { text: abort.signal.aborted ? "Stopped by the user." : "This step failed: " + String(e?.message || e), isError: true }; }
         finally { if (activeToolId === t.id) activeToolId = null; }
-        out.text = String(out.text ?? "");
+        out.text = capText(out.text);
+        if (Array.isArray(out.content)) { const n = out.content.filter((c) => c.type === "text").length || 1; out.content = out.content.map((c) => c.type === "text" ? { type: "text", text: capText(c.text, Math.floor(RESULT_CAP / n)) } : c); }
         // Browser results carry a screenshot: the AI sees it, the app shows it in the step.
         const image = out.content?.find((b) => b.type === "image");
         send({ type: "tool_result", id: t.id, isError: out.isError, text: out.text.slice(0, 4000), image: image ? `data:${image.source.media_type};base64,${image.source.data}` : undefined, diff: out.diff, path: out.path });

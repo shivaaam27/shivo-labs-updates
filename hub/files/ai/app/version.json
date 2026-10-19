@@ -1,7 +1,7 @@
 {
-    "version": "2.0.8",
+    "version": "2.0.9",
     "notes": [
-        "Simpler Chrome connector: it now works through a Chrome extension, like Claude's own. Under Settings › Connectors › Discover, press + on Chrome: Chrome opens the extension's page, you click \"Add to Chrome\", and that's it. No chrome:// settings page any more.",
-        "Updates are easy to find in focus mode, and the hub's Settings can install an AI update (from 2.0.7)."
+        "Fixed: a chat could get stuck with \"prompt is too long\" after the Chrome connector read a very large page. Big step results are now cut to a safe size, and a chat that is already stuck shortens its old step results and carries on (just send your message again).",
+        "Chrome connector through the Chrome extension (from 2.0.8)."
     ]
 }
