@@ -28,7 +28,7 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
         <div class="set-acts">
           <button class="btn sm" id="chk">${svg('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/>')}Check now</button>
           ${u.available ? `<button class="btn pri sm" id="inst">${u.available.restart ? 'Install and restart' : 'Install now'}</button>` : ''}
-          ${u.aiHandOff && !u.aiHandOff.error ? `<button class="btn sm" id="openAi">Open Shivo Labs AI</button>` : ''}
+          ${u.aiHandOff && !u.aiHandOff.error ? `<button class="btn pri sm" id="openAi">Install Shivo Labs AI ${esc(u.aiHandOff.version)}</button>` : ''}
         </div>
       </section>
 
@@ -56,7 +56,8 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
 
       <section class="set-foot"><button class="tbtn" id="restart">Restart Shivo Labs</button></section>`;
 
-    $('#openAi')?.addEventListener('click', () => openModule('ai'));
+    // opens Shivo Labs AI and has it install its waiting update (it waits if a chat is still working)
+    $('#openAi')?.addEventListener('click', () => openModule('ai', false, { aiCmd: 'install-update' }));
     $('#chk').onclick = async () => { s.update.checking = true; paint(); s.update = await post('/api/settings/check'); paint(); toast(s.update.installing ? 'Installing the update…' : s.update.available ? 'An update is ready' : s.update.error ? "Couldn't check" : "You're up to date"); };
     const inst = $('#inst');
     if (inst) inst.onclick = async () => {

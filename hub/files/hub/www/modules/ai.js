@@ -2,14 +2,16 @@
 // The page stays loaded while you're elsewhere in the hub, so a working chat keeps going and
 // coming back is instant. Its chats live in the window's browser profile, which the hub window
 // shares with the old AI window (see Shivo Labs.vbs), so they're all there.
-let frame = null, ready = false, homeFn = null, wantSettings = false;
-// Settings > Shivo Labs AI settings: ask the AI page to open its own Settings window (as soon as it's ready)
-const sendSettings = () => { wantSettings = false; frame.contentWindow.postMessage({ shivo: 'settings' }, new URL(frame.src).origin); };
-export function aiSettings() { if (ready && frame?.src) sendSettings(); else wantSettings = true; }
+let frame = null, ready = false, homeFn = null, wanted = null;
+// Ask the AI page to do something as soon as it's ready: 'settings' (open its Settings window) or
+// 'install-update' (install the update it has waiting).
+const send = (cmd) => { wanted = null; frame.contentWindow.postMessage({ shivo: cmd }, new URL(frame.src).origin); };
+export function aiCommand(cmd) { if (ready && frame?.src) send(cmd); else wanted = cmd; }
+export const aiSettings = () => aiCommand('settings');
 
 addEventListener('message', (e) => {
   if (!frame || e.source !== frame.contentWindow) return;
-  if (e.data?.shivo === 'ready') { ready = true; document.getElementById('aiHome')?.remove(); if (wantSettings) sendSettings(); }
+  if (e.data?.shivo === 'ready') { ready = true; document.getElementById('aiHome')?.remove(); if (wanted) send(wanted); }
   if (e.data?.shivo === 'home') homeFn?.();
 });
 

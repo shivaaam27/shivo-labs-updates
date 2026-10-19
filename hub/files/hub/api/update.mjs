@@ -196,7 +196,8 @@ export async function handAiUpdate() {
   const handed = readVer(join(AI_LIVE, "updates", "version.json"));
   const live = readVer(join(AI_LIVE, "fabra-labs-ai", "version.json"));
   if (!newer(repoVer, live)) { state.aiHandOff = null; return null; } // the AI app is up to date
-  if (!newer(repoVer, handed)) return state.aiHandOff || null;           // handed over already, waiting for its "Update ready"
+  // handed over already, waiting for its "Update ready" (remembered again after the hub restarts, so Settings still offers it)
+  if (!newer(repoVer, handed)) return (state.aiHandOff ||= { version: repoVer });
   aiBusyHanding = true;
   try {
     // new packages: add them to the live app first (adding packages doesn't disturb it)

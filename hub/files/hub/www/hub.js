@@ -3,7 +3,7 @@
 import { mountBeam } from './modules/beam.js';
 import { mountXtools } from './modules/xtools.js';
 import { mountChat } from '/shared/chat/chat.js';
-import { makeAiPage, aiSettings } from './modules/ai.js';
+import { makeAiPage, aiSettings, aiCommand } from './modules/ai.js';
 import { mountSettings } from './modules/settings.js';
 import { mountMirror } from './modules/mirror.js';
 import { mountBusiness } from './modules/business.js';
@@ -68,6 +68,7 @@ function openModule(id, startEngine, opts = {}) {
   // a module may keep its own place after its id (#business/l/product); keep it when it is already there
   if (!location.hash.startsWith(`#${id}/`)) history.replaceState(null, '', `#${id}`);
   if (opts.aiSettings && id === 'ai') aiSettings();
+  if (opts.aiCmd && id === 'ai') aiCommand(opts.aiCmd);
 }
 function goHome() {
   leave?.(); leave = null;

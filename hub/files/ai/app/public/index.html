@@ -834,6 +834,9 @@ body.focus #rail,body.focus aside,body.focus header,body.focus #pv,body.focus #t
 body.focus .focusout{display:flex;align-items:center;gap:7px;position:absolute;top:12px;right:16px;z-index:5;padding:7px 13px;border-radius:99px;font-size:12.5px;font-weight:600;color:var(--muted);
   background:var(--g-bg);-webkit-backdrop-filter:blur(20px) saturate(170%);backdrop-filter:blur(20px) saturate(170%);border:.5px solid var(--g-rim2);box-shadow:var(--g-sh),inset 0 1px 0 var(--g-rim)}
 body.focus .focusout:hover{color:var(--text)}
+/* Focus mode hides the sidebar and its "Update ready" box: a small button next to "Exit focus" says so instead. */
+body.focus .focusout.updpill{right:132px;color:var(--text)}
+body.focus .focusout.updpill[hidden]{display:none}
 body.focus #scroll{padding-top:40px}
 
 /* narrow windows: the sidebar slides over, the rail stays */
@@ -954,6 +957,7 @@ body.focus #scroll{padding-top:40px}
     <button class="ib" data-tip="More" id="moreBtn"><svg class="i"><use href="#i-more"/></svg></button>
     <div class="menu fmenu" id="popMenu"></div>
   </header>
+  <button class="focusout updpill" id="updPill" hidden data-tip="Install the new version (your chats stay)"><svg class="i"><use href="#i-up"/></svg><span>Update ready</span></button>
   <button class="focusout" id="focusOut" data-tip="Show everything again (Ctrl+Shift+F)"><svg class="i"><use href="#i-shrink"/></svg><span>Exit focus</span></button>
   <div id="scroll"><div id="banner"></div><div id="thread"></div></div>
   <div class="comp">
@@ -4023,6 +4027,7 @@ async function checkUpdate(manual) {
   try { const u = await (await fetch("/api/update")).json(); update = u.available; $("upd").dataset.current = u.current; }
   catch { return; }
   $("upd").classList.toggle("show", !!update);
+  $("updPill").hidden = !update;
   if (update) {
     $("updTitle").textContent = `Update ready · version ${update.version}`;
     $("updNotes").textContent = (update.notes || [])[0] || "";
@@ -4067,7 +4072,7 @@ async function installUpdate(auto) {
   }
   $("updMsg").textContent = "The update is taking longer than expected. Close and reopen Shivo Labs AI.";
 }
-$("updBtn").onclick = installUpdate; $("newsInstall").onclick = installUpdate; $("updMore").onclick = showNews;
+$("updBtn").onclick = installUpdate; $("updPill").onclick = () => update && showNews(); $("newsInstall").onclick = installUpdate; $("updMore").onclick = showNews;
 checkUpdate(); setInterval(checkUpdate, 5 * 60 * 1000);
 // Opened by the `fabra` terminal command: ?cwd=<folder>&prompt=<text>. The prompt is only
 // put in the box (never sent automatically), so a web link can't make the AI do anything.
@@ -4140,6 +4145,12 @@ if (window.parent !== window) {
     window.parent.postMessage({ shivo: "ready" }, hub);
     // the hub's Settings has "Shivo Labs AI settings": open this app's own Settings window
     addEventListener("message", (e) => { if (e.origin === hub && e.source === window.parent && e.data?.shivo === "settings") $("setBtn").click(); });
+    // the hub's Settings has "Install Shivo Labs AI x.y.z": install the waiting update (it waits for a working chat)
+    addEventListener("message", async (e) => {
+      if (e.origin !== hub || e.source !== window.parent || e.data?.shivo !== "install-update") return;
+      if (!update) await checkUpdate();
+      if (update) installUpdate(); else toast("Shivo Labs AI is already up to date");
+    });
   }
 }
 </script>

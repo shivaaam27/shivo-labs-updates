@@ -1,8 +1,7 @@
 {
-    "version": "2.0.6",
+    "version": "2.0.7",
     "notes": [
-        "New Settings window, laid out like the Claude app: pages on the left (General, Claude, Other AI providers, Research, Connectors, GitHub, Secrets), one page at a time on the right, and a search box. Changes save as you make them; the API key has its own Save button.",
-        "Connectors now live in Settings with two tabs: Yours (what you've added, with Test, Sign in and a ⋯ menu) and Discover (ready-made connectors, added with one click).",
-        "New Chrome connector: the AI can use your own Chrome, where you're already signed in, for example to make images in Gemini or ChatGPT. One-time step in Chrome: open chrome://inspect/#remote-debugging and switch it on. There's also a separate Chrome window option where you sign in once."
+        "Updates are easy to find in focus mode: an \"Update ready\" button now shows next to \"Exit focus\". Before, focus mode hid the update box completely.",
+        "The Shivo Labs hub's Settings can install an AI update for you: \"Install Shivo Labs AI\" opens the AI and installs it (it waits if a chat is still working)."
     ]
 }
