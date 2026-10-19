@@ -51,7 +51,14 @@ export function makeConnectors(dataDir, { secret = () => undefined, auth = null 
     return Object.fromEntries(text.split(/\r?\n/).map((l) => l.split(/:\s*/)).filter((p) => p.length >= 2).map(([k, ...v]) => [k.trim(), v.join(": ").trim()]));
   }
 
-  async function connect(name, rawCfg) {
+  // A connector that's still starting is shared, not started a second time.
+  const starting = new Map();
+  function connect(name, rawCfg) {
+    const k = name + JSON.stringify(rawCfg);
+    if (!starting.has(k)) starting.set(k, connectNow(name, rawCfg).finally(() => starting.delete(k)));
+    return starting.get(k);
+  }
+  async function connectNow(name, rawCfg) {
     const cfg = { ...rawCfg, url: expandVars(rawCfg.url, secret), command: expandVars(rawCfg.command, secret),
       args: (rawCfg.args || []).map((a) => expandVars(a, secret)), env: expandAll(rawCfg.env, secret), headers: expandAll(rawCfg.headers, secret) };
     const key = name + JSON.stringify(cfg);

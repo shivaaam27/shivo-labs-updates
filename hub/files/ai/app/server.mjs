@@ -965,21 +965,28 @@ app.post("/api/chat", async (req, res) => {
   }
 
   // Connectors for this chat (not in plan mode, where nothing should change).
+  // They connect in the background: the reply starts at once (connections already open are ready
+  // straight away), and a slow connector's tools join from the next step once it's connected.
   let mcp = { defs: [], has: () => false };
-  if (mode !== "plan" && Object.keys(connectors.configsFor(workDir)).length) {
-    send({ type: "status", text: "Connecting connectors…" });
-    try {
-      mcp = await connectors.toolsFor(workDir);
-      for (const s of mcp.status.filter((x) => !x.ok)) send({ type: "error", text: `The "${s.name}" connector couldn't connect: ${s.error}` });
-    } catch (e) { send({ type: "error", text: "Connectors failed to load: " + (e.message || e) }); }
-  }
   // A Chrome connector (chrome-devtools-mcp) drives a real Chrome: say how to use it for the jobs people
   // want it for, like making images on sites the user is signed in to.
-  const chromeTools = mcp.defs.filter((d) => /^mcp__chrome[^_]*__/i.test(d.name));
-  if (chromeTools.length) system += "\n\nCHROME: the mcp__chrome… tools drive a real Chrome window where the user is signed in to their sites. " +
-    "To make an image with Gemini (gemini.google.com) or ChatGPT (chatgpt.com) there: open the site in a new page, type the user's request into its message box and send it, " +
-    "wait until the image has finished (take a snapshot or screenshot to check; it can take a minute), then use the site's own download button so the file lands in the user's Downloads folder, and give the full path. " +
-    "If the site asks the user to sign in or confirm something, stop and tell them; never type passwords. Only use this Chrome for what the user asked.";
+  const useConnectors = (m) => {
+    mcp = m;
+    if (running.get(chatId) === abort) for (const s of m.status.filter((x) => !x.ok)) send({ type: "error", text: `The "${s.name}" connector couldn't connect: ${s.error}` });
+    if (m.defs.some((d) => /^mcp__chrome[^_]*__/i.test(d.name))) system += "\n\nCHROME: the mcp__chrome… tools drive a real Chrome window where the user is signed in to their sites. " +
+      "To make an image with Gemini (gemini.google.com) or ChatGPT (chatgpt.com) there: open the site in a new page, type the user's request into its message box and send it, " +
+      "wait until the image has finished (take a snapshot or screenshot to check; it can take a minute), then use the site's own download button so the file lands in the user's Downloads folder, and give the full path. " +
+      "If the site asks the user to sign in or confirm something, stop and tell them; never type passwords. Only use this Chrome for what the user asked.";
+  };
+  if (mode !== "plan" && Object.keys(connectors.configsFor(workDir)).length) {
+    const loading = connectors.toolsFor(workDir).then(useConnectors,
+      (e) => { if (running.get(chatId) === abort) send({ type: "error", text: "Connectors failed to load: " + (e.message || e) }); });
+    await Promise.race([loading, new Promise((r) => setTimeout(r, 1500))]);
+  }
+  // Stop ends the current step at once, even one that doesn't listen for it (connectors, the
+  // browser, helpers): the step is answered "Stopped by the user." and the reply ends.
+  const stopped = new Promise((_, rej) => abort.signal.addEventListener("abort", () => rej(new Error("aborted")), { once: true }));
+  stopped.catch(() => {});
 
   const client = new Anthropic({ apiKey, maxRetries: 3 });
   // Snapshot each file the first time this reply changes it, so the user can undo.
@@ -1327,8 +1334,8 @@ app.post("/api/chat", async (req, res) => {
   try {
     if (team) {
       send({ type: "status", text: `Planning with ${team.planner.replace("claude-", "")}…` });
-      plan = await miniAgent(team.planner, `You are the planner in a team of AI models working on Windows. Working folder: ${workDir}. Another model (${model}) will do the work, following your plan exactly, and a reviewer will check it. Investigate only as much as needed with your read-only tools, then reply with a short numbered plan: which files to change and how, what to check at the end (tests, the browser, the console), and any traps. No code beyond small snippets.`,
-        `The user's request:\n${String(prompt || "")}`, "medium");
+      plan = await Promise.race([stopped, miniAgent(team.planner, `You are the planner in a team of AI models working on Windows. Working folder: ${workDir}. Another model (${model}) will do the work, following your plan exactly, and a reviewer will check it. Investigate only as much as needed with your read-only tools, then reply with a short numbered plan: which files to change and how, what to check at the end (tests, the browser, the console), and any traps. No code beyond small snippets.`,
+        `The user's request:\n${String(prompt || "")}`, "medium")]);
       teamStep("team_plan", { model: team.planner }, plan);
       session.messages.at(-1).content.push({ type: "text", text: `(Plan from the planner. Follow it, and say if you have to deviate:)\n${plan}` });
       saveSession(chatId, session);
@@ -1422,8 +1429,8 @@ app.post("/api/chat", async (req, res) => {
           send({ type: "status", text: `Checking the work with ${team.checker.replace("claude-", "")}…` });
           const finalText = message.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
           const changed = [...snapshot.keys()];
-          const verdict = await miniAgent(team.checker, `You are the reviewer in a team of AI models on Windows. Working folder: ${workDir}. Check the worker's result against the request and the plan: read the changed files, look for bugs, missing parts and broken code. Be strict but practical. Start your reply with exactly APPROVED or CHANGES NEEDED, then (if changes are needed) a short numbered list of concrete fixes.`,
-            `Request:\n${String(prompt || "")}\n\nPlan:\n${plan || "(none)"}\n\nFiles the worker changed:\n${changed.join("\n") || "(none)"}\n\nThe worker's final message:\n${finalText}`, "medium");
+          const verdict = await Promise.race([stopped, miniAgent(team.checker, `You are the reviewer in a team of AI models on Windows. Working folder: ${workDir}. Check the worker's result against the request and the plan: read the changed files, look for bugs, missing parts and broken code. Be strict but practical. Start your reply with exactly APPROVED or CHANGES NEEDED, then (if changes are needed) a short numbered list of concrete fixes.`,
+            `Request:\n${String(prompt || "")}\n\nPlan:\n${plan || "(none)"}\n\nFiles the worker changed:\n${changed.join("\n") || "(none)"}\n\nThe worker's final message:\n${finalText}`, "medium")]);
           teamStep("team_review", { model: team.checker, round: reviews }, verdict);
           unresolved = /^\W*CHANGES NEEDED/i.test(verdict);
           if (unresolved && reviews >= 2) send({ type: "error", text: "The reviewer still found problems after 2 rounds of fixes. Read its notes above, then reply with what to do, or switch off Team mode and let Claude do it." });
@@ -1450,7 +1457,7 @@ app.post("/api/chat", async (req, res) => {
         let out;
         // Any unexpected failure becomes a normal error result, so every tool call always gets
         // an answer and the conversation can't be left broken.
-        try { out = await handleTool(t); }
+        try { out = await Promise.race([handleTool(t), stopped]); }
         catch (e) { out = { text: abort.signal.aborted ? "Stopped by the user." : "This step failed: " + String(e?.message || e), isError: true }; }
         finally { if (activeToolId === t.id) activeToolId = null; }
         out.text = capText(out.text);
@@ -1494,7 +1501,8 @@ app.post("/api/chat", async (req, res) => {
     running.delete(chatId);
     // A message typed in the final moment wasn't read: give it back so it isn't lost.
     const late = inbox.get(chatId);
-    if (late?.length) send({ type: "unsent", texts: late });
+    // afterStop: the user stopped it with a follow-up waiting, so the app sends that follow-up next.
+    if (late?.length) send({ type: "unsent", texts: late, afterStop: abort.signal.aborted });
     inbox.delete(chatId);
     browser?.close();
     finish();

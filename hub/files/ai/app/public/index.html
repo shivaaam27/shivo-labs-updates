@@ -1886,7 +1886,7 @@ async function send() {
 // (send) or a chat that kept working while the window was closed (pickUpLiveChats).
 async function runLive(chat, turn, userItem, open, ctx = {}) {
   chat.live = true;
-  let body = $("thread").lastElementChild, gotSession = false;
+  let body = $("thread").lastElementChild, gotSession = false, followUp = "";
   const think = document.createElement("div"); think.className = "thinking"; think.innerHTML = fkLoader("think") + "<span>Thinking…</span><em class='el'></em>";
   // A live timer, so it's always clear the app is still working.
   const t0 = Date.now();
@@ -1924,8 +1924,13 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
           userItem.si = ev.promptIndex; userItem.gen = ev.gen; chat.gen = ev.gen;
         }
         else if (ev.type === "unsent") {
-          if (current === chat) { $("input").value = [...ev.texts, $("input").value].filter(Boolean).join("\n"); autosize(); }
-          toast("Your last message arrived as it finished, so it wasn't read. It's back in the box");
+          // Its "sent while working" bubbles go: the text is sent as a proper message instead.
+          turn.parts = turn.parts.filter((p) => !(p.kind === "queued" && !p.seen));
+          if (ev.afterStop && current === chat) followUp = ev.texts.join("\n");
+          else {
+            if (current === chat) { $("input").value = [...ev.texts, $("input").value].filter(Boolean).join("\n"); autosize(); }
+            toast("Your message came in just as it finished, so it's back in the box. Press Enter to send it");
+          }
         }
         else if (ev.type === "status") think.querySelector("span").textContent = ev.text;
         else if (ev.type === "usage") { clearTimeout(loadUsage.t); loadUsage.t = setTimeout(loadUsage, 400); }
@@ -2035,6 +2040,15 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
   if (visible()) renderThread();
   loadUsage();
   refreshGitChip(true); // the reply may have changed files
+  // Stopped with a follow-up waiting: send it now, so it gets worked on.
+  // (If something new is already typed in the box, both go back in the box to send together.)
+  if (followUp && current === chat && !isLive(chat)) {
+    const typed = $("input").value.trim();
+    $("input").value = [followUp, typed].filter(Boolean).join("\n"); autosize();
+    if (typed) return toast("Your follow-up is back in the box. Press Enter to send it");
+    voiceUsed = false; send();
+    return;
+  }
   if (visible() && gotSession) suggestNext(chat);
   if ($("gitModal").classList.contains("show") && visible()) loadGit();
 }

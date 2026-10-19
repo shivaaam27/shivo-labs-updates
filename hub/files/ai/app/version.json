@@ -1,7 +1,7 @@
 {
-    "version": "2.0.9",
+    "version": "2.0.10",
     "notes": [
-        "Fixed: a chat could get stuck with \"prompt is too long\" after the Chrome connector read a very large page. Big step results are now cut to a safe size, and a chat that is already stuck shortens its old step results and carries on (just send your message again).",
-        "Chrome connector through the Chrome extension (from 2.0.8)."
+        "Faster start: connectors (like Chrome) now connect in the background, so a message no longer waits on \"Connecting connectors…\".",
+        "Stop now stops at once, whatever step is running. A follow-up you sent while it worked is then sent straight away, so it gets done."
     ]
 }
