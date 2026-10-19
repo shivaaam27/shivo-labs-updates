@@ -9,6 +9,18 @@ import http from "node:http";
 import net from "node:net";
 
 const relays = new Map(); // target port -> relay port
+// Dev servers listen on 127.0.0.1, on ::1 only (Vite and Node 18+ when "localhost" means IPv6 first), or both.
+// Find which address answers, and remember it per port.
+const hostFor = new Map();
+export function probePort(port, timeout = 800) {
+  const one = (host) => new Promise((ok) => {
+    const s = net.connect({ host, port, timeout }); let done = false;
+    const end = (v) => { if (done) return; done = true; s.destroy(); ok(v); };
+    s.on("connect", () => end(host)); s.on("error", () => end(null)); s.on("timeout", () => end(null));
+  });
+  return Promise.all([one("127.0.0.1"), one("::1")]).then(([a, b]) => { const h = a || b; if (h) hostFor.set(Number(port), h); return h; });
+}
+const upHost = (port) => hostFor.get(port) || "127.0.0.1";
 
 // A tiny helper added to every HTML page: it tells the app which page is showing (so the address
 // bar follows navigation and Refresh stays on the same page), and handles back/forward/reload.
@@ -68,12 +80,13 @@ function upstreamHeaders(reqHeaders, targetPort, relayOrigin) {
 export function relayFor(targetPort) {
   targetPort = Number(targetPort);
   if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) return Promise.reject(new Error("Bad port"));
+  probePort(targetPort).catch(() => {}); // learn the address family early
   if (relays.has(targetPort)) return Promise.resolve(relays.get(targetPort));
   return new Promise((resolveP, reject) => {
     let relayOrigin = "";
     const server = http.createServer((req, res) => {
       if (req.url === "/__fabra_nav.js") { res.writeHead(200, { "Content-Type": "text/javascript", "Cache-Control": "no-store" }); return res.end(NAV_HELPER); }
-      const up = http.request({ host: "127.0.0.1", port: targetPort, method: req.method, path: req.url,
+      const send = () => { const up = http.request({ host: upHost(targetPort), port: targetPort, method: req.method, path: req.url,
         headers: upstreamHeaders(req.headers, targetPort, relayOrigin) }, (r) => {
         const headers = cleanHeaders(r.headers, targetPort);
         const isHtml = /text\/html/i.test(r.headers["content-type"] || "") && req.method === "GET";
@@ -91,12 +104,16 @@ export function relayFor(targetPort) {
           res.end(html);
         });
       });
-      up.on("error", () => { if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/html" }); res.end(`<p style="font-family:sans-serif;padding:20px">Nothing is answering on port ${targetPort} yet. If the dev server is still starting, press reload in a few seconds.</p>`); });
-      req.pipe(up);
+      up.on("error", async (e) => {
+        // Wrong address family (server on ::1 only, or 127.0.0.1 only): find the right one and try once more.
+        if (e.code === "ECONNREFUSED" && !req.__fbRetried && req.method === "GET") { const was = upHost(targetPort); req.__fbRetried = true; if ((await probePort(targetPort)) && upHost(targetPort) !== was) return send(); }
+        if (!res.headersSent) res.writeHead(502, { "Content-Type": "text/html" }); res.end(`<p style="font-family:sans-serif;padding:20px">Nothing is answering on port ${targetPort} yet. If the dev server is still starting, press reload in a few seconds.</p>`); });
+      if (req.__fbRetried) up.end(); else req.pipe(up); }; // a retried GET has no body left to pipe
+      send();
     });
     // Live reload (Vite, Next.js, webpack) uses WebSockets: pass them straight through.
     server.on("upgrade", (req, socket, head) => {
-      const up = net.connect(targetPort, "127.0.0.1", () => {
+      const up = net.connect(targetPort, upHost(targetPort), () => {
         const headers = upstreamHeaders(req.headers, targetPort, relayOrigin);
         delete headers["accept-encoding"];
         up.write(`${req.method} ${req.url} HTTP/1.1\r\n` + Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\r\n") + "\r\n\r\n");

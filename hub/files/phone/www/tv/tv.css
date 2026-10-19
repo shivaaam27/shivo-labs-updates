@@ -84,7 +84,7 @@ html[data-theme=dark] .tvx-tv-ic{color:var(--glow)}
 .tvx-track{height:6px;border-radius:3px;background:color-mix(in srgb,var(--text) 10%,transparent);overflow:hidden}
 .tvx-track i{display:block;height:100%;border-radius:inherit;background:var(--sage);transition:width .3s var(--ease)}
 html[data-theme=dark] .tvx-track i{background:var(--glow)}
-.tvx-quick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tvx-quick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .tvx-q{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 4px 10px;border-radius:16px;background:color-mix(in srgb,var(--text) 5%,transparent);
   font:600 13px/1 var(--body);color:var(--text);transition:transform .2s var(--spring),background .2s}
 .tvx-q:active{transform:scale(.94);background:color-mix(in srgb,var(--text) 10%,transparent)}

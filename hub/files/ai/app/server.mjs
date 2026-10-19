@@ -10,7 +10,7 @@ import {
   Anthropic, TOOLS, SERVER_TOOLS, serverToolsFor, DEPTHS, WRITE_TOOLS, HELPER_TOOLS, costOf, makeToolRunner, systemPrompt,
   stopBackgroundProcesses, loadMemory, loadAutoMemory, loadCommands, listProcesses, killProcess, lineDiff, loadSkills,
 } from "./agent.mjs";
-import { relayFor } from "./relay.mjs";
+import { relayFor, probePort } from "./relay.mjs";
 import { cloudTurn, followCloud } from "./cloud.mjs";
 import { cliStatus, loginState, startWebLogin, cancelWebLogin, tokenLogin, logout as ghLogout, setIdentity } from "./cli.mjs";
 import { toolSecretNotes, initSecrets, secretsReady, secretNames, listSecrets, setSecret, envFor, scrub, secretValue, protectValues, unprotectValues } from "./secrets.mjs";
@@ -628,7 +628,9 @@ app.get("/api/ports", async (_req, res) => {
     // a port that doesn't speak HTTP at all (a database, say) is dropped.
     let list = (await Promise.all(candidates.map(async ([port, proc]) => {
       try {
-        const r = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(2000), redirect: "follow" });
+        // Vite and newer Node servers often listen on ::1 only, so ask on whichever address answers.
+        const host = (await probePort(port)) === "::1" ? "[::1]" : "127.0.0.1";
+        const r = await fetch(`http://${host}:${port}/`, { signal: AbortSignal.timeout(2000), redirect: "follow" });
         const type = r.headers.get("content-type") || "";
         let title = "";
         if (type.includes("html")) title = (/<title[^>]*>([^<]{0,120})<\/title>/i.exec((await r.text()).slice(0, 20000))?.[1] || "").trim();
@@ -1005,6 +1007,8 @@ app.post("/api/chat", async (req, res) => {
     // watch_process: when the job needs attention later, start a new turn in this chat by itself.
     onWatch: req.body.unattended ? null : (ev) => autoTurn(chatId, { cwd, extraDirs, model: req.body.model, effort, mode: mode === "plan" ? "ask" : mode, fast: req.body.fast }, ev.text), searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
     onOutput: (chunk) => send({ type: "term", id: activeToolId, text: chunk }),
+    // A dev server this reply started is answering: open it in the preview (not this app's own address).
+    onPreview: (url) => { try { if (!live.done && Number(new URL(url).port) !== Number(PORT)) send({ type: "preview", url }); } catch {} },
   });
 
   // ask_user: show the question with buttons in the app and wait for the answer.

@@ -79,7 +79,8 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     try { return await fetch(u, { method: post ? 'POST' : 'GET', signal: ctl.signal, cache: 'no-store' }); }
     finally { clearTimeout(t); }
   }
-  async function call(path, q = {}, { host, ms = 6000, post = false } = {}) {
+  // one request to the TV (at home, or through the relay); gives the Response itself, for pictures that are not JSON
+  async function send(path, q = {}, { host, ms = 6000, post = false } = {}) {
     let r = null;
     if (host) r = await get(url(host, path, q), ms, post).catch(() => null);   // pairing: only ever on the Wi-Fi
     else {
@@ -92,8 +93,9 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     if (!r) throw new Error(hasRelay() && !host ? "Can't reach the TV. Check it is on and has internet." : "Can't reach the TV. Check it is on, showing Shivo Labs, and on the same Wi-Fi as this phone.");
     if (r.status === 401) throw Object.assign(new Error('This phone is no longer paired with the TV. Pair it again.'), { unpaired: true });
     if (r.status === 503) throw new Error('The TV is off or has no internet right now.');
-    return await r.json();
+    return r;
   }
+  async function call(path, q = {}, opts = {}) { return await (await send(path, q, opts)).json(); }
   // where the phone reaches the TV from, under the TV's name
   const whereText = () => offline ? 'Not connected' : away ? 'Connected from anywhere' : `Connected · ${cur.host}`;
   function paintWhere() {
@@ -375,6 +377,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
             <button class="tvx-q" id="tvHome">${IC.home}<span>Home</span></button>
             <button class="tvx-q" id="tvMute">${IC.mute}<span>Mute</span></button>
             <button class="tvx-q" id="tvInputs">${IC.hdmi}<span>Inputs</span></button>
+            <button class="tvx-q" id="tvLive">${IC.picture}<span>Screen</span></button>
           </div>
         </section>
         <div id="tvRemote">${remoteHtml()}</div>
@@ -561,6 +564,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     root.querySelector('#tvHome').onclick = () => act('/home', {}, 'Home on the TV');
     root.querySelector('#tvMute').onclick = () => act('/mute', {}).then((r) => { if (r) { dev.muted = r.muted; toast(r.muted ? 'TV muted' : 'Sound on'); } });
     root.querySelector('#tvInputs').onclick = () => setTab('inputs');
+    root.querySelector('#tvLive').onclick = () => openLive();
     root.querySelectorAll('[data-vol]').forEach((b) => (b.onclick = async () => {
       buzz();
       if (atv.available() && atv.isPaired(cur.host)) { press(b.dataset.vol === '1' ? 'volUp' : 'volDown'); }
@@ -610,6 +614,73 @@ export function mountTv(root, { toast = () => {}, haptic = () => {} } = {}) {
     root.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
     const c = root.querySelector('#tvContent'); c.innerHTML = contentHtml(); c.classList.remove('in'); void c.offsetWidth; c.classList.add('in');
     wireContent(); pics();
+  }
+  // ---- Live view: the TV's screen about once a second, scrambled on the TV and unscrambled here ----
+  // A key is made for each viewing (ECDH P-256 between this phone and the TV); the relay only sees scrambled bytes.
+  // The 8 digits shown here come from the same key: they must match the red badge on the TV. (tv/home Live.java)
+  const b64u = (u) => btoa(String.fromCharCode(...u)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const unb64u = (t) => Uint8Array.from(atob(t.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function liveBegin() {
+    const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
+    const pub = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+    const r = await call('/view/start', { a: b64u(pub) }, { post: true, ms: 9000 });
+    if (!r.ok) throw new Error(r.error || "The TV couldn't start Live view.");
+    const tvPub = await crypto.subtle.importKey('raw', unb64u(r.pub), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+    const secret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: tvPub }, kp.privateKey, 256));
+    const cat = (label) => { const l = new TextEncoder().encode(label), m = new Uint8Array(l.length + secret.length); m.set(l); m.set(secret, l.length); return m; };
+    const aes = await crypto.subtle.importKey('raw', await crypto.subtle.digest('SHA-256', cat('shivo-live-v1')), 'AES-GCM', false, ['decrypt']);
+    const n = String(new DataView(await crypto.subtle.digest('SHA-256', cat('shivo-live-sas'))).getUint32(0) % 100000000).padStart(8, '0');
+    return { aes, sas: `${n.slice(0, 4)} ${n.slice(4)}` };
+  }
+  async function openLive() {
+    if (document.getElementById('tvLiveBox')) return;
+    buzz();
+    if (!document.getElementById('tvLiveCss')) {
+      const st = document.createElement('style'); st.id = 'tvLiveCss';
+      st.textContent = `.tvl{position:fixed;inset:0;z-index:9999;background:#000;color:#eceee9;display:flex;flex-direction:column;font:15px/1.4 system-ui,sans-serif}
+        .tvl-top{display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px}.tvl-top b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .tvl-sas{font-variant-numeric:tabular-nums;letter-spacing:.06em;padding:4px 10px;border-radius:99px;background:#1d2a22;color:#9be3b0}
+        .tvl-x{border:0;border-radius:99px;padding:8px 16px;background:#2a2c2f;color:#eceee9;font:inherit}
+        .tvl-view{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}.tvl-view img{max-width:100%;max-height:100%;display:block}
+        .tvl-msg{position:absolute;left:16px;right:16px;text-align:center;color:#c9ccc6}.tvl-fine{margin:0;padding:10px 16px calc(env(safe-area-inset-bottom) + 12px);font-size:12.5px;color:#9a9d97;text-align:center}`;
+      document.head.appendChild(st);
+    }
+    const box = document.createElement('div'); box.className = 'tvl'; box.id = 'tvLiveBox';
+    box.innerHTML = `<div class="tvl-top"><b>${esc(cur.name || 'TV')}</b><span class="tvl-sas" id="tvlSas" hidden></span><button class="tvl-x" id="tvlX">Close</button></div>
+      <div class="tvl-view"><img id="tvlImg" alt="" hidden><p class="tvl-msg" id="tvlMsg">Connecting to the TV…</p></div>
+      <p class="tvl-fine">${away ? 'Uses mobile data: about 3 MB a minute. ' : ''}A red badge shows on the TV while you watch. Scrambled from the TV to this phone; check that the TV's badge shows the same number as above.</p>`;
+    document.body.appendChild(box);
+    const img = box.querySelector('#tvlImg'), msg = box.querySelector('#tvlMsg'), sasEl = box.querySelector('#tvlSas');
+    let open = true, objUrl = '', sess = null;
+    const say = (t) => { msg.textContent = t || ''; msg.hidden = !t; };
+    box.querySelector('#tvlX').onclick = async () => { open = false; box.remove(); if (objUrl) URL.revokeObjectURL(objUrl); try { await call('/view/stop', {}, { post: true, ms: 4000 }); } catch {} };
+    while (open) {
+      const t0 = Date.now();
+      try {
+        if (document.hidden) { await nap(1000); continue; }
+        if (!sess) {
+          try { sess = await liveBegin(); } catch (e) { say(e.message || "The TV couldn't start Live view."); break; }   // no retry loop: Close, fix it, open again
+          sasEl.textContent = sess.sas; sasEl.hidden = false; say('Waiting for the first picture…');
+        }
+        const resp = await send('/view/frame', {}, { ms: 9000 });
+        if ((resp.headers.get('content-type') || '').includes('json')) {
+          const j = await resp.json();
+          if (j.restart) { sess = null; sasEl.hidden = true; continue; }
+          say(j.error || 'The TV cannot show its screen just now.'); await nap(2000); continue;
+        }
+        const buf = new Uint8Array(await resp.arrayBuffer());
+        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, sess.aes, buf.slice(12));
+        if (!open) break;
+        const u = URL.createObjectURL(new Blob([plain], { type: 'image/jpeg' }));
+        img.src = u; img.hidden = false; say('');
+        if (objUrl) URL.revokeObjectURL(objUrl); objUrl = u;
+      } catch (e) {
+        if (!open) break;
+        say(e.message || "Can't reach the TV."); await nap(3000);
+      }
+      await nap(Math.max(150, 900 - (Date.now() - t0)));
+    }
   }
   async function act(path, q, msg) {
     buzz();

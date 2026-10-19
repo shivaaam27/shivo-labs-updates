@@ -1,7 +1,8 @@
 {
-    "version": "2.0.15",
+    "version": "2.0.16",
     "notes": [
-        "Real terminal for the AI: it can now answer questions programs ask, move through arrow-key menus, and use tools like setup wizards, Python, ssh or interactive git, reading the screen just as you would see it.",
-        "Colours in the terminal panel: red errors, green success and other coloured output now show in colour."
+        "The preview now opens by itself when the AI starts a website: it waits until the site is ready, then shows it. Sites made with Vite (and others that only listen on the newer IPv6 address) now show instead of \"Nothing is answering\", and appear in the preview's list of local sites.",
+        "The AI can start a project's dev servers by name from .claude/launch.json (the same file Claude Code uses), picks a free port when one is busy, and reopens a server that's already running instead of starting it twice.",
+        "Links like **http://localhost:5173** in bold, in brackets or written as localhost:5173 now open the preview too."
     ]
 }

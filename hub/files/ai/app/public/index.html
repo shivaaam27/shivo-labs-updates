@@ -1361,10 +1361,10 @@ const md = (t) => DOMPurify.sanitize(marked.parse(t || ""));
 function nearBottom() { const s = $("scroll"); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
 function scrollDown(force) { const s = $("scroll"); if (force || nearBottom()) s.scrollTop = s.scrollHeight; }
 
-const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched" };
-const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "Helper is researching…" };
+const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", preview_start: "Started the preview of", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched" };
+const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", preview_start: "Starting the dev server…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "Helper is researching…" };
 function detail(name, i = {}) {
-  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task })[name] || "";
+  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, preview_start: i.name || "the project", terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task })[name] || "";
 }
 // Line count; a final line break doesn't count as an extra line.
 function lines(s) { return s ? String(s).replace(/\r?\n$/, "").split("\n").length : 0; }
@@ -1375,10 +1375,14 @@ function diffOf(t) {
 }
 function findLinks(text) {
   const out = new Set();
-  for (const m of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s)`'"<\]]*/g)) out.add(m[0].replace(/[.,]$/, ""));
+  // Local addresses, also inside **bold** or (brackets), and bare `localhost:5173`.
+  for (const m of text.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+[^\s)`'"<>\]*]*/g)) out.add(m[0].replace(/[.,;:!?_]+$/, "").replace(/\/\/(?:0\.0\.0\.0|\[::1\])/, "//localhost"));
+  for (const m of text.matchAll(/(?<![\w\/.:@-])localhost:(\d{2,5})(?![\d\w])/g)) if (![...out].some((u) => u.includes("localhost:" + m[1]))) out.add("http://localhost:" + m[1]);
   for (const m of text.matchAll(/[A-Za-z]:\\[^\n`'"<>|*?]+?\.(?:html|png|jpe?g|svg|pdf|gif|webp|docx?|xlsx?|pptx?)\b/gi)) out.add(m[0]);
   return [...out];
 }
+// Is this address already open in the preview? (Same page, with or without the last slash.)
+const showing = (url) => document.body.classList.contains("pv-open") && typeof pvTarget === "string" && pvTarget.replace(/\/$/, "") === String(url).replace(/\/$/, "");
 function openTarget(t, how) { post("/api/open", { target: t, how }); }
 
 // One AI turn = steps + text + files card + footer.
@@ -1427,7 +1431,7 @@ function fkLoader(k) {
 function fkKind(name, input = {}) {
   if (name === "run_command") return /^\s*(git|gh)\b/i.test(input.command || "") ? "git" : "run";
   return ({ read_file: "read", use_skill: "read", view_file: "read", read_artifact: "read", write_file: "write", create_artifact: "write", update_artifact: "write",
-    edit_file: "edit", list_files: "search", search_files: "search", check_process: "run", wait_for_process: "run", watch_process: "run", terminal_open: "run", terminal_send: "run", terminal_read: "run", terminal_close: "run", stop_process: "run",
+    edit_file: "edit", list_files: "search", search_files: "search", check_process: "run", wait_for_process: "run", watch_process: "run", preview_start: "run", terminal_open: "run", terminal_send: "run", terminal_read: "run", terminal_close: "run", stop_process: "run",
     web_search: "web", web_fetch: "web", search_web: "web", fetch_url: "web", update_plan: "plan", delegate_task: "agent", browser: "look", ask_user: "wait" })[name] || "think";
 }
 // Swap the loader's animation, only when the kind actually changes (so it doesn't restart).
@@ -1508,7 +1512,7 @@ const STEP_WORDS = {
   read_file: ["read", "file"], view_file: ["looked at", "file"], write_file: ["edited", "file"], edit_file: ["edited", "file"],
   run_command: ["ran", "command"], list_files: ["searched", "time"], search_files: ["searched", "time"],
   web_search: ["searched the web", ""], web_fetch: ["read", "web page"], search_web: ["searched the web", ""], fetch_url: ["read", "web page"], browser: ["checked in the browser", ""],
-  delegate_task: ["asked a helper", ""], check_process: ["checked a server", ""], wait_for_process: ["waited for a process", ""], watch_process: ["set a watch on", "process"], terminal_open: ["opened", "terminal"], terminal_send: ["typed in a terminal", ""], terminal_read: ["read a terminal", ""], terminal_close: ["closed", "terminal"], stop_process: ["stopped", "process"],
+  delegate_task: ["asked a helper", ""], check_process: ["checked a server", ""], wait_for_process: ["waited for a process", ""], watch_process: ["set a watch on", "process"], preview_start: ["started", "preview"], terminal_open: ["opened", "terminal"], terminal_send: ["typed in a terminal", ""], terminal_read: ["read a terminal", ""], terminal_close: ["closed", "terminal"], stop_process: ["stopped", "process"],
   create_artifact: ["made", "artifact"], update_artifact: ["updated", "artifact"], read_artifact: ["read", "artifact"],
   use_skill: ["used", "skill"],
 };
@@ -1614,6 +1618,10 @@ function permSummary(tool, i = {}) {
   if (tool.startsWith("mcp__")) return [`Use ${prettyTool(tool)}`, JSON.stringify(i, null, 2).slice(0, 600)];
   if (tool === "run_command") return ["Run a command", i.command];
   if (tool === "stop_process") return ["Stop a background process", "Process " + i.pid];
+  if (tool === "preview_start") return ["Start the dev server and open the preview", (i.name ? i.name + " · " : "") + "from .claude/launch.json" + (i.folder ? " in " + i.folder : "")];
+  if (tool === "terminal_open") return ["Open a terminal", i.command || "PowerShell"];
+  if (tool === "terminal_send") return ["Type in a terminal", [i.text, ...(i.keys || [])].filter(Boolean).join(" + ")];
+  if (tool === "terminal_close") return ["Close a terminal", "Terminal " + i.id];
   if (tool === "write_file") return ["Create a file", i.path];
   if (tool === "edit_file") return ["Edit a file", i.path + "\n\n- " + String(i.old_text || "").slice(0, 300) + "\n+ " + String(i.new_text || "").slice(0, 300)];
   return ["Use " + tool, JSON.stringify(i, null, 2).slice(0, 600)];
@@ -1939,6 +1947,7 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
         else if (ev.type === "usage") { clearTimeout(loadUsage.t); loadUsage.t = setTimeout(loadUsage, 400); }
         else if (ev.type === "interjected") { think.querySelector("span").textContent = "Reading your message…"; for (const q of turn.parts) if (q.kind === "queued" && !q.seen) { q.seen = true; queuedEls.get(q)?.classList.add("seen"); } save(); }
         else if (ev.type === "term") termWrite(ev.text);
+        else if (ev.type === "preview") { if (visible() && !showing(ev.url)) preview(ev.url); } // a dev server it started is answering
         else if (ev.type === "dir_added") { // the user allowed a new folder: keep it linked for this chat
           chat.extraDirs = [...new Set([...(chat.extraDirs || []), ev.dir])]; save();
           if (current === chat && typeof renderDirs === "function") renderDirs();
@@ -1999,7 +2008,7 @@ async function runLive(chat, turn, userItem, open, ctx = {}) {
           if (textPart && visible()) {
             if (textEl) enhance(textEl);
             place(() => addLinks(body, textPart.text));
-            const fresh = findLinks(textPart.text)[0]; if (fresh) preview(fresh); // show new previews right away
+            const fresh = findLinks(textPart.text)[0]; if (fresh && !showing(fresh)) preview(fresh); // show new previews right away
           }
           textPart = null;
         } else if (ev.type === "tool") {

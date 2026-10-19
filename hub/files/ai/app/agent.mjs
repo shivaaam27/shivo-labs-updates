@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { release } from "node:os";
 import { WEB_TOOLS, fetchUrl, searchWeb } from "./web.mjs";
 import { PTY_TOOLS, ptyHandlers, closeTerminals } from "./pty.mjs";
+import { PREVIEW_TOOLS, previewHandlers, localUrl, waitForPort } from "./preview.mjs";
 
 // $ per million tokens (input, output). Cache writes cost 1.25x input, reads 0.1x.
 const PRICES = {
@@ -212,6 +213,7 @@ export const TOOLS = [
 ];
 
 TOOLS.push(...PTY_TOOLS); // real interactive terminals (pty.mjs)
+TOOLS.push(...PREVIEW_TOOLS); // dev servers from .claude/launch.json, opened in the preview (preview.mjs)
 TOOLS.push(...WEB_TOOLS); // research tools (search_web, fetch_url), for every model
 
 // How many searches and page fetches Claude's own web tools may use per request, by research depth.
@@ -231,7 +233,7 @@ export const serverToolsFor = (depth) => {
 export const SERVER_TOOLS = serverToolsFor("normal");
 
 // Tools that change things, and so need the user's OK in "ask" mode.
-export const WRITE_TOOLS = new Set(["write_file", "edit_file", "run_command", "stop_process", "terminal_open", "terminal_send", "terminal_close"]);
+export const WRITE_TOOLS = new Set(["write_file", "edit_file", "run_command", "stop_process", "preview_start", "terminal_open", "terminal_send", "terminal_close"]);
 // Tools a helper agent may use (look, don't touch).
 export const HELPER_TOOLS = TOOLS.filter((t) => ["read_file", "list_files", "search_files", "fetch_url", "search_web"].includes(t.name));
 
@@ -444,7 +446,7 @@ function wrapForState(command, shellFile) {
   ].join("\n");
 }
 
-export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch = null, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s }) {
+export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch = null, onPreview = null, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s }) {
   const abs = (p) => resolve(workDir, String(p || "."));
   const insideAllowed = (p) =>
     allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
@@ -513,7 +515,7 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
       const note = r.timedOut ? "\n(Search stopped after 20 seconds; narrow the folder or add a glob.)" : "";
       return (out.length ? out.join("\n") : "No matches.") + note;
     },
-    run_command({ command, background: bg, timeout_seconds = 120 }, signal) {
+    run_command({ command, background: bg, timeout_seconds = 120 }, signal, { noPreview = false } = {}) {
       return new Promise((resolveRun) => {
         // Persistent shell: each command starts in the folder and with the environment and
         // variables the previous command of this chat left behind (saved in shellFile.*).
@@ -525,14 +527,21 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
           cwd: sh.cwd, windowsHide: true, env: { ...(sh.env || process.env), FORCE_COLOR: "0", ...secrets },
         });
         if (shellFile && !bg) child.on("close", () => saveShell(shellFile, workDir, Object.keys(secrets)));
-        let out = "", total = 0; const wake = new Set(); // wake: waiters to call on new output or exit
-        const add = (d) => { const s = d.toString(); out += s; total += s.length; if (!bg || out.length < 20000) onOutput(scrub(s)); if (out.length > 200000) out = out.slice(-100000); for (const w of wake) w(); };
+        let out = "", total = 0, entry = null; const wake = new Set(); // wake: waiters to call on new output or exit
+        // A background server that prints a local address opens in the preview by itself, once it answers.
+        const seeUrl = () => {
+          if (!entry || entry.previewed || noPreview || !onPreview || total > 50000) return;
+          const u = localUrl(out); if (!u) return;
+          entry.previewed = true;
+          waitForPort(u.port, { alive: () => child.exitCode === null }).then((ok) => { if (ok) try { onPreview(u.url); } catch {} });
+        };
+        const add = (d) => { const s = d.toString(); out += s; total += s.length; if (!bg || out.length < 20000) onOutput(scrub(s)); if (out.length > 200000) out = out.slice(-100000); seeUrl(); for (const w of wake) w(); };
         child.stdout.on("data", add); child.stderr.on("data", add);
         const finish = (text) => resolveRun(text.length > 30000 ? text.slice(0, 15000) + "\n…(output trimmed)…\n" + text.slice(-15000) : text);
         if (bg) {
-          const entry = { child, command, wake, read: 0, get output() { return out; }, get total() { return total; },
+          entry = { child, command, wake, read: 0, get output() { return out; }, get total() { return total; },
             unread() { const n = Math.min(total - this.read, out.length); this.read = total; return n > 0 ? out.slice(-n) : ""; } };
-          background.set(child.pid, entry);
+          background.set(child.pid, entry); seeUrl();
           child.on("exit", () => { for (const w of wake) w(); setTimeout(() => background.delete(child.pid), 60000); });
           // Return early when it is clearly ready (a local URL, "ready", "listening") or has ended; otherwise after 6 s.
           let done = false, t;
@@ -626,6 +635,9 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
       env: () => ({ ...(loadShell(shellFile, workDir).env || process.env) }),
       onRaw: (d) => onOutput(scrub(d)),
     }) : {}),
+    // preview_start: dev servers from .claude/launch.json (preview.mjs), started like run_command's background ones.
+    ...previewHandlers({ abs, background, onPreview,
+      startBackground: (command, signal) => handlers.run_command({ command, background: true }, signal, { noPreview: true }) }),
     update_plan({ todos }) {
       return `Plan updated (${todos.filter((t) => t.status === "completed").length}/${todos.length} done).`;
     },
@@ -651,7 +663,8 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
     "Work carefully: read files before editing them, keep changes focused, and check your work (run the build or tests when there are any).",
     "For multi-step tasks, keep the user informed with update_plan: mark each item completed as soon as it's done (they see it crossed off), not all at the end.",
     "If the user sends a message while you're working that adds a new request, add it to the plan with update_plan right away, then carry on.",
-    "When you start a dev server, run it with background: true, then give the user the full localhost URL (for example http://localhost:5173); the app opens it in a preview panel automatically.",
+    "To show a web project, start its dev server with preview_start: it reads the project's .claude/launch.json (create one first if there isn't one), waits until the server answers and opens it in the preview panel by itself. " +
+      "A server you start with run_command and background: true also opens in the preview once it prints its local address. Give the user the full localhost URL too (for example http://localhost:5173).",
     "About the app's preview panel, so you describe it correctly: it shows dev servers (even sites that normally refuse to be embedded), artifacts, local HTML, images, PDFs and Office files; " +
       "its 📱 button switches to a phone-sized view (390px) for checking mobile layouts; it has reload, back, and open-in-browser buttons. Point the user to these instead of browser developer tools. " +
       "The address bar follows the page shown, and reload stays on the current page. Don't invent other panel behaviour (it never dims pages); if a preview looks wrong, check the page yourself with the browser tool and say what you find.",
