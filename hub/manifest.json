@@ -1,8 +1,9 @@
 {
- "version": "1.0.291",
- "build": 291,
- "built": "2026-10-19T00:22:22.528Z",
+ "version": "1.0.292",
+ "build": 292,
+ "built": "2026-10-19T00:28:38.975Z",
  "notes": [
+  "Shivo Labs AI 2.0.8: Chrome connector through the Playwright MCP Bridge extension",
   "AI updates always reachable: Update"
  ],
  "files": {
@@ -11144,15 +11145,15 @@
   "ai/app/public/fonts/HankenGrotesk-SemiBold.ttf": "ae42e1902f26a717e43652e689059def24ae8ecfeabcc59c69db9829c0116682",
   "ai/app/public/fonts/Sora-Light.ttf": "6db01b5e1c003287352417d26f068f0cafbde8f6b763e7717654fb0c051f9777",
   "ai/app/public/fonts/Sora-SemiBold.ttf": "614cc019d57fb8756d4862e666c7cbbd7ba20dbf98cc48a559184da666bd2a9a",
-  "ai/app/public/index.html": "12b89ff2e6fc828de74d687397cb4b927dcbc724f735f53469f1cffb14534a59",
+  "ai/app/public/index.html": "4a645af7a611d3486e7ac5a847c51dca578a3b4343d596597955023eb79342bd",
   "ai/app/public/manifest.json": "f97f7c4e28c85e7602cabeddee21044f39bb4896a85e7a58c8428eabc1aaa28a",
   "ai/app/relay.mjs": "7bad97f8a4875c92d55e1f58ae46fb3b98c9aa572b21b11af9b39583bc420e8a",
   "ai/app/rules.mjs": "0a7a57aa53ec74cc47d7df6b3570216c7fee6d98a723ffd21debb4048e087128",
   "ai/app/secrets.mjs": "e6d84353a8417c491c2774359dae92dbaaf241defd166513b337b0683cf93647",
-  "ai/app/server.mjs": "c76cae1ccc6aea2d1b4cc4a118dfebbeb0c9b302e50069d588528e9192682b5b",
+  "ai/app/server.mjs": "53a0e2767303ea4ae5681681de8f2e9ff8ad9d43891995a583c6b20941d18877",
   "ai/app/set-taskbar-id.ps1": "a5ba634c3742ca3bf3734591e679fed359995aecbf5970bb694901a38d5588a4",
   "ai/app/studio.mjs": "cff5dcb73110dea852c88f465b2fb0ddef9adcf2599be19166c9610c1418867a",
-  "ai/app/version.json": "e134d1ccc2242ba1cf31871126d6b679d4f335ca06307db230b52e49f8853eae",
+  "ai/app/version.json": "5a55173cd9a23dc930c07b4c55e0d8107421993d3cec26b34de73be56cbdaa0b",
   "ai/app/web.mjs": "16474d71d9944e117e4a5f3a642c2d1198397f8a313b518eb9fa2576736e1983",
   "beam/app/beam/assets/apple-touch-icon.png": "1950746a8b7bb364ea92d3cf1df8480587f27c27c6c59112638a4709dfeb7a2a",
   "beam/app/beam/assets/beam.ico": "f3930fd2e9e50ec45533ba8c35f7a99610f3abd22ea860f1f9d3f22d3c30a7b2",

@@ -1,7 +1,7 @@
 {
-    "version": "2.0.7",
+    "version": "2.0.8",
     "notes": [
-        "Updates are easy to find in focus mode: an \"Update ready\" button now shows next to \"Exit focus\". Before, focus mode hid the update box completely.",
-        "The Shivo Labs hub's Settings can install an AI update for you: \"Install Shivo Labs AI\" opens the AI and installs it (it waits if a chat is still working)."
+        "Simpler Chrome connector: it now works through a Chrome extension, like Claude's own. Under Settings › Connectors › Discover, press + on Chrome: Chrome opens the extension's page, you click \"Add to Chrome\", and that's it. No chrome:// settings page any more.",
+        "Updates are easy to find in focus mode, and the hub's Settings can install an AI update (from 2.0.7)."
     ]
 }

@@ -2913,9 +2913,12 @@ const cwdNow = () => current?.cwd || "";
 
 // Ready-made connectors (each checked Oct 2026). url: a web connector; cmd: a program on this PC.
 const DISCOVER = [
-  { id: "chrome", name: "Chrome", by: "Google", mark: "Ch", cmd: "npx -y chrome-devtools-mcp@latest --autoConnect",
-    desc: "Your own Chrome, signed in to your sites: make images in Gemini or ChatGPT, fill forms, check pages.",
-    note: "One-time step in Chrome: open chrome://inspect/#remote-debugging and switch remote debugging on. Chrome then asks you to Allow when the AI connects. Chrome must be open." },
+  // Your own Chrome through Microsoft's "Playwright MCP Bridge" extension (Chrome Web Store): install it once, no settings.
+  { id: "chrome-ext", name: "Chrome", by: "Microsoft Playwright", mark: "Ch", cmd: "npx -y @playwright/mcp@latest --extension",
+    env: { PLAYWRIGHT_MCP_EXTENSION_TOKEN: "${secret:PLAYWRIGHT_MCP_EXTENSION_TOKEN}" },
+    store: "https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm",
+    desc: "Your own Chrome with your logins, through a Chrome extension: make images in Gemini or ChatGPT, fill forms, check pages.",
+    note: "Chrome is opening the extension's page: click \"Add to Chrome\" there. Then, the first time the AI uses Chrome, pick the tab it may use and press Allow." },
   { id: "chrome-window", name: "Chrome window", by: "Google", mark: "Ch", cmd: "npx -y chrome-devtools-mcp@latest",
     desc: "A separate Chrome window just for the AI. Sign in to Gemini or ChatGPT there once; it remembers." },
   { id: "cloudflare", name: "Cloudflare", by: "Cloudflare", mark: "Cf", url: "https://mcp.cloudflare.com/mcp", head: "Authorization: Bearer ${secret:CLOUDFLARE_API_TOKEN}",
@@ -3012,7 +3015,8 @@ async function addPreset(d) {
     }
   }
   const config = d.url ? { url: d.url, headers: d.head ? pairs(d.head, ":") : {} }
-    : (() => { const parts = d.cmd.split(" "); return { command: parts[0], args: parts.slice(1), env: {} }; })();
+    : (() => { const parts = d.cmd.split(" "); return { command: parts[0], args: parts.slice(1), env: d.env || {} }; })();
+  if (d.store) post("/api/open-store", { url: d.store }); // the extension's Chrome Web Store page, in Chrome
   topMsg(`Adding ${d.name}…` + (d.cmd ? " The first start downloads it, so this can take a minute." : ""));
   const r = await post("/api/connectors", { name: d.id, config });
   if (!r.ok) return topMsg((await r.json()).error, "bad");

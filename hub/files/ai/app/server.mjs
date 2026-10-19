@@ -588,6 +588,16 @@ app.post("/api/connectors/signout", async (req, res) => {
   await mcpAuth.signOut(url); connectors.forget(url);
   res.json({ ok: true });
 });
+// A browser extension's Chrome Web Store page (a connector that works through one), opened in Chrome itself when it's
+// installed, since that's where the extension must go; otherwise in the default browser. Store pages only.
+app.post("/api/open-store", (req, res) => {
+  const url = String(req.body.url || "");
+  if (!/^https:\/\/chromewebstore\.google\.com\/detail\/[\w-]+\/[a-p]{32}$/.test(url)) return res.status(400).json({ error: "Not a Chrome Web Store page." });
+  const chrome = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA]
+    .filter(Boolean).map((d) => join(d, "Google", "Chrome", "Application", "chrome.exe")).find((p) => existsSync(p));
+  if (chrome) spawn(chrome, [url], { detached: true, windowsHide: false }).unref(); else openInBrowser(url);
+  res.json({ ok: true, chrome: !!chrome });
+});
 // The browser comes back here from the service's sign-in page (a plain page, opened outside the app).
 app.get("/api/mcp/oauth/callback", async (req, res) => {
   const page = (title, text) => res.type("html").send(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="font:16px system-ui;max-width:520px;margin:15vh auto;padding:0 20px;color:#1d1d1b"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(text)}</p></body>`);
