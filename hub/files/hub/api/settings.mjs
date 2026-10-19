@@ -32,6 +32,12 @@ export async function settingsApi(req, res, path) {
   if (req.method === "GET" && (what === "" || what === "/")) {
     return json(res, 200, { startup: existsSync(STARTUP), update: updateView(), places: PLACES.map(([app, what, p]) => ({ app, what, path: p, exists: existsSync(p) })) }), true;
   }
+  // the version Shivo Labs AI is running now (null: not running); its page in the hub reloads when this changes
+  if (req.method === "GET" && what === "/ai") {
+    let version = null;
+    try { version = (await (await fetch(`http://127.0.0.1:${Number(process.env.HUB_AI_PORT) || 4823}/api/update`, { signal: AbortSignal.timeout(1500) })).json()).current || null; } catch {}
+    return json(res, 200, { version }), true;
+  }
   if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
   if (what === "/startup") {  // start quietly with Windows (so iPhones can always send files with Beam)
     const { on } = await readJson(req);

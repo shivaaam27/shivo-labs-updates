@@ -61,4 +61,17 @@ async function boot(m, startModule, toast) {
   frame.src = m.embed;
   frame.onload = () => document.getElementById('aiWait')?.setAttribute('hidden', '');
   setTimeout(() => { if (!frame.contentWindow || !document.getElementById('aiWait')?.hidden) toast("Shivo Labs AI is taking a while to start"); }, 45000);
+  watchVersion(m);
+}
+
+// Updates install by themselves (the hub's api/update.mjs) and restart the AI server: when it comes back on a new
+// version, load its page again, so the new version shows without restarting Shivo Labs.
+function watchVersion(m) {
+  let seen = null;
+  setInterval(async () => {
+    let v = null; try { v = (await (await fetch('/api/settings/ai', { cache: 'no-store' })).json()).version; } catch { return; }
+    if (!v) return;   // restarting: wait for it
+    if (seen && v !== seen) { ready = false; frame.src = m.embed; }
+    seen = v;
+  }, 4000);
 }

@@ -23,7 +23,7 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
       <section class="card set-card">
         <div class="set-h"><span class="mod-ic sm mark-ic">${shivoMark()}</span><div><b>Shivo Labs ${u.build ? `${esc(u.version.split('.').slice(0, 2).join('.'))} <span class="set-build">build ${u.build}</span>` : esc(u.version)}</b><small>${u.updatedAt ? `Updated ${esc(new Date(u.updatedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} · ` : ''}${where}</small></div></div>
         <p class="set-status${u.error ? ' bad' : ''}">${status}</p>
-        ${u.aiHandOff ? `<p class="set-status${u.aiHandOff.error ? ' bad' : ''}">${u.aiHandOff.error ? `Shivo Labs AI ${esc(u.aiHandOff.version)} wasn't handed over: ${esc(u.aiHandOff.error)}` : `<b>Shivo Labs AI ${esc(u.aiHandOff.version)} is ready.</b> Open it and click <b>Update ready</b>.`}</p>` : ''}
+        ${u.aiHandOff ? `<p class="set-status${u.aiHandOff.error ? ' bad' : ''}">${u.aiHandOff.error ? `Shivo Labs AI ${esc(u.aiHandOff.version)} wasn't handed over: ${esc(u.aiHandOff.error)}` : `<b>Shivo Labs AI ${esc(u.aiHandOff.version)} is installing.</b> It installs by itself as soon as no chat is working.`}</p>` : ''}
         ${u.available?.notes?.length ? `<ul class="set-notes">${u.available.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
         <div class="set-acts">
           <button class="btn sm" id="chk">${svg('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/>')}Check now</button>

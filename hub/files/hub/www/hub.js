@@ -105,17 +105,21 @@ async function showHome() {
   await renderHome();
   const back = location.hash.slice(1).split('/')[0]; if (back === 'settings') openSettings(); else if (PAGES[back]) openModule(back);
 }
-// Screen updates arrive by themselves (the hub installs them; see api/update.mjs). When the version of the screens
-// changes, refresh quietly, right away on the home screen, or when you come back to it from a module.
+// Screen updates arrive by themselves (the hub installs them as soon as they're published; see api/update.mjs). When
+// the version of the screens changes, refresh quietly right away, unless you're using a module at that moment
+// (you could be typing): then as soon as you switch to another window or come back to the home screen.
 let uiNow = null, uiPending = false;
+const idle = () => (!$('#home').hidden && !location.hash.slice(1)) || document.hidden || !document.hasFocus();
 async function watchUpdates() {
   let s; try { s = await (await fetch('/api/settings', { cache: 'no-store' })).json(); } catch { return; }
   const ui = s.update?.ui;
   if (!ui) return;
   if (uiNow === null) { uiNow = ui; return; }
-  if (ui !== uiNow) { uiPending = true; if (!$('#home').hidden && !location.hash.slice(1)) quietReload(); }
+  if (ui !== uiNow) { uiPending = true; if (idle()) quietReload(); }
 }
-watchUpdates(); setInterval(watchUpdates, 20000);
+watchUpdates(); setInterval(watchUpdates, 5000);
+const takeUpdate = () => { if (uiPending && idle()) quietReload(); };
+addEventListener('blur', takeUpdate); document.addEventListener('visibilitychange', takeUpdate);
 
 // keep the "On" dots honest when you come back to the window
 addEventListener('focus', () => { if (!$('#home').hidden) renderHome(); });
