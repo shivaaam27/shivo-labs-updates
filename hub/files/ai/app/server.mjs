@@ -8,7 +8,7 @@ import { exec, execFile, execSync, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import {
   Anthropic, TOOLS, SERVER_TOOLS, serverToolsFor, DEPTHS, WRITE_TOOLS, HELPER_TOOLS, costOf, makeToolRunner, systemPrompt,
-  stopBackgroundProcesses, loadMemory, loadAutoMemory, loadCommands, listProcesses, killProcess, lineDiff, loadSkills, resetShell, environment,
+  stopBackgroundProcesses, loadMemory, loadAutoMemory, listNotes, loadCommands, listProcesses, killProcess, lineDiff, loadSkills, resetShell, environment,
 } from "./agent.mjs";
 import { loadAgents, findHelper, helperToolNames, helperModel, helperSystem, changesThings } from "./subagents.mjs";
 import { connectorTools, searchTools, FIND_TOOLS } from "./toolsearch.mjs";
@@ -755,6 +755,20 @@ app.get("/api/memory", (req, res) => {
   const cwd = req.query.cwd ? String(req.query.cwd) : "";
   res.json(cwd ? loadMemory(cwd).map((m) => ({ path: m.path, chars: m.text.length })) : []);
 });
+// Auto memory: notes the AI keeps by itself between chats, in Claude Code's memory folder for the project. On unless switched off.
+const autoMemoryOn = () => loadConfig().memory?.auto !== false;
+app.get("/api/automemory", (req, res) => {
+  const cwd = req.query.cwd ? String(req.query.cwd) : "";
+  if (!cwd) return res.json({ on: autoMemoryOn() });
+  const m = loadAutoMemory(cwd), notes = listNotes(m.dir);
+  res.json({ on: autoMemoryOn(), dir: m.dir, index: m.index, exists: m.exists, count: notes.length, notes });
+});
+app.post("/api/automemory", async (req, res) => {
+  const cfg = loadConfig(); cfg.memory ||= {};
+  cfg.memory.auto = !!req.body.on;
+  await saveConfig(cfg);
+  res.json({ ok: true, on: cfg.memory.auto });
+});
 // Permission rules and hooks that apply to a folder (for /permissions).
 app.get("/api/rules", (req, res) => {
   const cwd = req.query.cwd ? String(req.query.cwd) : "";
@@ -921,7 +935,9 @@ app.post("/api/chat", async (req, res) => {
   const skills = loadSkills(workDir, skillsDir);
   const agents = loadAgents(workDir); // custom helpers from .claude/agents
   await secretsReady();
-  let system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames(), toolSecrets: toolSecretNotes(), autoMemory: loadAutoMemory(workDir), agents }) +
+  // Auto memory (not for scratch chats: their folder is thrown away with the chat).
+  const autoMem = !scratch && autoMemoryOn() ? loadAutoMemory(workDir) : null;
+  let system = systemPrompt({ workDir, extraDirs, scratch, memory, skills, depth: researchDepth(), secrets: secretNames(), toolSecrets: toolSecretNotes(), autoMemory: autoMem, agents }) +
     (mode === "plan" ? "\n\nPLAN MODE: Only read and investigate. Do not change any files or run commands. End with a clear step-by-step plan for the user to approve." : "") +
     // Other providers' free tiers allow few requests per minute, and every reply is one request:
     // ask for fewer, fuller turns (several tool calls at once).
@@ -1008,8 +1024,10 @@ app.post("/api/chat", async (req, res) => {
   // A dev server this reply (or one of its helpers) started is answering: open it in the preview (not this app's own address).
   const previewTo = (url) => { try { if (!live.done && Number(new URL(url).port) !== Number(PORT)) send({ type: "preview", url }); } catch {} };
   // Folders this reply may change. It grows when the user allows a new folder mid-chat.
-  const allowedDirs = [workDir, ...extraDirs, skillsDir]; // skillsDir: so it can create skills
-  const isAllowed = (p) => allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
+  const inside = (d, p) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
+  // skillsDir: so it can create skills; the auto memory folder: so it can keep its notes.
+  const allowedDirs = [workDir, ...extraDirs, skillsDir, ...(autoMem ? [autoMem.dir] : [])];
+  const isAllowed = (p) => allowedDirs.some((d) => inside(d, p));
   const runTool = makeToolRunner({
     workDir, allowedDirs, shellFile: join(dataDir, "shells", safeId(chatId)), onBeforeWrite,
     // watch_process: when the job needs attention later, start a new turn in this chat by itself.
@@ -1261,6 +1279,8 @@ app.post("/api/chat", async (req, res) => {
     // Connector tools can change things in other services, so "ask first" covers them too.
     // force: a permission rule says "ask" (even in Auto-edit).
     if (req.body.unattended && force) return false;
+    // Its own notes (auto memory) never need an OK.
+    if (!force && autoMem && (name === "write_file" || name === "edit_file") && input?.path && inside(autoMem.dir, resolve(workDir, String(input.path)))) return true;
     if (!force && (mode !== "ask" || !(WRITE_TOOLS.has(name) || name.startsWith("mcp__")) || allowAlways.get(chatId)?.has(name))) return true;
     const reqId = crypto.randomUUID();
     send({ type: "permission", reqId, tool: name, input, ...(helper ? { helper } : {}) });

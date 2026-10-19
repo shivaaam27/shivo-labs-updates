@@ -2337,7 +2337,7 @@ const COMMANDS = [
   ["/preview", "Open the preview panel", () => $("pvBtn").click()],
   ["/init", "Write a CLAUDE.md that teaches the AI about this project", null],
   ["/review", "Have a second AI check the changes for bugs (add a note to focus it)", null],
-  ["/memory", "See which CLAUDE.md instruction files this chat uses", () => showMemory()],
+  ["/memory", "Instruction files and the notes the AI keeps", () => showMemory()],
   ["/permissions", "Rules for what's always allowed, asked or blocked, and hooks", () => showRules()],
   ["/hooks", "Commands that run automatically before or after steps", () => showRules()],
   ["/processes", "See or stop dev servers it started", () => showProcesses()],
@@ -2366,6 +2366,17 @@ function expandCommand(text) {
 async function showMemory() {
   const dir = current.cwd || current.workDir;
   const list = dir ? await (await fetch("/api/memory?cwd=" + encodeURIComponent(dir))).json() : [];
+  const am = current.cwd ? await (await fetch("/api/automemory?cwd=" + encodeURIComponent(current.cwd))).json() : null;
+  if (am) {
+    const items = list.map((m) => ({ label: m.path, sub: `${m.chars.toLocaleString()} characters`, run: () => openTarget(m.path, "code") }));
+    if (!list.length) items.push({ html: "<code>/init</code>", sub: "Create a CLAUDE.md for this project", run: () => { $("input").value = "/init"; send(); } });
+    items.push({ sep: true });
+    if (am.exists) items.push({ label: `Notes the AI keeps (${am.count})`, sub: am.index, run: () => openTarget(am.index, "code") });
+    items.push({ toggle: true, on: am.on, label: "Auto memory", sub: am.on ? "The AI saves notes for later chats by itself" : "Off: the AI doesn't save notes", run: async () => {
+      try { await post("/api/automemory", { on: !am.on }); toast(am.on ? "Auto memory is off" : "Auto memory is on"); } catch { toast("Couldn't change that"); }
+    } });
+    showMenu($("box"), "Memory for this chat (click to open)", items); $("menu").style.left = "8px"; return;
+  }
   if (!list.length) { showMenu($("box"), "No CLAUDE.md files for this chat", [{ html: "<code>/init</code>", sub: "Create one for this project", run: () => { $("input").value = "/init"; send(); } }]); return; }
   showMenu($("box"), "Instructions this chat follows (click to open)", list.map((m) => ({ label: m.path, sub: `${m.chars.toLocaleString()} characters`, run: () => openTarget(m.path, "code") })));
   $("menu").style.left = "8px";

@@ -1,7 +1,7 @@
 // The coding agent: a tool-use loop on the Claude Messages API, billed to API credits.
 import Anthropic from "@anthropic-ai/sdk";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { release } from "node:os";
@@ -261,19 +261,36 @@ export function loadMemory(workDir, extraDirs = []) {
   }).filter((m) => m.text.trim());
 }
 
-// The notes Claude Code keeps about a project (its "auto memory": an index MEMORY.md plus one file per
-// note, in ~/.claude/projects/<folder name with every other character as ->/memory). Read so this app
-// knows what Claude Code learned about the same project. The nearest folder up the chain that has one wins.
+// Auto memory, shared with Claude Code: notes the AI keeps for itself about a project, so later chats
+// know what earlier ones learned. They live where Claude Code keeps its own: an index MEMORY.md plus one
+// file per note in ~/.claude/projects/<folder path with every other character as ->/memory. The nearest
+// folder up the chain that already has notes wins; otherwise new notes go with the git repository's top
+// folder (as in Claude Code), or the working folder. Only the index's first 200 lines are loaded.
 export function loadAutoMemory(workDir) {
   const home = process.env.USERPROFILE || "";
+  const dirOf = (d) => join(home, ".claude", "projects", d.replace(/[^A-Za-z0-9]/g, "-"), "memory");
+  // The full path (not a short C:\Users\NAME~1 form), so the folder name matches Claude Code's.
+  try { workDir = realpathSync.native(workDir); } catch {}
+  let gitRoot = null;
   for (let d = workDir; d && dirname(d) !== d; d = dirname(d)) {
-    const dir = join(home, ".claude", "projects", d.replace(/[^A-Za-z0-9]/g, "-"), "memory");
-    const index = join(dir, "MEMORY.md");
+    if (!gitRoot && existsSync(join(d, ".git"))) gitRoot = d;
+    const dir = dirOf(d), index = join(dir, "MEMORY.md");
     if (!existsSync(index)) continue;
-    let text = ""; try { text = readFileSync(index, "utf8").slice(0, 20000); } catch {}
-    if (text.trim()) return { dir, index, text };
+    let text = ""; try { text = readFileSync(index, "utf8"); } catch {}
+    return { dir, index, exists: true, text: text.split(/\r?\n/).slice(0, 200).join("\n").slice(0, 25000) };
   }
-  return null;
+  const dir = dirOf(gitRoot || workDir);
+  return { dir, index: join(dir, "MEMORY.md"), exists: false, text: "" };
+}
+// The notes in a memory folder (for /memory): file, name and one-line description from the front matter.
+export function listNotes(dir) {
+  let files = []; try { files = readdirSync(dir).filter((n) => /\.md$/i.test(n) && n !== "MEMORY.md"); } catch { return []; }
+  return files.map((file) => {
+    let head = ""; try { head = readFileSync(join(dir, file), "utf8").slice(0, 2000); } catch {}
+    const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(head)?.[1] || "";
+    const get = (k) => (new RegExp("^\\s*" + k + ":\\s*(.+)$", "m").exec(fm)?.[1] || "").trim().replace(/^["']|["']$/g, "");
+    return { file, path: join(dir, file), name: get("name") || file.replace(/\.md$/i, ""), description: get("description"), type: get("type") };
+  });
 }
 
 // What the AI should know about the moment and the machine, like Claude Code's environment block.
@@ -662,6 +679,23 @@ export function stopBackgroundProcesses() {
   closeTerminals();
 }
 
+// How the AI keeps its notes (auto memory), with the current index.
+function autoMemoryPrompt(m) {
+  return [
+    "\n# Auto memory",
+    `You keep notes for yourself that carry over to future chats in this project, in ${m.dir} (the same folder Claude Code uses, so you share them with it). ` +
+      "MEMORY.md there is the index, shown below in every chat; read a note file with read_file when its line looks relevant. Notes can be out of date: check before relying on one.",
+    "Save a note when you learn something a future chat would need that isn't in the code, the git history or the CLAUDE.md files: the user's preferences and corrections (\"don't do X\", \"always Y\"), " +
+      "facts about them or their setup, decisions and why they were made, where things live, a trap that cost time. Don't save details of the current task only, or anything secret.",
+    "How: one file per note with a short kebab-case name (e.g. replies-in-plain-english.md) that starts with this front matter:",
+    "---\nname: <the file name without .md>\ndescription: \"<one line: what it is and when it matters>\"\nmetadata:\n  type: <user | feedback | project | reference>\n  modified: <today's date, ISO>\n---",
+    "then the note in a few lines (for feedback and project notes add **Why:** and **How to apply:**). Then add one line for it to MEMORY.md: `- [Short title](file-name.md) — one-line hook`. " +
+      "Keep MEMORY.md under 200 lines. When a note turns out wrong or outdated, fix or delete it (and its line) instead of adding another.",
+    "When the user asks you to remember or forget something, do it at once. Saving notes needs no permission; say it in one short line (\"Noted for next time: …\").",
+    m.text.trim() ? "Current MEMORY.md:\n" + m.text : "No notes yet for this project (MEMORY.md doesn't exist yet).",
+  ].join("\n");
+}
+
 export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills = [], depth = "normal", secrets = [], toolSecrets = [], autoMemory = null, agents = [] }) {
   return [
     "You are Shivo Labs AI (made by Shivo Labs, formerly Fabra Labs), a coding assistant running in a desktop app on the user's Windows PC.",
@@ -712,9 +746,7 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
       ? ["\n# Instructions from the user's CLAUDE.md files (follow these; later, more specific files win)",
         ...memory.map((m) => `\n## ${m.path}\n${m.text}`)]
       : []),
-    ...(autoMemory
-      ? [`\n# Notes Claude Code keeps about this project (an index; each line links a note file in ${autoMemory.dir} — read the file with read_file when it's relevant). Treat them as background that may be out of date: check before relying on one.`, autoMemory.text]
-      : []),
+    ...(autoMemory ? [autoMemoryPrompt(autoMemory)] : []),
   ].filter(Boolean).join("\n");
 }
 

@@ -1,7 +1,7 @@
 {
-    "version": "2.0.18",
+    "version": "2.0.19",
     "notes": [
-        "Connectors with many tools (like Chrome or GitHub) now cost far fewer tokens: the AI loads only the connector tools it needs for the job, the way Claude Code's tool search does, instead of reading every tool's description at every step.",
-        "It works with Claude and the other models (Gemini and others), when you switch models in the middle of a chat, and for helpers."
+        "Auto memory: the AI now keeps its own notes between chats, like Claude Code. Tell it \"remember...\" (or it notices something worth keeping) and later chats in the same project know it. It shares the notes folder with Claude Code.",
+        "Type /memory to see the notes and switch auto memory off or on."
     ]
 }
