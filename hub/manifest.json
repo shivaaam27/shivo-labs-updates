@@ -1,7 +1,7 @@
 {
  "version": "1.0.315",
  "build": 315,
- "built": "2026-10-19T22:03:43.922Z",
+ "built": "2026-10-19T22:12:34.259Z",
  "notes": [
   "Beam: the phone finds the PC through a Cloudflare relay, not only beam.local",
   "TV 1.0.14: home screen lets its web view go after 3 minutes behind another app (about 150 MB back), timers paused while hidden; dad's TV clean-up noted",
