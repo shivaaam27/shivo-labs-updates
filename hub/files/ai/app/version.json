@@ -1,7 +1,7 @@
 {
-    "version": "2.0.11",
+    "version": "2.0.12",
     "notes": [
-        "Easier to read chat list: group names (Pinned, Today, Older) are normal-sized words instead of tiny capitals, chat titles are a little larger and darker, and the empty dot beside each chat is gone.",
-        "Photos you attach are shrunk before sending, so replies with pictures no longer crawl."
+        "Commands remember where they were: the folder the AI moved into, environment changes and variables carry over to the next command in the same chat.",
+        "Stopping a chat or a command timing out now also ends the programs that command started (such as dev servers)."
     ]
 }

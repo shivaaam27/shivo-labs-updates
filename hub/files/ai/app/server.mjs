@@ -999,7 +999,7 @@ app.post("/api/chat", async (req, res) => {
   const allowedDirs = [workDir, ...extraDirs, skillsDir]; // skillsDir: so it can create skills
   const isAllowed = (p) => allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
   const runTool = makeToolRunner({
-    workDir, allowedDirs, onBeforeWrite, searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
+    workDir, allowedDirs, shellFile: join(dataDir, "shells", safeId(chatId)), onBeforeWrite, searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
     onOutput: (chunk) => send({ type: "term", id: activeToolId, text: chunk }),
   });
 

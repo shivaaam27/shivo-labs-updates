@@ -1,7 +1,7 @@
 // The coding agent: a tool-use loop on the Claude Messages API, billed to API credits.
 import Anthropic from "@anthropic-ai/sdk";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { release } from "node:os";
@@ -101,7 +101,7 @@ export const TOOLS = [
   {
     name: "run_command",
     description:
-      "Run a Windows PowerShell command in the working folder and return its output. " +
+      "Run a Windows PowerShell command and return its output. The shell carries over between commands in this chat: the folder you cd into, $env: changes and $variables stay for the next command (functions do not). It starts in the working folder. " +
       "For long-running processes such as dev servers, set background: true; it returns the first few seconds of output and keeps running. " +
       "Don't use this to search for files (use list_files or search_files instead).",
     input_schema: {
@@ -365,7 +365,53 @@ export function killProcess(pid) {
 
 // onBeforeWrite(path) lets the server snapshot a file before it changes, for undo.
 // onOutput(chunk) streams command output live to the app's terminal panel.
-export function makeToolRunner({ workDir, allowedDirs, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s }) {
+// ---- Persistent shell state (folder, environment, variables) per chat ----
+// shellFile is a path without extension: .json holds cwd/env, .vars holds PowerShell variables.
+const psq = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+function loadShell(shellFile, workDir) {
+  if (!shellFile) return { cwd: workDir };
+  try {
+    const s = JSON.parse(readFileSync(shellFile + ".json", "utf8"));
+    if (s.workDir !== workDir) return { cwd: workDir };
+    return { cwd: s.cwd && existsSync(s.cwd) ? s.cwd : workDir, env: s.env };
+  } catch { return { cwd: workDir }; }
+}
+function saveShell(shellFile, workDir, secretNames) {
+  // The command wrote .out.json in its finally block; turn it into the saved state.
+  try {
+    const raw = readFileSync(shellFile + ".out.json", "utf8").replace(/^\uFEFF/, "");
+    const o = JSON.parse(raw);
+    const env = o.env || {};
+    for (const k of [...secretNames, "FORCE_COLOR"]) delete env[k]; // never keep secret values
+    writeFileSync(shellFile + ".json", JSON.stringify({ workDir, cwd: o.cwd, env }));
+  } catch {}
+}
+export function resetShell(shellFile) {
+  for (const ext of [".json", ".vars", ".out.json"]) try { rmSync(shellFile + ext, { force: true }); } catch {}
+}
+function wrapForState(command, shellFile) {
+  const vars = psq(shellFile + ".vars"), out = psq(shellFile + ".out.json");
+  return [
+    "$__fbBase = @(Get-Variable -Scope Global | ForEach-Object Name) + @('__fbBase','__fbV','__fbLec','__fbKeep','LASTEXITCODE','_','args','input','PSItem','Matches','Error','StackTrace')",
+    `if (Test-Path -LiteralPath ${vars}) { try { $__fbV = Import-Clixml -LiteralPath ${vars}; foreach ($k in $__fbV.Keys) { Set-Variable -Name $k -Value $__fbV[$k] -Scope Global -ErrorAction SilentlyContinue } } catch {} }`,
+    "$global:LASTEXITCODE = $null",
+    "try {",
+    command,
+    "} finally {",
+    "  $__fbLec = $global:LASTEXITCODE",
+    "  try {",
+    "    $__fbKeep = @{}",
+    "    Get-Variable -Scope Global | Where-Object { $__fbBase -notcontains $_.Name -and -not ($_.Options -band [System.Management.Automation.ScopedItemOptions]'ReadOnly,Constant') } | ForEach-Object { $__fbKeep[$_.Name] = $_.Value }",
+    `    try { $__fbKeep | Export-Clixml -LiteralPath ${vars} -Depth 3 } catch {}`,
+    "    $e = @{}; foreach ($d in [Environment]::GetEnvironmentVariables().GetEnumerator()) { $e[[string]$d.Key] = [string]$d.Value }",
+    `    [IO.File]::WriteAllText(${out}, (@{ cwd = (Get-Location).ProviderPath; env = $e } | ConvertTo-Json -Compress -Depth 3))`,
+    "  } catch {}",
+    "}",
+    "if ($__fbLec) { exit $__fbLec }",
+  ].join("\n");
+}
+
+export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s }) {
   const abs = (p) => resolve(workDir, String(p || "."));
   const insideAllowed = (p) =>
     allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
@@ -436,9 +482,16 @@ export function makeToolRunner({ workDir, allowedDirs, onBeforeWrite = () => {},
     },
     run_command({ command, background: bg, timeout_seconds = 120 }, signal) {
       return new Promise((resolveRun) => {
-        const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command], {
-          cwd: workDir, windowsHide: true, env: { ...process.env, FORCE_COLOR: "0", ...secretEnv(command) },
+        // Persistent shell: each command starts in the folder and with the environment and
+        // variables the previous command of this chat left behind (saved in shellFile.*).
+        const sh = loadShell(shellFile, workDir);
+        const secrets = secretEnv(command);
+        const script = shellFile && !bg ? wrapForState(command, shellFile) : command;
+        if (shellFile && !bg) { try { mkdirSync(dirname(shellFile), { recursive: true }); rmSync(shellFile + ".out.json", { force: true }); } catch {} }
+        const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+          cwd: sh.cwd, windowsHide: true, env: { ...(sh.env || process.env), FORCE_COLOR: "0", ...secrets },
         });
+        if (shellFile && !bg) child.on("close", () => saveShell(shellFile, workDir, Object.keys(secrets)));
         let out = "";
         const add = (d) => { const s = d.toString(); out += s; if (!bg || out.length < 20000) onOutput(scrub(s)); if (out.length > 200000) out = out.slice(-100000); };
         child.stdout.on("data", add); child.stderr.on("data", add);
@@ -451,8 +504,10 @@ export function makeToolRunner({ workDir, allowedDirs, onBeforeWrite = () => {},
           return;
         }
         const limit = Math.min(600, Math.max(5, timeout_seconds)) * 1000;
-        const timer = setTimeout(() => { child.kill(); finish(out + `\n(Stopped after ${limit / 1000}s. For servers, use background: true.)`); }, limit);
-        signal?.addEventListener("abort", () => { child.kill(); }, { once: true });
+        // Kill the whole tree, so programs the command started (e.g. a dev server) stop too.
+        const killTree = () => { try { spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }); } catch { child.kill(); } };
+        const timer = setTimeout(() => { killTree(); finish(out + `\n(Stopped after ${limit / 1000}s. For servers, use background: true.)`); }, limit);
+        signal?.addEventListener("abort", killTree, { once: true });
         child.on("close", (code) => { clearTimeout(timer); finish((out || "(no output)") + (code ? `\n(exit code ${code})` : "")); });
         child.on("error", (e) => { clearTimeout(timer); finish("Could not start PowerShell: " + e.message); });
       });
@@ -519,7 +574,7 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
     "To find files anywhere on the computer, use list_files (it skips node_modules and system folders and is fast), never a recursive Get-ChildItem, which can run for minutes. " +
       `Match loosely (e.g. pattern "*cv*" or "*.html" in a likely folder) and check the obvious folders first. The user's home folder is ${process.env.USERPROFILE}; their projects are mostly in Documents. If a search finds nothing, say so and ask rather than searching for long.`,
     "For git work, use git and the GitHub CLI (gh) through run_command. Only commit or push when the user asks. If gh says it isn't logged in, tell the user to sign in under Settings → GitHub & command line (you can't answer its login prompts).",
-    "Commands run in a fresh, non-interactive PowerShell: nothing can be typed into a prompt, so use flags that skip questions (--yes, -Force, --with-token) instead.",
+    "Commands run in a non-interactive PowerShell (cd, $env: and $variables carry over between commands): nothing can be typed into a prompt, so use flags that skip questions (--yes, -Force, --with-token) instead.",
     "Cloudflare (Workers, KV, R2, D1, Durable Objects): use `npx wrangler` in the project folder. Check the sign-in first with `npx wrangler whoami`. If it isn't signed in, run `npx wrangler login` with timeout_seconds 300: it opens the user's browser, so tell them to choose their account and press Allow; or ask them to save a Cloudflare API token as the secret CLOUDFLARE_API_TOKEN under Settings → Secrets. " +
       "Cloudflare connectors (Settings → Connectors) can also manage the account and read Workers logs once signed in. Check which account a connector or wrangler is using before changing anything, and ask before deploying, deleting or changing anything live.",
     secrets.length
