@@ -11,6 +11,7 @@ import {
   stopBackgroundProcesses, loadMemory, loadAutoMemory, loadCommands, listProcesses, killProcess, lineDiff, loadSkills, resetShell, environment,
 } from "./agent.mjs";
 import { loadAgents, findHelper, helperToolNames, helperModel, helperSystem, changesThings } from "./subagents.mjs";
+import { connectorTools, searchTools, FIND_TOOLS } from "./toolsearch.mjs";
 import { relayFor, probePort } from "./relay.mjs";
 import { cloudTurn, followCloud } from "./cloud.mjs";
 import { cliStatus, loginState, startWebLogin, cancelWebLogin, tokenLogin, logout as ghLogout, setIdentity } from "./cli.mjs";
@@ -795,7 +796,7 @@ const STUDIO_NAMES = new Set(STUDIO_TOOLS.map((t) => t.name));
 const STUDIO_READ_TOOLS = STUDIO_TOOLS.filter((t) => ["read_artifact", "browser", "view_file"].includes(t.name));
 // Tools that only look, so several in one reply can run at the same time (view_file stays out: it may
 // open Office, which shouldn't run twice at once).
-const PARALLEL_TOOLS = new Set(["read_file", "list_files", "search_files", "fetch_url", "search_web", "check_process", "wait_for_process", "watch_process", "read_artifact", "use_skill", "delegate_task"]);
+const PARALLEL_TOOLS = new Set(["read_file", "list_files", "search_files", "fetch_url", "search_web", "check_process", "wait_for_process", "watch_process", "read_artifact", "use_skill", "delegate_task", "find_tools"]);
 // Optional API features; if the account rejects them, we retry once without.
 let useExtras = true;
 
@@ -974,6 +975,9 @@ app.post("/api/chat", async (req, res) => {
   // They connect in the background: the reply starts at once (connections already open are ready
   // straight away), and a slow connector's tools join from the next step once it's connected.
   let mcp = { defs: [], has: () => false };
+  // Many connector tools are loaded only when needed (find_tools, toolsearch.mjs). Claude loads them in
+  // place through tool references; tools another model loaded stay in this list for the chat.
+  const loadedTools = new Set(session.loadedTools || []);
   // A Chrome connector (chrome-devtools-mcp) drives a real Chrome: say how to use it for the jobs people
   // want it for, like making images on sites the user is signed in to.
   const useConnectors = (m) => {
@@ -1181,16 +1185,18 @@ app.post("/api/chat", async (req, res) => {
     const n = ++helperCount;
     const label = found.def?.name || (found.kind === "plan" ? "Planner" : "Helper");
     const shellFile = write ? join(dataDir, "shells", `${safeId(chatId)}~h${n}`) : null;
-    const via = { label, prefix: `h${n}_`, allowed: new Set(names), show: write, activeId: null, signal: helperStop.signal };
+    const via = { label, prefix: `h${n}_`, allowed: new Set(names), show: write, activeId: null, signal: helperStop.signal, loaded: new Set() };
+    if (names.some((x) => x.startsWith("mcp__"))) via.allowed.add("find_tools"); // offered only when its connector tools are many
     via.runTool = write ? makeToolRunner({ workDir, allowedDirs, shellFile, onBeforeWrite, searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
       onOutput: (chunk) => send({ type: "term", id: via.activeId, text: chunk }), onPreview: previewTo }) : helperRunner;
     const want = (found.def?.skills || []).map((s) => s.toLowerCase());
     const skillTexts = skills.filter((s) => want.includes(s.name.toLowerCase())).map((s) => { try { return `\n## ${s.name} (folder: ${s.dir})\n${readFileSync(s.file, "utf8")}`; } catch { return ""; } }).filter(Boolean);
     const useModel = helperModel(found, model, { models: MODELS, canUse: (id) => isClaude(id) ? !!apiKey : !!(splitModel(id) && providerKey(splitModel(id).provider)) });
+    via.model = useModel;
     const eff = EFFORTS.includes(found.def?.effort) ? found.def.effort : found.kind === "explore" ? "low" : found.kind === "plan" ? "medium" : effort;
     const job = agentLoop({ useModel, eff, via, task: String(t.input.task || ""),
       system: helperSystem(found, { workDir, env: environment(workDir), memory, skillTexts }),
-      tools: [...TOOLS, ...mcp.defs].filter((d) => via.allowed.has(d.name)),
+      tools: () => [...TOOLS.filter((d) => via.allowed.has(d.name)), ...connectorTools(mcp.defs.filter((d) => via.allowed.has(d.name)), { claude: isClaude(useModel), loaded: via.loaded })],
       maxSteps: Math.min(150, Math.max(1, Number(found.def?.maxTurns) || (write ? 60 : 25))) })
       .finally(() => { if (shellFile) resetShell(shellFile); });
     const bg = t.input.background === true || (found.def?.background === true && t.input.background !== false);
@@ -1209,7 +1215,7 @@ app.post("/api/chat", async (req, res) => {
     const msgs = [{ role: "user", content: task }];
     for (let i = 0; i < maxSteps; i++) {
       if (via.signal.aborted) return "Stopped by the user.";
-      const m = await Promise.race([callOnce(useModel, { system, messages: msgs, tools, effort: eff, signal: via.signal }), helperStopped]);
+      const m = await Promise.race([callOnce(useModel, { system, messages: msgs, tools: typeof tools === "function" ? tools() : tools, effort: eff, signal: via.signal }), helperStopped]);
       msgs.push({ role: "assistant", content: m.content, ...(m.raw ? { raw: m.raw } : {}) });
       if (m.stop_reason === "pause_turn") continue;
       const uses = m.content.filter((b) => b.type === "tool_use");
@@ -1342,7 +1348,7 @@ app.post("/api/chat", async (req, res) => {
       model,
       max_tokens: 32000,
       system: [{ type: "text", text: system }],
-      tools: [...(mode === "plan" ? READ_ONLY_TOOLS : TOOLS), ...(mode === "plan" ? STUDIO_READ_TOOLS : STUDIO_TOOLS), ...mcp.defs, ...serverToolsFor(researchDepth())],
+      tools: [...(mode === "plan" ? READ_ONLY_TOOLS : TOOLS), ...(mode === "plan" ? STUDIO_READ_TOOLS : STUDIO_TOOLS), ...connectorTools(mcp.defs, { claude: isClaude(model), loaded: loadedTools, messages: session.messages }), ...serverToolsFor(researchDepth())],
       messages: session.messages.map(({ raw, ...m }) => m), // raw: another provider's own steps, not for Claude
       output_config: { effort },
       thinking: { type: "adaptive", display: "summarized" }, // a readable summary of its reasoning
@@ -1363,7 +1369,7 @@ app.post("/api/chat", async (req, res) => {
     if (abort.signal.aborted || via?.signal.aborted) return { text: "Stopped by the user.", isError: true };
     if (typeof t.input !== "object" || t.input === null) return { text: "Invalid tool input. Try again.", isError: true };
     // Missing required inputs get a clear answer (other models slip up here more than Claude).
-    const def = [...TOOLS, ...STUDIO_TOOLS, ...mcp.defs].find((d) => d.name === t.name);
+    const def = [...TOOLS, ...STUDIO_TOOLS, ...mcp.defs, FIND_TOOLS].find((d) => d.name === t.name);
     const missing = (def?.input_schema?.required || []).filter((k) => t.input[k] === undefined || t.input[k] === null);
     if (missing.length) return { text: `Missing required input: ${missing.join(", ")}. The ${t.name} tool takes: ${Object.keys(def.input_schema.properties || {}).join(", ")}. Try again with all required inputs.`, isError: true };
     // Permission rules from settings.json: deny always wins, "ask" asks even in Auto-edit,
@@ -1383,12 +1389,13 @@ app.post("/api/chat", async (req, res) => {
     if (rules.hooks.PostToolUse && !abort.signal.aborted) {
       const h = await runHooks(rules, "PostToolUse", { session_id: chatId, tool_name: t.name, tool_input: t.input, tool_response: String(out.text || "").slice(0, 20000) }, { workDir, toolName: t.name });
       const note = h.reason || h.context;
-      if (note) { out.text = String(out.text ?? "") + "\n\n(Hook) " + note; if (Array.isArray(out.content)) out.content = [...out.content, { type: "text", text: "(Hook) " + note }]; }
+      if (note) { out.text = String(out.text ?? "") + "\n\n(Hook) " + note; if (Array.isArray(out.content) && !out.content.some((c) => c.type === "tool_reference")) out.content = [...out.content, { type: "text", text: "(Hook) " + note }]; }
     }
     return out;
   }
   async function runToolInner(t, via = null) {
     if (mcp.has(t.name)) return mcp.call(t.name, t.input);
+    if (t.name === "find_tools") return findTools(t.input, via);
     if (!via) { // the chat's own tools; helpers have none of these
     if (t.name === "delegate_task") return startHelper(t);
     if (STUDIO_NAMES.has(t.name)) return runStudioTool(t.name, t.input);
@@ -1416,6 +1423,21 @@ app.post("/api/chat", async (req, res) => {
       try { out.diff = lineDiff(before, readFileSync(target, "utf8")); out.path = target; } catch {}
     }
     return out;
+  }
+
+  // find_tools: load connector tools on demand. Claude gets them through tool references (only those
+  // blocks may be in the result); other models get them in the tool list from the next request on.
+  function findTools(input, via = null) {
+    const pool = via ? mcp.defs.filter((d) => via.allowed.has(d.name)) : mcp.defs;
+    if (!pool.length) return { text: "No connector is connected right now, so there are no tools to load.", isError: true };
+    const limit = Math.min(25, Math.max(1, Math.round(Number(input.limit)) || 5));
+    const names = searchTools(pool, input.query, limit).map((d) => d.name);
+    if (!names.length) return { text: `No connector tool matched "${input.query}". Try other words, or select:<name> with a name from find_tools' list.`, isError: false };
+    if (isClaude(via ? via.model : model)) return { text: "Loaded: " + names.join(", "), content: names.map((n) => ({ type: "tool_reference", tool_name: n })), isError: false };
+    const set = via ? via.loaded : loadedTools;
+    for (const n of names) set.add(n);
+    if (!via) session.loadedTools = [...loadedTools];
+    return { text: `Loaded: ${names.join(", ")}. You can call them now.`, isError: false };
   }
 
   // Close any tool calls left without an answer, so the next API request is valid.

@@ -1,8 +1,7 @@
 {
-    "version": "2.0.17",
+    "version": "2.0.18",
     "notes": [
-        "Helpers can now do real work: the AI can hand a separate job to a \"general\" helper that edits files and runs commands. It goes through the same permission questions, folder checks and Undo as the AI itself, and its steps show in the chat.",
-        "New helper types like Claude Code: explore (looks only), plan (looks and writes a plan) and general. Your own helpers from .claude/agents files (the same format Claude Code uses) work too, with their own tools, model and instructions.",
-        "Helpers can run in the background while the AI carries on; their report arrives by itself, and the reply waits for them before it ends. Stop stops them too."
+        "Connectors with many tools (like Chrome or GitHub) now cost far fewer tokens: the AI loads only the connector tools it needs for the job, the way Claude Code's tool search does, instead of reading every tool's description at every step.",
+        "It works with Claude and the other models (Gemini and others), when you switch models in the middle of a chat, and for helpers."
     ]
 }
