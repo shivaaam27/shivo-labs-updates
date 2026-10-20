@@ -425,11 +425,18 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
     }));
   }
   // the Family and Features tabs live in family.js; they ask the TV themselves
-  let famTab = null;
+  let famTab = null, startNext = null;
+  // a feature's card in Features opens its tab at the right place (family.js DO)
+  function go(t, start) {
+    startNext = start; setTab(t);
+    const to = start?.to && t !== 'family' && root.querySelector('#' + start.to);
+    if (to) setTimeout(() => { to.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (to.tagName === 'INPUT') to.focus(); }, 350);
+  }
   function mountTab() {
     famTab?.stop(); famTab = null;
     const hl = root.querySelector('#tvHealth'); if (hl && !offline) mountHealth(hl, { call, toast, buzz });
-    const opts = { call, toast, buzz, pics, ai, nowPlaying: () => playing()[0] || null, appsOnTv: () => apps, tvName: () => cur?.name || 'the TV' };
+    const start = startNext; startNext = null;
+    const opts = { call, toast, buzz, pics, ai, go, start, nowPlaying: () => playing()[0] || null, appsOnTv: () => apps, tvName: () => cur?.name || 'the TV' };
     const shop = root.querySelector('#tvShop'); if (shop) { famTab = mountShop(shop, opts); return; }
     const sp = root.querySelector('#tvSport');
     if (sp) {

@@ -423,3 +423,6 @@ html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 .tvr-dpad[data-go="up"] .tvr-dk.up,.tvr-dpad[data-go="down"] .tvr-dk.down,.tvr-dpad[data-go="left"] .tvr-dk.left,.tvr-dpad[data-go="right"] .tvr-dk.right{
   background:color-mix(in srgb,var(--sage) 18%,transparent);color:var(--sage)}
 html[data-theme=dark] .tvr-dpad[data-go] .tvr-dk{color:var(--text)}
+.tvf-mod-a{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px}
+.tvf-mod-a .btn{width:auto;flex:none}
+.tvf-mod-a .tvf-more{margin-top:0}

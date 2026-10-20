@@ -71,7 +71,7 @@ function sheet(title, body, { onSave, onDelete, saveText = 'Save' } = {}) {
   return el;
 }
 
-export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowPlaying = () => null, appsOnTv = () => [], pics = () => {}, tvName = () => 'the TV' }) {
+export function mountFamily(box, { call, toast, buzz = () => {}, start = null, ai = null, nowPlaying = () => null, appsOnTv = () => [], pics = () => {}, tvName = () => 'the TV' }) {
   let answer = null, modsAt = 0, lastMods = null;
   let data = null, mods = {}, mode = ai ? 'ask' : 'msg', rec = null, clip = null, alive = true, timer = 0, lastSig = '';
   const api = async (path, q = {}, body) => {
@@ -91,6 +91,7 @@ export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowP
       lastSig = sig;
       data = d; mods = Object.fromEntries((m?.mods || []).map((x) => [x.id, x]));
       paint();
+      if (start) { const s = start; start = null; begin(s); }
     } catch (e) {
       if (quiet) return;
       box.innerHTML = e.old || /404/.test(e.message) ? `<p class="tvx-none">Update the TV to use this. Shortcuts › Update the TV.</p>`
@@ -98,6 +99,16 @@ export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowP
     }
   }
   const off = (id) => mods[id] && !mods[id].on;
+  // opened from a feature's card in Features: the form, the right kind of message, or the section
+  function begin(s) {
+    if (s.add === 'reminder') return editReminder();
+    if (s.add === 'birthday') return editDay();
+    if (s.mode && (s.mode !== 'ask' || ai)) {
+      mode = s.mode; paint();
+      const t = box.querySelector('#tvfText'); t?.scrollIntoView({ behavior: 'smooth', block: 'center' }); t?.focus();
+    }
+    if (s.to) box.querySelector('#' + s.to)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   function paint() {
     const rem = data.items.filter((x) => x.kind === 'reminder').sort((a, b) => a.at.localeCompare(b.at));
     const days = data.items.filter((x) => x.kind === 'birthday').map((x) => ({ ...x, in: daysTo(x.date) })).sort((a, b) => a.in - b.in);
@@ -124,7 +135,7 @@ export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowP
            <button class="btn pri sm" id="tvfGo">${IC.send}${mode === 'msg' ? 'Send' : 'Say it'}</button></div>`}
       </section>
 
-      <h3 class="tvx-h">Family room</h3>
+      <h3 class="tvx-h" id="tvfRoom">Family room</h3>
       ${off('room') ? '<p class="tvf-note">Off in Features.</p>' : `<div class="tvf-room">
         <button class="tvf-roomb" id="tvfCall">${IC.video}<span><b>Video call the TV</b><small>Full screen on the TV</small></span></button>
         <button class="tvf-roomb" id="tvfCam">${IC.cam}<span><b>Be the TV's camera</b><small>Use this phone as the TV camera</small></span></button></div>`}
@@ -390,6 +401,8 @@ Use "search" only when the person wants to watch or listen to something (YouTube
     if (!it) setTimeout(() => el.querySelector('#fTitle').focus(), 300);
   }
 
+  // the photo picker has to open within the tap itself, so it doesn't wait for the list
+  if (start?.photos) { start = null; addPhotos(); }
   load();
   loadPhotos();
   // while the tab is open: what is showing on the TV now, and new answers
@@ -398,7 +411,16 @@ Use "search" only when the person wants to watch or listen to something (YouTube
 }
 
 // ---- Features: the TV's own list, with switches and settings ----
-export function mountFeatures(box, { call, toast, buzz = () => {} }) {
+// what each feature's card opens: [button, tab, what to start there]
+const DO = {
+  reminders: ['Add a reminder', 'family', { add: 'reminder' }], birthdays: ['Add a date', 'family', { add: 'birthday' }],
+  messages: ['Send a message', 'family', { mode: 'msg' }], announce: ['Say something', 'family', { mode: 'say' }],
+  ai: ['Ask a question', 'family', { mode: 'ask' }], photos: ['Add photos', 'family', { photos: true }],
+  room: ['Video call the TV', 'family', { to: 'tvfRoom' }], board: ['Start the screensaver', '', { dream: true }],
+  health: ['Tidy up', 'more', { to: 'tvHealth' }], store: ['Get apps', 'apps', { to: 'tvShop' }],
+  sport: ['Live matches', 'foryou', { to: 'tvSport' }], corner: ['Play a corner video', 'more', { to: 'tvCornerUrl' }],
+};
+export function mountFeatures(box, { call, toast, buzz = () => {}, go = () => {}, ai = null }) {
   let mods = [], open = '';
   async function load() {
     try {
@@ -423,8 +445,14 @@ export function mountFeatures(box, { call, toast, buzz = () => {} }) {
       <div class="tvf-mods">${mods.map((m) => `<section class="tvf-mod${m.on ? '' : ' off'}${open === m.id ? ' open' : ''}">
         <div class="tvf-mod-h"><button class="tvf-mod-t" data-open="${m.id}"><b>${esc(m.name)}</b><small>${esc(m.about)}</small></button>
           <label class="tvf-sw bare"><input type="checkbox" data-on="${m.id}" ${m.on ? 'checked' : ''} aria-label="${esc(m.name)}"><i></i></label></div>
-        ${m.fields.length ? `<button class="tvf-more" data-open="${m.id}">${open === m.id ? 'Hide settings' : 'Settings'}${IC.chev}</button>
-        <div class="tvf-mod-s" ${open === m.id ? '' : 'hidden'}>${m.fields.map((f) => field(m, f)).join('')}</div>` : ''}</section>`).join('')}</div>`;
+        <div class="tvf-mod-a">${DO[m.id] && m.on && (m.id !== 'ai' || ai) ? `<button class="btn sm pri" data-do="${m.id}">${esc(DO[m.id][0])}</button>` : ''}
+        ${m.fields.length ? `<button class="tvf-more" data-open="${m.id}">${open === m.id ? 'Hide settings' : 'Settings'}${IC.chev}</button></div>
+        <div class="tvf-mod-s" ${open === m.id ? '' : 'hidden'}>${m.fields.map((f) => field(m, f)).join('')}</div>` : '</div>'}</section>`).join('')}</div>`;
+    box.querySelectorAll('[data-do]').forEach((b) => (b.onclick = () => {
+      const [, tab, start] = DO[b.dataset.do]; buzz();
+      if (start.dream) return call('/dream', {}, { post: true }).then(() => toast('Screensaver on')).catch((e) => toast(e.message));
+      go(tab, start);
+    }));
     box.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => { open = open === b.dataset.open ? '' : b.dataset.open; buzz(); paint(); }));
     box.querySelectorAll('[data-on]').forEach((c) => (c.onchange = async () => {
       buzz();
