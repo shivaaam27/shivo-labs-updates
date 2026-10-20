@@ -45,8 +45,13 @@ function publicKey() {
   const n = xml.match(/<Modulus>([^<]+)</)[1], e = xml.match(/<Exponent>([^<]+)</)[1];
   return createPublicKey({ key: { kty: "RSA", n: b64url(n), e: b64url(e) }, format: "jwk" });
 }
-const signedOk = (text, sig) => { try { return verify("sha256", Buffer.from(text), publicKey(), Buffer.from(String(sig).trim(), "base64")); } catch { return false; } };
+export const signedOk = (text, sig) => { try { return verify("sha256", Buffer.from(text), publicKey(), Buffer.from(String(sig).trim(), "base64")); } catch { return false; } };
 const buildOf = (v) => Number(String(v).split(".")[2]) || 0;   // "1.0.412" -> 412 (the number of commits)
+// Which module's pack a file belongs to (hub/packs.json). An install with installed.json (made by the installer and
+// hub/api/id.mjs) holds core plus the packs its pass allows: updates leave the other modules' files alone.
+const PACKS = Object.entries(JSON.parse(readFileSync(join(HUB, "packs.json"), "utf8"))).filter(([k]) => !k.startsWith("_"));
+const packOf = (rel) => PACKS.find(([, pre]) => pre.some((p) => rel.startsWith(p)))?.[0] || "core";
+const kept = () => { try { const m = JSON.parse(readFileSync(join(ROOT, "installed.json"), "utf8")).modules || []; return (rel) => { const p = packOf(rel); return p === "core" || m.includes(p); }; } catch { return () => true; } };
 // The same file counts as the same with Windows or Linux line endings (installer/ota-build.mjs hashes the same way).
 export const fileHash = (buf) => createHash("sha256").update(buf.subarray(0, 8000).includes(0) ? buf : Buffer.from(buf.toString("latin1").replace(/\r\n/g, "\n"), "latin1")).digest("hex");
 
@@ -150,13 +155,14 @@ export async function install() {
     }
     // installed: only the files that differ, each checked against the signed list
     const { manifest: m, base } = state.available;
-    const changed = [];
+    const changed = [], keep = kept();
     for (const [rel, sha] of Object.entries(m.files)) {
+      if (!keep(rel)) continue;
       let h = null; try { h = fileHash(readFileSync(join(ROOT, ...rel.split("/")))); } catch {}
       if (h !== sha) changed.push(rel);
     }
     let before = {}; try { before = JSON.parse(readFileSync(join(ROOT, "files.json"), "utf8")).files || {}; } catch {}
-    const removed = Object.keys(before).filter((rel) => !(rel in m.files));
+    const removed = Object.keys(before).filter((rel) => !(rel in m.files) && keep(rel));
     rmSync(WORK, { recursive: true, force: true });
     const stage = join(WORK, "stage"), backup = join(WORK, "backup");
     const queue = [...changed];

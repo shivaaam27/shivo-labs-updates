@@ -69,5 +69,13 @@
     "sub": "Home screen, apps and remote",
     "page": true,
     "icon": "<rect x=\"3\" y=\"5\" width=\"18\" height=\"12\" rx=\"2\"/><path d=\"M8 21h8M12 17v4\"/>"
+  },
+  {
+    "id": "owner",
+    "name": "Owner",
+    "sub": "Customers, codes and modules",
+    "page": true,
+    "owner": true,
+    "icon": "<circle cx=\"12\" cy=\"8\" r=\"3.5\"/><path d=\"M5 20a7 7 0 0 1 14 0\"/><path d=\"M17.5 4.5l1.5 1.5 3-3\"/>"
   }
 ]

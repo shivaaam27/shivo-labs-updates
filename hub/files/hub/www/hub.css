@@ -1,6 +1,14 @@
 /* Laptop hub: the phone app's home, given more room. Colours and parts come from /shared/tokens.css. */
 html,body{height:100%}
 body{overflow:auto}
+/* an app, not a web page: the window doesn't bounce at its edges, pictures and links can't be dragged out (hub.js),
+   and dragging across a screen doesn't highlight it. Text you type, chat messages and codes can still be selected. */
+html,body{overscroll-behavior:none}
+body{-webkit-user-select:none;user-select:none}
+input,textarea,[contenteditable],[contenteditable] *,pre,code,.ch-b,.ch-b *,[data-select],[data-select] *{-webkit-user-select:text;user-select:text}
+img,svg,a{-webkit-user-drag:none}
+/* screens that fill the window (Mirror, Chat) end at its edge, so the page itself never scrolls there */
+#page:has(.mr,.ch-app,.ch-sign){padding-bottom:0}
 
 /* splash */
 #splash{position:fixed;inset:0;z-index:50;background:#141517;display:grid;place-items:center;transition:opacity .5s var(--ease),visibility .5s}
@@ -18,6 +26,13 @@ body{overflow:auto}
 .wl-h{font:500 32px/1.2 var(--display);letter-spacing:-.02em;margin:10px 0 18px;text-wrap:balance}
 .wl-h span{display:block;font-weight:300;font-size:19px;color:var(--muted);margin-top:6px}
 #startBtn{max-width:280px}
+#gate{min-height:100%;display:grid;place-items:center;padding:40px 24px}
+#gateMark{width:72px;height:72px}
+.gate-in{width:100%;max-width:300px;text-align:center;font:600 22px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:14px;padding:14px;outline:none}
+.gate-in:focus{border-color:var(--sage)}
+.gate-msg{min-height:20px;margin:0;font-size:14px;color:var(--muted)}.gate-msg.bad{color:var(--err)}
+#gateBtn{max-width:300px}
+.home-empty{grid-column:1/-1;color:var(--muted);padding:12px 2px}
 
 /* home */
 #home{max-width:980px;margin:0 auto;padding:28px 32px 48px}
@@ -434,3 +449,22 @@ select.field{appearance:none;cursor:pointer}
 input[type=checkbox]{accent-color:var(--sage);width:16px;height:16px}
 .bm-links .sl{min-width:180px}.bm-links .sl-btn{padding:8px 12px;font-size:13.5px}
 .bm-h+.file,.bm-h+div>.file:first-child{border-top:0}
+
+/* ---------- Owner (modules/owner.js) ---------- */
+.own{display:flex;flex-direction:column;gap:16px;max-width:820px}
+.own-new,.own-mods,.own-code-new{display:flex;flex-direction:column;gap:12px;margin-top:8px}
+.own-new .btn,.own-mods .btn,.own-code-new .btn{width:auto;align-self:flex-start;padding:10px 18px}
+.own-in{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;padding:10px 12px;font:14px var(--body);outline:none;min-width:0}
+.own-in:focus{border-color:var(--sage)}.own-in.sm{width:170px}.own-in.xs{width:70px;margin-left:6px}
+.own-chips{display:flex;flex-wrap:wrap;gap:8px}
+.own-chip{display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;border:1px solid var(--line);font-size:13px;cursor:pointer}
+.own-chip:has(input:checked){border-color:var(--sage);background:var(--sage-soft)}
+.own-head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left}
+.own-head b{display:block;font:500 17px var(--display)}.own-head small{color:var(--muted);font-size:12.5px}
+.own-count{font-size:12.5px;color:var(--muted);flex:none}
+.own-body h4{font:600 13px var(--body);color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:20px 0 4px}
+.own-code{font-family:var(--mono);letter-spacing:.08em}
+.own-acts{display:flex;gap:6px}.own-acts .btn{width:auto;padding:8px 12px}
+.own-line{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--muted)}.own-line>.own-in{flex:1;min-width:200px}
+.own.shown .set-card{animation:none}
+.own-c.paused{opacity:.7}.set-row.gone{opacity:.55}

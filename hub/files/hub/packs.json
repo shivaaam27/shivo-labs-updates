@@ -1,0 +1,11 @@
+{
+ "_hidden": ["business", "insights"],
+ "_": "Which program files belong to which module (DISTRIBUTION-PLAN.md). An install holds core plus the packs of the modules its pass allows; updates (api/update.mjs) only touch those. Chat and Mirror are part of core. The first match wins, core last. Node comes from nodejs.org (packs/index.json); the files pack carries its own Python. _hidden: modules not offered to customers yet, so no pack is made (Business, and Insights, which is Shivam's own website numbers; 20 Oct 2026); updates skip their files.",
+ "ai": ["ai/app/"],
+ "business": ["business/"],
+ "files": ["beam/", "python/"],
+ "xtools": ["x-tools/"],
+ "insights": ["phone/www/insights/"],
+ "tv": ["phone/www/", "tv/"],
+ "core": ["hub/", "shared/", "wv2/"]
+}

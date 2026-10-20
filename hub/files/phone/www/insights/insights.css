@@ -1,6 +1,6 @@
 /* Insights (insights/insights.js), on the phone and in the hub. Only the shared colours (tokens.css / app.css), so light
    and dark mode just work. One column on a phone; from 720px wide the numbers sit in one row and the lists side by side. */
-.ins{container-type:inline-size;max-width:1180px;margin:0 auto;padding:4px 0 28px;transition:opacity .3s}
+.ins{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;container-type:inline-size;max-width:1180px;margin:0 auto;padding:4px 0 28px;transition:opacity .3s}
 .ins-top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:4px 0 14px}
 .ins-eye{display:flex;align-items:center;gap:6px;margin:0 0 4px;font:600 11px var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .ins-eye svg{width:14px;height:14px}

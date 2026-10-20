@@ -143,7 +143,7 @@ function watchStart() {
 function watchStop() { dev.watcher?.stop(); dev.watcher = null; clearInterval(dev.poll); }
 
 function start() {
-  if (bridge) return bridge;
+  if (bridge && !bridge.stdin.writableEnded) return bridge;
   if (!existsSync(join(SRC, "host", "Engine.ps1"))) throw new Error("The X Tools engine is missing from the Shivo Labs folder.");
   syncEngine();
   const p = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-STA", "-File", join(here, "xtools-bridge.ps1"), "-EngineDir", ENGINE_DIR], { windowsHide: true, stdio: ["pipe", "pipe", "ignore"],
@@ -172,15 +172,19 @@ function start() {
     pending.clear();
   });
   p.on("error", () => {});
+  p.stdin.on("error", () => {});   // the engine closed its end: never let that stop the hub (the call is turned down instead)
   return p;
 }
 
-function call(cmd, args) {
+async function call(cmd, args) {
   stopWanted = false;
+  // the engine is still letting go (its input was closed when the page was left): wait for it to finish first
+  const old = bridge;
+  if (old?.stdin.writableEnded) await new Promise((r) => { old.once("exit", r); setTimeout(r, 5000); });
   const p = start(), id = String(++seq);
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    p.stdin.write(JSON.stringify({ id, cmd, args: args ?? null }) + "\n");
+    p.stdin.write(JSON.stringify({ id, cmd, args: args ?? null }) + "\n", (e) => { if (e && pending.delete(id)) reject(new Error(BUSY)); });
   });
 }
 

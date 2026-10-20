@@ -10,13 +10,17 @@ import { mountBusiness } from './modules/business.js';
 import { mountTv } from './modules/tv.js';
 import { mountInsights } from './modules/insights.js';
 import { quietStart, quietReload } from './modules/quiet.js';
+import { mountOwner } from './modules/owner.js';
 const QUIET = quietStart();   // this load follows a quiet update: no splash, no entrance animations
-const PAGES = { business: mountBusiness, chat: mountChat, mirror: mountMirror, files: mountFiles, xtools: mountXtools, tv: mountTv, insights: mountInsights };  // module id -> its screen (modules/<id>.js)
+const PAGES = { owner: mountOwner, business: mountBusiness, chat: mountChat, mirror: mountMirror, files: mountFiles, xtools: mountXtools, tv: mountTv, insights: mountInsights };  // module id -> its screen (modules/<id>.js)
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 let list = [], leave = null;
+// nothing on the hub's screens can be dragged out of the window (pictures, links, highlighted text); files dragged in
+// from Explorer still drop (Cloud, X Tools, Business): those drags start outside the page
+document.addEventListener('dragstart', (e) => { const el = e.target.nodeType === 1 ? e.target : e.target.parentElement; if (!el?.closest('[draggable=true],input,textarea')) e.preventDefault(); });
 
 // theme: light, dark or automatic (follows Windows); chosen in Settings
 const getTheme = () => store.get('theme') || 'auto';
@@ -34,7 +38,7 @@ async function renderHome() {
   $('#hi').innerHTML = `${hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'}.<span>What would you like to open?</span>`;
   try { list = await (await fetch('/api/modules')).json(); } catch { toast("Couldn't load the apps"); }
   const state = (m) => !m.installed ? '<span class="state">Not installed</span>' : m.running ? '<span class="state"><i class="dot"></i>On</span>' : '';
-  $('#mods').innerHTML = list.map((m, i) => `
+  $('#mods').innerHTML = (list.length ? '' : '<p class="home-empty">Nothing is switched on for this PC yet. Contact Shivo Labs.</p>') + list.map((m, i) => `
     <button class="mod${m.installed ? '' : ' off'}" data-id="${esc(m.id)}" style="--i:${i}">${icon(m)}${state(m)}<b>${esc(m.name)}</b><small>${esc(m.sub)}</small></button>`).join('') +
     `<div class="mod ghost" style="--i:${list.length}"><span class="mod-ic"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><b>More apps</b><small>Coming here next</small></div>`;
   document.querySelectorAll('.mod[data-id]').forEach((b) => (b.onclick = () => openModule(b.dataset.id)));
@@ -93,14 +97,52 @@ $('#setOpen').onclick = openSettings;
 
 // splash, then welcome (first time) or home (or straight back into the module you were on)
 $('#splashMark').innerHTML = shivoMark('play');
-setTimeout(() => {
+setTimeout(async () => {
   $('#splash').classList.add('out');
+  let id = null; try { id = await (await fetch('/api/id')).json(); } catch {}
+  if (id?.enrolling) return showJoining();
+  if (id?.needCode) return showGate();
+  if (id?.fetching?.length) toast('Getting your modules ready…');
   if (!store.get('welcomed')) {
     $('#welcomeMark').innerHTML = shivoMark('play loop');
     $('#welcome').hidden = false;
     $('#startBtn').onclick = () => { store.set('welcomed', '1'); $('#welcome').hidden = true; showHome(); };
   } else showHome();
 }, QUIET ? 0 : 1100);
+// the first start after Setup: the hub is joining with the code typed in the setup window (offline: it keeps trying)
+async function showJoining() {
+  $('#gateMark').innerHTML = shivoMark('play loop'); $('#gate').hidden = false;
+  $('#gateCode').hidden = true; $('#gateBtn').hidden = true;
+  $('#gate .wl-h').innerHTML = 'Setting up<span>Getting your modules ready. This needs the internet.</span>';
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 2000));
+    let s = null; try { s = await (await fetch('/api/id', { cache: 'no-store' })).json(); } catch {}   // (the hub restarts once at the end)
+    if (s && !s.enrolling) { store.set('welcomed', '1'); location.replace('/'); return; }
+    if (s?.error) $('#gateMsg').textContent = s.error;
+  }
+}
+// the invite code (installed copies without a pass): joins this PC, fetches its modules, then the hub restarts
+function showGate() {
+  $('#gateMark').innerHTML = shivoMark('play loop'); $('#gate').hidden = false;
+  const msg = (t, bad) => { $('#gateMsg').textContent = t; $('#gateMsg').classList.toggle('bad', !!bad); };
+  const input = $('#gateCode'); input.focus();
+  input.oninput = () => { const c = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10); input.value = c.length > 5 ? `${c.slice(0, 5)}-${c.slice(5)}` : c; msg(''); };
+  const go = async () => {
+    const code = input.value.replace(/[^A-Z0-9]/gi, '');
+    if (code.length < 10) return msg('The code has 10 letters and numbers', true);
+    $('#gateBtn').disabled = true; msg('Getting your modules ready… this can take a few minutes');
+    let r = null; try { r = await (await fetch('/api/id/enrol', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ code }) })).json(); } catch {}
+    if (!r?.ok) { $('#gateBtn').disabled = false; return msg(r?.error || "Couldn't reach Shivo Labs. Check the internet and try again", true); }
+    msg(`Welcome, ${r.customer}. Starting…`);
+    for (let i = 0; i < 60; i++) {   // the hub restarts with this PC's modules
+      await new Promise((ok) => setTimeout(ok, 1500));
+      try { const s = await (await fetch('/api/id', { cache: 'no-store' })).json(); if (!s.needCode) { store.set('welcomed', '1'); location.replace('/'); return; } } catch {}
+    }
+    location.replace('/');
+  };
+  $('#gateBtn').onclick = go;
+  input.onkeydown = (e) => { if (e.key === 'Enter') go(); };
+}
 async function showHome() {
   $('#homeMark').innerHTML = shivoMark('play loop'); $('#home').hidden = false;
   await renderHome();

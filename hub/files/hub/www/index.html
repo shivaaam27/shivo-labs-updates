@@ -23,6 +23,18 @@
     </div>
   </section>
 
+  <!-- an installed copy without a pass yet: the invite code decides which modules this PC gets (api/id.mjs) -->
+  <section id="gate" hidden>
+    <div class="wl-in">
+      <div id="gateMark"></div>
+      <div class="word big">SHIVO<span>LABS</span></div>
+      <h1 class="wl-h">Your invite code<span>Type the code you were sent.</span></h1>
+      <input id="gateCode" class="gate-in" placeholder="ABCDE-FGHJK" autocomplete="off" spellcheck="false" maxlength="14">
+      <p class="gate-msg" id="gateMsg"></p>
+      <button class="btn pri" id="gateBtn">Continue</button>
+    </div>
+  </section>
+
   <main id="home" hidden>
     <header class="home-top">
       <div class="home-brand"><div class="mkw" id="homeMark"></div><div class="word">SHIVO<span>LABS</span></div></div>

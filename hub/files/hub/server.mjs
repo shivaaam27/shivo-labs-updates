@@ -19,6 +19,7 @@ import { tvApi } from "./api/tv.mjs";
 import { insightsApi } from "./api/insights.mjs";
 import { autoCheck } from "./api/update.mjs";
 import { startPcLink } from "./api/pclink.mjs";
+import { idApi, startId, may, isOwner, hasPack } from "./api/id.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] || process.env.HUB_PORT) || 4800;
@@ -27,6 +28,9 @@ const PORT = Number(process.argv[2] || process.env.HUB_PORT) || 4800;
 const ROOTS = { "/shared/": [join(here, "shared"), join(here, "..", "shared")].find(existsSync), "/phone/": join(here, "..", "phone", "www"), "/": join(here, "www") };
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".ttf": "font/ttf", ".png": "image/png", ".ico": "image/x-icon" };
 const HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
+// each module's own API, closed when this PC's pass doesn't have the module (hub/api/id.mjs)
+const API_OF = { "/api/beam": "files", "/api/files": "files", "/api/xtools": "xtools", "/api/mirror": "mirror", "/api/business": "business", "/api/tv": "tv", "/api/insights": "insights" };
+const moduleOf = (path) => Object.entries(API_OF).find(([p]) => path === p || path.startsWith(p + "/"))?.[1];
 
 // %ROOT% is the folder that holds hub\ (the repo here, the program folder when installed); %NODE% is the
 // Node.js that comes with the install, or the one on this PC.
@@ -52,7 +56,7 @@ const portOpen = (port) => new Promise((ok) => {
 });
 // What the home screen shows for each module: installed or not, and running (when it has a port).
 async function status(m) {
-  return { id: m.id, name: m.name, sub: m.sub, icon: m.icon || "", mark: !!m.mark, page: !!m.page, full: !!m.full, embed: m.embed || null, installed: !m.check || existsSync(env(m.check)), running: m.port ? await portOpen(m.port) : null };
+  return { id: m.id, name: m.name, sub: m.sub, icon: m.icon || "", mark: !!m.mark, page: !!m.page, full: !!m.full, embed: m.embed || null, installed: hasPack(m.id) && (!m.check || existsSync(env(m.check))), running: m.port ? await portOpen(m.port) : null };
 }
 
 const send = (res, code, body, type = "application/json") => { res.writeHead(code, { "content-type": type, "cache-control": "no-store" }); res.end(typeof body === "string" || Buffer.isBuffer(body) ? body : JSON.stringify(body)); };
@@ -64,6 +68,9 @@ http.createServer(async (req, res) => {
   // anything that changes something must come from the hub's own page (other sites can't add this header)
   if (req.method !== "GET" && req.headers["x-hub"] !== "1") return send(res, 403, { error: "forbidden" });
   try {
+    if (await idApi(req, res, url.pathname)) return;
+    const mod = moduleOf(url.pathname);
+    if (mod && !may(mod)) return send(res, 403, { error: "This module isn't part of your Shivo Labs" });
     if (await beamApi(req, res, url.pathname, url)) return;
     if (await filesApi(req, res, url.pathname, url)) return;
     if (await xtoolsApi(req, res, url.pathname, url)) return;
@@ -72,10 +79,12 @@ http.createServer(async (req, res) => {
     if (await businessApi(req, res, url.pathname)) return;
     if (await tvApi(req, res, url.pathname, url)) return;
     if (await insightsApi(req, res, url.pathname, url)) return;
-    if (url.pathname === "/api/modules") return send(res, 200, await Promise.all((await modules()).map(status)));
+    // the home screen's cards: the modules this PC's pass has (the Owner page only on the owner's PC)
+    if (url.pathname === "/api/modules") return send(res, 200, await Promise.all((await modules()).filter((m) => (m.owner ? isOwner() : may(m.id))).map(status)));
     const open = url.pathname.match(/^\/api\/open\/([\w-]+)$/);
     if (open && req.method === "POST") {
       const m = (await modules()).find((x) => x.id === open[1]);
+      if (m && !may(m.id)) return send(res, 403, { error: "This module isn't part of your Shivo Labs" });
       if (m?.engine === "beam") return send(res, 200, { ok: await startBeam() });
       // a program the hub shows in its own window (Shivo Labs AI): start only its server, no window of its own
       if (m?.server) {
@@ -98,5 +107,6 @@ http.createServer(async (req, res) => {
     if (!(await stat(file).catch(() => null))?.isFile()) return send(res, 404, "Not found", "text/plain");
     return send(res, 200, await readFile(file), TYPES[extname(file)] || "application/octet-stream");
   } catch (e) { return send(res, 500, { error: String(e.message || e) }); }
-}).listen(PORT, "127.0.0.1", () => { console.log(`Shivo Labs hub on http://localhost:${PORT}`); if (PORT === 4800) { superviseBeam(); superviseMirror(); autoCheck(); startPcLink(); startFilesSync(); } else if (process.env.HUB_FILES_SYNC) startFilesSync(); else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); })
+}).listen(PORT, "127.0.0.1", () => { console.log(`Shivo Labs hub on http://localhost:${PORT}`); if (PORT === 4800 || process.env.HUB_ID_FORCE) startId();
+  if (PORT === 4800) { if (may("files")) { superviseBeam(); startFilesSync(); } if (may("mirror")) superviseMirror(); autoCheck(); if (may("xtools")) startPcLink(); } else if (process.env.HUB_FILES_SYNC) startFilesSync(); else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); })
   .on("error", (e) => console.log(e.code === "EADDRINUSE" ? `Port ${PORT} is busy; the hub may already be running.` : e.message));
