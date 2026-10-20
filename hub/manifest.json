@@ -1,14 +1,14 @@
 {
- "version": "1.0.350",
- "build": 350,
- "built": "2026-10-20T15:56:19.958Z",
+ "version": "1.0.354",
+ "build": 354,
+ "built": "2026-10-20T16:24:42.269Z",
  "notes": [
+  "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b",
+  "TV 1.0.17: smoothness work; handover notes on what is still slow (Apps grid: the top picture)",
+  "TV home smoothness (not yet on the TV): the picture at the top is plain images with one fixed shade (no canvas); the sidebar pills fade instead of resizing; no card lean; the rows are one layer of their own; the corner logo's light runs only while the remote rests; the title's rise can always be handed to the compositor (the last one is stopped first; no bouncing dots); the web view is made after the first frame; heavy reads wait until the page shows. Tests: smooth.mjs and trace.mjs (real TV), paint.mjs (laptop, headless Chrome)",
   "Shivo Cloud (Files phases 0 and 1): encrypted files on Cloudflare, with the PC off",
   "X Tools: new Wi-Fi tools package 27bfb6ba (shivo-sign with App Groups for every PC)",
-  "Beam README: staying reachable, never stuck at 0%, Send to PC in the Share menu",
-  "Beam foolproof: the PC stays reachable, sends never hang at 0%, Send to PC in the Share menu",
-  "Beam relay: after the PC refuses an upload (or goes away), read the rest and then answer",
-  "Beam: a refused upload through the relay says why, instead of 'Beam is not running'"
+  "Beam README: staying reachable, never stuck at 0%, Send to PC in the Share menu"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
