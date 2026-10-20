@@ -54,6 +54,19 @@ export function allowed() {
 export const may = (id) => { const a = allowed(); return !a || a.has(id); };
 export const isOwner = () => existsSync(ADMIN_FILE);
 
+// the owner's PC holds the key that signs passes (made by id/setup.mjs, also in shivo-id): it signs itself a pass that
+// sets up and owns Shivam's own Chat team in one click, no setup code (chat/README.md "Teams"). Made fresh each time
+// Chat asks and good for 10 minutes; shivo-id never puts "owner" in a pass, so no other PC can have one.
+const PASS_KEY = process.env.HUB_ID_PASSKEY || join(homedir(), ".fabra-labs-ai", "shivo-id", "pass-key.json");
+function ownerChatPass() {
+  const now = Date.now();
+  const body = { v: 1, device: "owner-" + createHash("sha256").update(hostname()).digest("hex").slice(0, 12), kind: "pc", customer: "owner",
+    name: "Shivo Labs", modules: ["chat"], owner: true, iat: now, exp: now + 10 * 60e3 };
+  const data = Buffer.from(JSON.stringify(body)).toString("base64url");
+  const key = createPrivateKey({ key: JSON.parse(readFileSync(PASS_KEY, "utf8")), format: "jwk" });
+  return `${data}.${sign("sha256", Buffer.from(data), { key, dsaEncoding: "ieee-p1363" }).toString("base64url")}`;
+}
+
 // shivo-id's clock, not this PC's: a PC set to the wrong time zone is hours off and would never get a new pass
 async function serverNow() {
   try { const r = await fetch(ID_API + "/now", { signal: AbortSignal.timeout(15000) }); const j = await r.json(); if (j.now) return j.now; } catch {}
@@ -190,6 +203,7 @@ export async function idApi(req, res, path) {
   }
   // the Chat screen joins this PC's customer team with the pass (chat/README.md "Teams"); POST, so only the hub's own page
   if (path === "/api/id/chatpass" && req.method === "POST") {
+    if (isOwner() && existsSync(PASS_KEY)) return json(res, 200, { pass: ownerChatPass() }), true;
     const pass = load()?.pass, p = pass && readPass(pass);
     return json(res, 200, { pass: !FREE && p && p.device === load().device && p.modules.includes("chat") ? pass : null }), true;
   }

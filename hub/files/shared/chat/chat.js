@@ -851,7 +851,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
       <div class="ch-group">
         <div class="ch-srow"><span class="ch-s-ic">${svg('arrow')}</span><span class="ch-row-l"><b>Server</b><small>${esc(base())}</small></span></div>
         <button class="ch-srow" id="chOut"><span class="ch-s-ic">${svg('out')}</span><span class="ch-row-l"><b>Sign out here</b></span>${svg('chev', 'ch-chev')}</button>
-        <button class="ch-srow danger" id="chOutAll"><span class="ch-s-ic">${svg('out')}</span><span class="ch-row-l"><b>Sign out everywhere</b><small>Every device needs a new invite code</small></span>${svg('chev', 'ch-chev')}</button>
+        <button class="ch-srow danger" id="chOutAll"><span class="ch-s-ic">${svg('out')}</span><span class="ch-row-l"><b>Sign out everywhere</b><small>${getPass ? 'Each device signs in again' : 'Every device needs a new invite code'}</small></span>${svg('chev', 'ch-chev')}</button>
       </div>
       <div class="ch-sub">YOUR DATA</div>
       <div class="ch-group">
