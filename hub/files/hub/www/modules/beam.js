@@ -1,6 +1,7 @@
 // Beam's PC screen inside the hub: your phones and tablets as cards (pick one or several, or drop files on one),
 // send files and text to them, see what came in, set up a new one.
 // The installed Beam (tray) is the engine; the hub server's /api/beam/* reads and fills its folders.
+import { enhanceSelects } from '/shared/select.js';
 import qrcode from '/shared/qrcode.mjs';
 
 const ICON = {
@@ -65,15 +66,6 @@ export function mountBeam(root, { esc, toast, openModule }) {
           <ol class="bm-steps" id="bmSteps"></ol>
           <p class="bm-note" id="bmNote"></p>
         </div>
-        <div class="card bm-card">
-          <div class="bm-h"><h2>Folders in Shivo Cloud</h2><button class="tbtn" id="bmAddFolder">${svg('folder')}Add folder</button></div>
-          <p class="bm-note">Kept in sync with Shivo Cloud, so they open on your phone with this PC off.</p>
-          <div id="bmFolders"></div>
-        </div>
-        <div class="card bm-card">
-          <label class="bm-links"><input type="checkbox" id="bmAwake"> Keep this PC available while plugged in</label>
-          <p class="bm-note">The screen still turns off. On battery the PC sleeps as usual.</p>
-        </div>
       </div>
     </div>`;
   const $ = (s) => root.querySelector(s);
@@ -88,7 +80,6 @@ export function mountBeam(root, { esc, toast, openModule }) {
     // (the relay is what lets a phone find this PC from anywhere, and at home when beam.local doesn't answer)
     if (pill) pill.innerHTML = st.running ? `<i class="dot"></i>${esc(st.host)}${st.relay?.connected ? ' · reachable from anywhere' : ''}` : `<button class="tbtn" id="bmStart">Start Beam</button>`;
     document.getElementById('bmStart')?.addEventListener('click', () => openModule('beam', true));
-    const aw = $('#bmAwake'); if (aw && document.activeElement !== aw) aw.checked = st.awake !== false;
     const devs = st.devices || [];
     for (const id of picked) if (!devs.some((d) => d.id === id)) picked.delete(id);
     if (!renaming) paintDevices(devs);
@@ -206,34 +197,12 @@ export function mountBeam(root, { esc, toast, openModule }) {
   };
   $('#bmFolder').onclick = () => post('/api/beam/reveal');
 
-  // ---------- folders on the phone (Files app): Beam always, plus the ones added here
-  function paintFolders(f) {
-    const row = (name, path, removable, missing) => `<div class="file"><span class="ext">${svg('folder')}</span>
-      <div class="meta"><div class="n">${esc(name)}</div><div class="s">${missing ? 'Not found on this PC' : esc(path)}</div></div>
-      ${removable ? `<button class="ibtn" data-unshare="${esc(path)}" aria-label="Remove">${svg('x')}</button>` : ''}</div>`;
-    $('#bmFolders').innerHTML = row('Beam', f.beam, false) + f.list.map((x) => row(x.name, x.path, true, x.missing)).join('');
-    root.querySelectorAll('[data-unshare]').forEach((b) => (b.onclick = async () => {
-      const r = await post('/api/beam/folders', JSON.stringify({ remove: b.dataset.unshare }));
-      if (r.ok) { toast('No longer synced. The copy in Shivo Cloud stays.'); loadFolders(); }
-    }));
-  }
-  const loadFolders = () => fetch('/api/beam/folders').then((r) => r.json()).then(paintFolders).catch(() => {});
-  $('#bmAddFolder').onclick = async () => {
-    const r = await post('/api/beam/folders', JSON.stringify({ add: true }));
-    const j = await r.json().catch(() => ({}));
-    if (j.ok) { toast('Added. It syncs to Shivo Cloud in a moment.'); loadFolders(); }
-    else if (j.error) toast(j.error);
-  };
-  loadFolders();
-  $('#bmAwake').onchange = async (e) => {
-    const r = await post('/api/beam/awake', JSON.stringify({ on: e.target.checked }));
-    toast(r.ok ? (e.target.checked ? 'This PC stays available while plugged in' : 'This PC sleeps as usual') : "Couldn't save that");
-  };
   // which browser opens links shared from the phone (Safari > Share > Beam / Send to PC)
   fetch('/api/beam/browsers').then((r) => r.json()).then(({ chosen, list }) => {
     const sel = $('#bmBrowser');
     sel.insertAdjacentHTML('beforeend', list.map((b) => `<option value="${esc(b.exe)}">${esc(b.name)}</option>`).join(''));
     sel.value = list.some((b) => b.exe === chosen) ? chosen : '';
+    enhanceSelects(sel.parentElement);
     sel.onchange = async () => {
       const r = await post('/api/beam/browser', JSON.stringify({ exe: sel.value }));
       toast(r.ok ? (sel.value ? `Links will open in ${sel.selectedOptions[0].text}` : 'Links will open in your default browser') : "Couldn't save that");

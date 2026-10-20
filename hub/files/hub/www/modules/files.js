@@ -1,6 +1,9 @@
 // Files: Shivo Cloud on the laptop (files/PLAN.md). Browse, upload (drop or choose), new folder, rename, delete to the
 // Trash, download, share links and request-files links. Everything is encrypted by the hub before it leaves this PC (hub/api/files.mjs).
+import { enhanceSelects } from '/shared/select.js';
+
 const ICON = {
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
   up: '<path d="M12 19V5m0 0-6 6m6-6 6 6"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -13,7 +16,8 @@ const ICON = {
   inbox: '<path d="M4 13l2.5-7h11L20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM4 13h5l1 2h4l1-2h5"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24">${ICON[k]}</svg>`;
-const size = (b) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : b < 1073741824 ? `${(b / 1048576).toFixed(1)} MB` : `${(b / 1073741824).toFixed(2)} GB`;
+const big = (n, u) => `${n >= 100 || Number.isInteger(n) ? Math.round(n) : n.toFixed(1)} ${u}`;
+const size = (b) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : b < 1073741824 ? big(b / 1048576, 'MB') : b < 1099511627776 ? big(b / 1073741824, 'GB') : big(b / 1099511627776, 'TB');
 const ext = (n) => (n.match(/\.([a-z0-9]{1,4})$/i)?.[1] || 'file').toUpperCase();
 const isImg = (n) => /\.(jpe?g|png|gif|heic|heif|webp|mov|mp4)$/i.test(n);
 const ago = (t) => { const s = (Date.now() - t) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(t).toLocaleDateString(); };
@@ -74,16 +78,15 @@ export function mountFiles(root, { esc, toast }) {
     $('#flCust').hidden = !st.operator;
     const pct = st.quota ? Math.min(100, (st.used / st.quota) * 100) : 0;
     const devs = (await (await fetch('/api/files/devices')).json().catch(() => ({}))).devices || [];
-    el.innerHTML = `<div class="bm-h"><h2>Shivo Cloud</h2><small class="bm-hint">${svg('lock')}Encrypted</small></div>
+    el.innerHTML = `<div class="bm-h"><h2>Storage</h2><small class="bm-hint">${svg('lock')}Encrypted</small></div>
       <div class="fl-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
       <p class="bm-note">${size(st.used || 0)} of ${size(st.quota || 0)} used${st.planName && st.plan !== 'own' ? ' · ' + esc(st.planName) : ''}</p>
       ${st.readOnly ? '<p class="bm-note fl-warn">Read-only: files can be opened and downloaded, not added. Contact Shivo Labs to continue.</p>' : ''}
-      <div class="bm-h" style="margin-top:14px"><h2>Synced with this PC</h2><button class="tbtn" id="flSyncNow">Sync now</button></div>
-      ${(st.sync?.pairs || []).map((p) => `<div class="file"><span class="ext">${svg('folder')}</span>
-        <div class="meta"><div class="n">${esc(p.name)}</div><div class="s">${esc(p.local)}</div></div></div>`).join('')}
-      <p class="bm-note">${st.sync?.error ? 'Sync problem: ' + esc(st.sync.error) : st.sync?.busy ? esc(st.sync.busy) + '…' : st.sync?.last ? 'Synced ' + ago(st.sync.last) : 'Not synced yet'}. Add folders on the Beam page.</p>
+      <div class="bm-h fl-sec"><h2>Synced with this PC</h2><button class="tbtn" id="flAddF">${svg('plus')}Add folder</button><button class="tbtn" id="flSyncNow">Sync now</button></div>
+      <div id="flFolders"></div>
+      <p class="bm-note">${st.sync?.error ? 'Sync problem: ' + esc(st.sync.error) : st.sync?.busy ? esc(st.sync.busy) + '…' : st.sync?.last ? 'Synced ' + ago(st.sync.last) : 'Not synced yet'}. These folders open on your phone with this PC off.</p>
       <div id="flLinks"></div>
-      <div class="bm-h" style="margin-top:14px"><h2>Devices</h2></div>
+      <div class="bm-h fl-sec"><h2>Devices</h2></div>
       ${devs.map((d) => `<div class="file"><span class="ext">${d.admin ? 'PC' : (d.kind || 'DEV').slice(0, 4).toUpperCase()}</span>
         <div class="meta"><div class="n">${esc(d.name)}</div><div class="s">${d.last_seen ? 'Seen ' + ago(d.last_seen) : 'Added ' + ago(d.created)}</div></div>
         ${d.admin ? '' : `<button class="ibtn" data-unlink="${esc(d.id)}" aria-label="Remove">${svg('trash')}</button>`}</div>`).join('')}
@@ -92,6 +95,7 @@ export function mountFiles(root, { esc, toast }) {
         <p class="bm-note">Keep this somewhere safe. Without it, files can't be read if this PC and your phones are lost.</p>
         <button class="tbtn" id="flShowCode">Show</button><code class="fl-code" id="flCode"></code></details>`;
     $('#flSyncNow').onclick = async () => { await post('/api/files/sync'); toast('Syncing'); setTimeout(() => { side(); show(); }, 4000); };
+    folders();
     root.querySelectorAll('[data-unlink]').forEach((b) => (b.onclick = async () => {
       if (!confirm('Remove this device? It loses access to Shivo Cloud.')) return;
       await post('/api/files/device-remove', { id: b.dataset.unlink }); toast('Removed'); side();
@@ -100,13 +104,32 @@ export function mountFiles(root, { esc, toast }) {
     links();
   }
 
+  // ---------- PC folders kept in sync with Shivo Cloud: the Beam folder always, plus the ones added here
+  async function folders() {
+    const f = await (await fetch('/api/beam/folders')).json().catch(() => null), el = $('#flFolders');
+    if (!f || !el) return;
+    const row = (name, path, removable, missing) => `<div class="file"><span class="ext">${svg('folder')}</span>
+      <div class="meta"><div class="n">${esc(name)}</div><div class="s">${missing ? 'Not found on this PC' : esc(path)}</div></div>
+      ${removable ? `<button class="ibtn" data-unsync="${esc(path)}" aria-label="Stop syncing">${svg('x')}</button>` : ''}</div>`;
+    el.innerHTML = row('Beam', f.beam, false) + (f.list || []).map((x) => row(x.name, x.path, true, x.missing)).join('');
+    el.querySelectorAll('[data-unsync]').forEach((b) => (b.onclick = async () => {
+      const r = await post('/api/beam/folders', { remove: b.dataset.unsync });
+      if (r.ok) { toast('No longer synced. The copy in Shivo Cloud stays.'); folders(); }
+    }));
+  }
+  $('#flSide').addEventListener('click', async (e) => {
+    if (!e.target.closest('#flAddF')) return;
+    const r = await post('/api/beam/folders', { add: true }), j = await r.json().catch(() => ({}));
+    if (j.ok) { toast('Added. It syncs to Shivo Cloud in a moment.'); folders(); } else if (j.error) toast(j.error);
+  });
+
   // ---------- share links and request links that still work
   async function links() {
     const [sh, rq] = await Promise.all([fetch('/api/files/shares'), fetch('/api/files/requests')].map((p) => p.then((r) => r.json()).catch(() => ({}))));
     const shares = sh.shares || [], reqs = rq.requests || [], el = $('#flLinks');
     if (!el) return;
     const left = (t) => (t ? 'until ' + new Date(t).toLocaleDateString() : 'no end date');
-    el.innerHTML = !shares.length && !reqs.length ? '' : `<div class="bm-h" style="margin-top:14px"><h2>Links</h2></div>
+    el.innerHTML = !shares.length && !reqs.length ? '' : `<div class="bm-h fl-sec"><h2>Links</h2></div>
       ${shares.map((x) => `<div class="file"><span class="ext">${svg('link')}</span>
         <div class="meta"><div class="n">${esc(x.name)}</div><div class="s">${x.downloads} download${x.downloads === 1 ? '' : 's'} · ${left(x.expires)}${x.password ? ' · password' : ''}</div></div>
         <button class="tbtn" data-copy="${esc(x.link)}">Copy</button><button class="ibtn" data-unshare="${esc(x.id)}" aria-label="Turn off">${svg('trash')}</button></div>`).join('')}
@@ -233,6 +256,7 @@ export function mountFiles(root, { esc, toast }) {
       ${a ? `<label class="fl-check"><input type="checkbox" id="cuPause"${a.paused ? ' checked' : ''}> Paused (read-only)</label>` : ''}
       <div id="cuCode"></div>
       <div class="xt-actions">${a ? '<button class="tbtn" id="cuNewCode">New setup code</button>' : ''}<button class="tbtn" id="cuBack">Back</button><button class="btn xt-btn" id="cuSave">${a ? 'Save' : 'Create'}</button></div>`;
+    enhanceSelects(dlg);
     const showCode = (c) => { $('#cuCode').innerHTML = `<p class="bm-note">Setup code for the customer's PC (Files › Set up). Valid for 7 days.</p><code class="fl-code fl-big">${esc(c)}</code>`; };
     $('#cuBack').onclick = customers;
     if (a) $('#cuNewCode').onclick = async () => { const rr = await post('/api/files/admin/code', { id: a.id }), jj = await rr.json(); if (rr.ok) showCode(jj.code); else toast(jj.error); };

@@ -1,4 +1,5 @@
-// The hub's one Settings screen: updates, look, start with Windows, apps, Shivo Labs AI's own settings, your data.
+// The hub's one Settings screen: updates, look, this PC (start with Windows, stay available), apps, Shivo Labs AI's
+// own settings, your data.
 const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }).then((r) => r.json());
 const svg = (p) => `<svg viewBox="0 0 24 24">${p}</svg>`;
 const ago = (t) => { if (!t) return 'not yet'; const s = (Date.now() - t) / 1000; return s < 90 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
@@ -10,7 +11,11 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
   const $ = (s) => root.querySelector(s);
   let s = null, alive = true, painted = false;
 
-  async function load() { try { s = await (await fetch('/api/settings', { cache: 'no-store' })).json(); } catch { return; } if (alive) paint(); }
+  async function load() {
+    try { s = await (await fetch('/api/settings', { cache: 'no-store' })).json(); } catch { return; }
+    try { s.awake = (await (await fetch('/api/beam/status')).json()).awake !== false; } catch { s.awake = true; }
+    if (alive) paint();
+  }
 
   function paint() {
     // the cards pop in once; later redraws (checking, installing, toggles) must not replay that (it looked like a glitch)
@@ -19,7 +24,7 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
     const where = u.mode === 'repo' ? 'Runs from the Shivo Labs folder (Documents\\Shivo Labs). Updates come from GitHub.' : 'Updates are checked a few times a day and only installed when you say so.';
     const status = u.installing ? 'Installing…' : u.checking ? 'Checking…' : u.error ? esc(u.error) : u.available ? `<b>Update ready: ${esc(u.available.version)}</b>` : u.lastCheck ? `Up to date · checked ${ago(u.lastCheck)}` : 'Not checked yet';
     const theme = getTheme();
-    $('#set').innerHTML = `
+    $('#set').innerHTML = `<div class="set-col">
       <section class="card set-card">
         <div class="set-h"><span class="mod-ic sm mark-ic">${shivoMark()}</span><div><b>Shivo Labs ${u.build ? `${esc(u.version.split('.').slice(0, 2).join('.'))} <span class="set-build">build ${u.build}</span>` : esc(u.version)}</b><small>${u.updatedAt ? `Updated ${esc(new Date(u.updatedAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))} · ` : ''}${where}</small></div></div>
         <p class="set-status${u.error ? ' bad' : ''}">${status}</p>
@@ -38,9 +43,11 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
       </section>
 
       <section class="card set-card">
-        <h3>Start with Windows</h3>
-        <div class="set-row"><span><b>Start quietly when Windows starts</b><small>So an iPhone can always send files with Beam. No window opens.</small></span><button class="sw${s.startup ? ' on' : ''}" id="startup" aria-label="Start with Windows"></button></div>
+        <h3>This PC</h3>
+        <div class="set-row"><span><b>Start quietly with Windows</b><small>So your phone can always reach this PC. No window opens.</small></span><button class="sw${s.startup ? ' on' : ''}" id="startup" aria-label="Start with Windows"></button></div>
+        <div class="set-row"><span><b>Stay available while plugged in</b><small>The screen still turns off. On battery the PC sleeps as usual.</small></span><button class="sw${s.awake ? ' on' : ''}" id="awake" aria-label="Stay available while plugged in"></button></div>
       </section>
+      </div><div class="set-col">
 
       <section class="card set-card">
         <h3>Apps</h3>
@@ -53,8 +60,8 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
         <p class="set-note">Kept on this PC. Updates never touch it.</p>
         ${s.places.map((p, i) => `<div class="set-row"><span><b>${esc(p.app)}</b><small>${esc(p.what)}</small></span>${p.exists ? `<button class="tbtn" data-rv="${i}">${svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>')}Show</button>` : '<span class="set-state">Nothing yet</span>'}</div>`).join('')}
       </section>
-
-      <section class="set-foot"><button class="tbtn" id="restart">Restart Shivo Labs</button></section>`;
+      <section class="set-foot"><button class="tbtn" id="restart">Restart Shivo Labs</button></section>
+      </div>`;
 
     // opens Shivo Labs AI and has it install its waiting update (it waits if a chat is still working)
     $('#openAi')?.addEventListener('click', () => openModule('ai', false, { aiCmd: 'install-update' }));
@@ -70,6 +77,11 @@ export function mountSettings(root, { esc, toast, openModule, list, setTheme, ge
     };
     $('#theme').onclick = (e) => { const b = e.target.closest('[data-t]'); if (!b) return; setTheme(b.dataset.t); paint(); };
     $('#startup').onclick = async () => { const r = await post('/api/settings/startup', { on: !s.startup }); s.startup = r.startup; paint(); toast(s.startup ? 'Shivo Labs will start with Windows' : "Shivo Labs won't start with Windows"); };
+    $('#awake').onclick = async () => {
+      const on = !s.awake, r = await fetch('/api/beam/awake', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+      if (!r.ok) return toast("Couldn't save that");
+      s.awake = on; paint(); toast(on ? 'This PC stays available while plugged in' : 'This PC sleeps as usual');
+    };
     $('#aiSet').onclick = () => openModule('ai', false, { aiSettings: true });
     root.querySelectorAll('[data-rv]').forEach((b) => (b.onclick = () => post('/api/settings/reveal', { i: b.dataset.rv })));
     $('#restart').onclick = async () => { await post('/api/settings/restart'); waitThenReload(toast, 'Restarting Shivo Labs…'); };
