@@ -95,7 +95,11 @@ export function startBeamRelay() {
       });
       const r = { http: rq, out: 0, res: null };
       reqs.set(m.rid, r);
-      rq.on("error", (e) => { send({ t: "err", rid: m.rid, error: "Beam is not running on the PC (" + (e.code || e.message) + ")" }); reqs.delete(m.rid); });
+      rq.on("error", (e) => {
+        if (!reqs.has(m.rid)) return;   // (already answered)
+        send({ t: "err", rid: m.rid, error: e.code === "ECONNREFUSED" ? "Beam is not running on the PC" : "The PC closed the connection (" + (e.code || e.message) + ")" });
+        reqs.delete(m.rid);
+      });
       if (!hasBody) rq.end();
     } else if (m.t === "end") {
       reqs.get(m.rid)?.http.end();

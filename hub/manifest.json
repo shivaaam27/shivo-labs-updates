@@ -1,14 +1,14 @@
 {
- "version": "1.0.343",
- "build": 343,
- "built": "2026-10-20T10:40:12.814Z",
+ "version": "1.0.345",
+ "build": 345,
+ "built": "2026-10-20T11:32:17.656Z",
  "notes": [
+  "Beam: a refused upload through the relay says why, instead of 'Beam is not running'",
+  "Files module: plan (Dropbox-like, works with the PC off; R2 + D1 + PC sync + share links)",
   "Beam: phone sees only the Beam folder plus folders added on the PC; six bug fixes",
   "Files extension: no main of its own (it looped and crashed), its class kept by name",
   "TV handover: remote and review notes",
-  "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b",
-  "TV 1.0.16: plain short wording on the TV and in Features; phone remote: joystick and touchpad never redrawn under a thumb, now playing becomes a strip so the pad stays large, fewer requests (history only when what plays changes, slower polling through the relay, Watch together and Features reuse what is known), Share falls back when copying fails, Ask hidden where there is no AI",
-  "shivo-sign: App Groups on a free Apple ID (patched xtool), and the first-time group race"
+  "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11373,7 +11373,7 @@
   "beam/app/beam/assets/fonts/Sora-Light.ttf": "6db01b5e1c003287352417d26f068f0cafbde8f6b763e7717654fb0c051f9777",
   "beam/app/beam/assets/fonts/Sora-SemiBold.ttf": "614cc019d57fb8756d4862e666c7cbbd7ba20dbf98cc48a559184da666bd2a9a",
   "beam/app/beam/assets/logo.png": "b4ab600ad5e55dc13fd29b041afefcf82f844a2a9341cf3d4df8d1909693f958",
-  "beam/app/beam/beam.py": "fe84187878e68b5f3744198784690a8a2c2eecdb7d60288d54559be06cce2bae",
+  "beam/app/beam/beam.py": "bc6b6f8e233dcd2b11c8266c830166188c6270569aa1eea48e34483a7b553cf9",
   "beam/app/beam/beamfs.py": "6147e6fa16d311f3e7ac55600e0b76093c6988edf74dd48ad892bb12c9b7fcaa",
   "beam/app/beam/phone.html": "e1ce2581f60a8b27ba79890b983cc8a9cb9d0f3b5fd847adf681a069c74fd4b1",
   "business/CLAUDE.md": "5e8d648f34e0eaa1239496237d685a7d8119958bde228aac72887e6659f1320d",
@@ -11468,7 +11468,7 @@
   "hub/api/airplay/playfair.mjs": "443d285fa13bd758947ccbc5fdace0f8b98556f7559d112977bbb687ae4b39d5",
   "hub/api/airplay/receiver.mjs": "ce5ab6ece5fd198884aa111c793b229da82f89e1e32824609dc4122049eb34d0",
   "hub/api/beam.mjs": "3faaeb49a2d1e787f92965d12a8c96926ed734ab5702a1dab66c10781e8821e4",
-  "hub/api/beamrelay.mjs": "4a2d1d57218dee586230f710a0bc76da6f86c0e0a7617ef7cd0d35c4f322f48d",
+  "hub/api/beamrelay.mjs": "7c0d6576f5c691332472afb3de16543a7754c2a2f08d0efcf5f8d8a7f99e56de",
   "hub/api/business.mjs": "5ccdc7ff105194767706cc375c8dc0ba7684ccc32a800fe577f67fd6663f3bc8",
   "hub/api/idevice.mjs": "6b152d85d3595069868bcf28c6a22101900dcfa1cfe5b0764766c2ff5117152a",
   "hub/api/mirror.mjs": "687bfbcc85a5b89249cba4c8d7f57007127d3e580f3bcecd4baa96773d16c404",

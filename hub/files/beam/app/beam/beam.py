@@ -657,6 +657,23 @@ class Handler(BaseHTTPRequestHandler):
                 left -= len(b)
                 yield b
 
+    def drain(self):
+        """After refusing an upload: read and drop the rest of its body before the connection closes. Closing with
+        unread data makes Windows reset the connection, and the answer (401/403) is lost on the way: through the relay
+        the phone then heard "Beam is not running" instead of why it was refused. Up to the relay's 100 MB."""
+        try:
+            left = int(self.headers.get("Content-Length") or 0)
+            if not left or left > 110 * 1024 * 1024:
+                return
+            self.connection.settimeout(10)
+            while left:
+                b = self.rfile.read(min(CHUNK, left))
+                if not b:
+                    return
+                left -= len(b)
+        except (OSError, ValueError):
+            pass
+
     def send_plain_file(self, p):
         """A file from the PC's folders (Files app): no send-list bookkeeping."""
         size = p.stat().st_size
@@ -772,7 +789,7 @@ class Handler(BaseHTTPRequestHandler):
             n = revoke_device(self.param("did"))
             return self.reply(200, json.dumps({"ok": True, "revoked": n}), "application/json")
         if not self.authed(path):
-            return
+            return self.drain()
         self.seen()
         if path.startswith("/fs/"):
             return self.fs("POST", path)
