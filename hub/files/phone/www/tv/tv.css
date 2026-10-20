@@ -426,3 +426,84 @@ html[data-theme=dark] .tvr-dpad[data-go] .tvr-dk{color:var(--text)}
 .tvf-mod-a{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px}
 .tvf-mod-a .btn{width:auto;flex:none}
 .tvf-mod-a .tvf-more{margin-top:0}
+
+/* ---- four tabs (Remote, Watch, Family, TV): grouped rows like iPhone Settings, sheets from the bottom ---- */
+/* the tab bar fills the width on a phone, every tab visible */
+@media (max-width:759px){
+  .tvx > .tvx-seg{display:grid;grid-template-columns:repeat(4,1fr);width:100%;overflow:visible}
+  .tvx > .tvx-seg button{padding:9px 4px;text-align:center}
+}
+@media (min-width:760px){ .tvx > .tvx-seg button{padding:9px 16px} }
+/* section titles: the title (and Off) on the left, settings and Add on the right */
+.tvx-h.tvf-h{align-items:center;gap:8px;min-height:34px}
+.tvf-ht{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+.tvf-hb{display:flex;align-items:center;gap:6px;flex:none}
+.tvx-h .tvf-hb .tvf-add{margin-left:0}
+.tvf-gear{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--muted);background:color-mix(in srgb,var(--text) 6%,transparent);transition:transform .15s var(--spring)}
+.tvf-gear svg{width:17px;height:17px}.tvf-gear:active{transform:scale(.9)}
+.tvf-offp{font:600 11.5px var(--body);font-style:normal;padding:3px 8px;border-radius:99px;background:color-mix(in srgb,var(--err) 13%,transparent);color:var(--err)}
+/* the message box: kind of message and its settings on one line */
+.tvf-sendh{display:flex;align-items:center;gap:8px}
+.tvf-sendh .tvf-seg{flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
+.tvf-sendh .tvf-seg::-webkit-scrollbar{display:none}
+
+/* nothing yet: one calm card that is itself the Add button */
+.tvf-blank{display:flex;flex-direction:column;gap:3px;width:100%;padding:14px 16px;border-radius:var(--r-card);text-align:left;color:var(--text);
+  border:1.5px dashed color-mix(in srgb,var(--text) 16%,transparent);transition:background .15s}
+.tvf-blank b{font:600 15px/1.3 var(--body)}.tvf-blank small{color:var(--muted);font-size:13px;line-height:1.4}
+.tvf-blank:active{background:var(--hover)}
+.tvf-room.off .tvf-roomb{opacity:.5}
+/* grouped rows */
+.tvs-group{display:flex;flex-direction:column;border-radius:var(--r-card);background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);overflow:hidden}
+.tvs-row{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:11px 16px;text-align:left;color:var(--text);font:500 15px/1.3 var(--body)}
+.tvs-row + .tvs-row{border-top:1px solid var(--line)}
+.tvs-row > span:first-child:not(.tvs-ic){flex:1;min-width:0}
+.tvs-row.go:active{background:var(--hover)}
+.tvs-row.go > svg{width:17px;height:17px;color:var(--faint);flex:none}
+.tvs-row.col{flex-direction:column;align-items:stretch;gap:8px}
+.tvs-row.col .field{margin:0}
+.tvs-row.main b{display:block;font:600 15.5px/1.3 var(--body)}.tvs-row.main small{display:block;color:var(--muted);font-size:13px;line-height:1.35;margin-top:2px}
+.tvs-ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--sage-soft);color:var(--sage)}
+html[data-theme=dark] .tvs-ic{color:var(--glow)}
+.tvs-ic svg{width:19px;height:19px}
+.tvs-t{flex:1;min-width:0}.tvs-t b{display:block;font:600 15px/1.3 var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvs-t small{display:block;color:var(--muted);font-size:13px;line-height:1.35;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvs-in{flex:none;max-width:52%;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:500 15px var(--body);text-align:right}
+select.tvs-in{text-align:left}
+.tvs-num{display:flex;align-items:center;gap:6px;flex:none}.tvs-num .tvs-in{width:74px}.tvs-num em{font-style:normal;color:var(--muted);font-size:13px;min-width:26px}
+.tvs-wait{margin:0;padding:16px;color:var(--muted);font-size:14px}
+.tvs-p{margin:0;color:var(--muted);font-size:14px;line-height:1.45}
+.tvs-btns{display:flex;gap:10px}.tvs-btns .btn{margin:0}
+.tvs-quiet{border:none;background:none;color:var(--err);margin:0}
+.tvs-code{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px;border-radius:var(--r-card);background:var(--panel);box-shadow:0 0 0 1px var(--line);text-align:center}
+.tvs-code small{color:var(--muted);font-size:13px}.tvs-code b{font:600 38px/1.1 var(--display);letter-spacing:.12em}
+.tvs-code span{color:var(--muted);font-size:13.5px;line-height:1.45}
+.tvf-sheet-c .tvs-group{box-shadow:0 0 0 1px var(--line)}
+/* the sheet: a handle, pulled down to close; Done for sheets that save as you go */
+.tvf-grab{display:block;width:38px;height:5px;border-radius:3px;margin:8px auto 0;background:color-mix(in srgb,var(--text) 18%,transparent);flex:none}
+.tvf-sheet-h{touch-action:none;padding:10px 16px 8px 20px}
+.tvf-done{padding:8px 14px;border-radius:99px;font:600 15px var(--body);color:var(--sage);background:var(--sage-soft)}
+html[data-theme=dark] .tvf-done{color:var(--glow)}
+.tvf-sheet-c{padding:6px 16px 18px;overscroll-behavior:contain}
+.tvf-sheet-c > .tvs-group + .tvs-group{margin-top:2px}
+.tvf-sheet-b.wide{max-width:720px}
+.tvf-sheet-b{box-shadow:0 -10px 40px rgba(0,0,0,.18)}
+.tvf-sheet-b.wide .tvf-shopseg{margin-top:2px}
+html.tvf-locked,html.tvf-locked body{overflow:hidden}
+@media (min-width:760px){ .tvf-grab{display:none} .tvf-sheet-h{padding-top:16px} .tvf-sheet-b{max-height:min(86vh,820px)} }
+/* apps on the TV: smaller tiles on a phone (three across) */
+@media (max-width:759px){ .tvx-apps{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 10px} .tvx-app-l{font-size:12px} .tvx-app-p{border-radius:12px} }
+/* the remote on a tablet or PC: never cut off at the bottom (room for its shadow) */
+@media (min-width:760px){ .tvx-side{padding:2px 3px 10px;margin:-2px -3px 0} }
+/* watch together: a slimmer card above live sport */
+.tvf-together{margin-bottom:0}
+#tvTogether:empty,#tvSport:empty{display:none}
+/* section titles keep the title's own size (an older rule makes every span in a title small) */
+.tvx-h .tvf-ht{font:600 17px/1.2 var(--display);color:var(--text)}
+.tvx-h .tvf-hb{font:inherit}
+@media (max-width:359px){ .tvf-seg button span{display:none} .tvf-seg button.on span{display:inline} }
+@media (min-width:360px){ .tvf-seg button span{display:inline} }
+/* watch together: one line, its buttons beside it */
+.tvf-together{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 14px}
+.tvf-together .tvf-row{flex:1;min-width:180px}
+#tvTogether:not(:empty) + #tvSport .tvx-h,#tvTogether:not(:empty) + #tvSport:empty + .tvx-h{margin-top:18px}

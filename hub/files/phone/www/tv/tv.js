@@ -8,11 +8,13 @@
 // in /hello; the phone tries the TV directly first and uses the relay only when that fails.
 // What works: what is playing (pause, play, skip), volume and mute, Home, your apps (open them on the TV), the TV's
 // rows (YouTube's picks...), inputs. The full remote (arrows, OK, Back, typing) needs the next app build.
-// Layout: one column on a phone; on an iPad or any wide screen the controls sit on the left, the content on the right.
+// Four tabs: Remote (on a phone; on a tablet or PC it stays on the left), Watch (what to watch, the TV's apps, Get apps),
+// Family (messages, reminders, dates, calls, photos, each with its own settings) and TV (health, inputs, the TV's own
+// settings and features). Settings and lists open as sheets from the bottom.
 import { deviceName } from '../engine/beam.js';
 import * as atv from './atvremote.js';
 import { makeRemote } from './remote.js';
-import { mountFamily, mountFeatures, mountHealth, mountShop, mountSport, mountTogether } from './family.js';
+import { mountFamily, mountHealth, mountShop, mountSport, mountTogether, sheet, featureSheet, loadMods } from './family.js';
 
 const PORT = 8799;
 const RELAY = 'https://shivo-tv-relay-test.ishivamparmar.workers.dev';   // tv/relay; finds the TV by this phone's key fingerprint
@@ -43,6 +45,14 @@ const IC = {
   moon: svg('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'),
   grid: svg('<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>'),
   picture: svg('<rect x="3" y="5" width="18" height="12" rx="2.5"/><path d="M7 14l3-3.5 2.5 2.5 2-2L17 14M8 21h8"/>'),
+  chev: svg('<path d="M9 6l6 6-6 6"/>'),
+  spark: svg('<path d="M12 3.5v4M12 16.5v4M3.5 12h4M16.5 12h4M6 6l2.8 2.8M15.2 15.2 18 18M6 18l2.8-2.8M15.2 8.8 18 6"/>'),
+  pip: svg('<rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="11" width="6.5" height="5" rx="1.2"/>'),
+  shield: svg('<path d="M12 3.5 19 6v5.5c0 4.2-3 7.6-7 9-4-1.4-7-4.8-7-9V6z"/><path d="m9 12 2 2 4-4"/>'),
+  sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>'),
+  ball: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5l3.6 2.6-1.4 4.2H9.8l-1.4-4.2zM12 7.5V3.5M15.6 10.1l3.9-1.3M14.2 14.3l2.4 3.4M9.8 14.3l-2.4 3.4M8.4 10.1 4.5 8.8"/>'),
+  bag: svg('<path d="M5 8h14l-1.2 11.2a1 1 0 0 1-1 .8H7.2a1 1 0 0 1-1-.8z"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/>'),
+  pulse: svg('<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/>'),
 };
 // the big services whose rows are worth showing (no rows from the apps the TV maker put on)
@@ -54,8 +64,9 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
   let tvs = []; try { tvs = JSON.parse(localStorage.getItem('sl.tv') || '[]'); } catch {}
   const save = () => { try { localStorage.setItem('sl.tv', JSON.stringify(tvs)); } catch {} };
   let cur = tvs[0] || null, apps = [], now = [], shelves = [], inputs = [], hist = [], dev = {}, timer = 0, alive = false, pairing = null;
-  let tab = 'foryou';
-  try { tab = localStorage.getItem('sl.tvTab') || 'foryou'; } catch {}
+  const OLD_TAB = { foryou: 'watch', apps: 'watch', features: 'tv', inputs: 'tv', more: 'tv' };
+  let tab = 'watch';
+  try { const t = localStorage.getItem('sl.tvTab') || 'watch'; tab = OLD_TAB[t] || t; } catch {}
   const blobs = new Map();   // pictures fetched from the TV, kept while the app is open
   // what the TV had the last time it answered, so the screen still opens (and can be looked through) with no connection
   const cacheKey = () => cur?.host || cur?.kh || '';
@@ -337,53 +348,52 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
         <button class="tvx-btn" data-media="next" aria-label="Next">${IC.next}</button></div>
     </section>`;
   }
+  // a row in a grouped list (like iPhone Settings): an icon, a title and a line, an arrow when it opens something
+  const row = (attrs, ic, t, sub = '', more = true) => `<button class="tvs-row go" ${attrs}><span class="tvs-ic">${ic}</span>
+    <span class="tvs-t"><b>${esc(t)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span>${more ? IC.chev : ''}</button>`;
+  const appTiles = () => appList().map((a) => `<button class="tvx-app${a.banner ? '' : ' ic'}" data-open="${esc(a.pkg)}">
+    <span class="tvx-app-p">${a.banner ? `<img data-tvpic="/banner/${esc(a.pkg)}" alt="" onerror="this.closest('.tvx-app').classList.add('ic');this.remove()">` : ''}<img class="tvx-app-i" data-tvpic="/icon/${esc(a.pkg)}" alt="" onerror="this.remove()"></span>
+    <span class="tvx-app-l">${esc(a.label)}</span></button>`).join('');
+  const inputRows = () => inputs.map((x) => row(`data-input="${esc(x.id)}"`, /hdmi/i.test(x.label) ? IC.hdmi : IC.input, x.label, 'Switch the TV to this', false)).join('');
   function contentHtml() {
-    if (tab === 'family' || tab === 'features') return '<div id="tvFam"><div class="tvx-wait"><p>Asking the TV…</p></div></div>';
-    if (tab === 'apps') {
-      return `<div class="tvx-apps">${appList().map((a) => `<button class="tvx-app${a.banner ? '' : ' ic'}" data-open="${esc(a.pkg)}">
-        <span class="tvx-app-p">${a.banner ? `<img data-tvpic="/banner/${esc(a.pkg)}" alt="" onerror="this.closest('.tvx-app').classList.add('ic');this.remove()">` : ''}<img class="tvx-app-i" data-tvpic="/icon/${esc(a.pkg)}" alt="" onerror="this.remove()"></span>
-        <span class="tvx-app-l">${esc(a.label)}</span></button>`).join('')}</div><div id="tvShop"></div>`;
+    if (tab === 'family') return '<div id="tvFam"><div class="tvx-wait"><p>Asking the TV…</p></div></div>';
+    if (tab === 'tv') {
+      return `<div id="tvHealth"></div>
+        ${inputs.length ? `<h3 class="tvx-h">Inputs</h3><div class="tvs-group">${inputRows()}</div>` : ''}
+        <h3 class="tvx-h">On the TV</h3><div class="tvs-group">
+          ${row('data-code', IC.phone, 'Add a phone', 'A one-time code for someone else’s phone')}
+          ${row('data-dream', IC.moon, 'Screensaver', 'Start it now', false)}
+          ${row('data-shivo="settings"', IC.tv, 'Shivo Labs settings', 'Opens them on the TV', false)}
+          ${row('data-tvupdate="1"', IC.spark, 'Update the TV', dev.version ? `Shivo Labs TV ${dev.version}` : 'Newest version', false)}</div>
+        <h3 class="tvx-h">Features</h3><div class="tvs-group" id="tvFeat"><p class="tvs-wait">Asking the TV…</p></div>
+        <h3 class="tvx-h">TV settings</h3><div class="tvs-group">
+          ${row('data-setting="display"', IC.picture, 'Picture', 'Mode, resolution', false)}
+          ${row('data-setting="sound"', IC.vol, 'Sound', 'Mode, output', false)}
+          ${row('data-setting="network"', IC.wifi, 'Network', 'Wi-Fi, internet', false)}
+          ${row('data-setting="bluetooth"', IC.remote, 'Remotes and Bluetooth', '', false)}
+          ${row('data-setting="all"', IC.gear, 'All settings', 'Opens them on the TV', false)}</div>`;
     }
-    if (tab === 'more') {
-      const sc = (attr, ic, t, s) => `<button class="tvx-input" ${attr}><span>${ic}</span><b>${t}</b><small>${s}</small></button>`;
-      return `<div id="tvHealth"></div><h3 class="tvx-h">On the TV</h3><div class="tvx-inputs">
-        ${sc('data-code', IC.phone, 'Add a phone', 'A code for someone else’s phone')}
-        ${sc('data-shivo="settings"', IC.tv, 'Shivo Labs settings', 'Our settings on the TV')}
-        ${sc('data-dream', IC.moon, 'Screensaver', 'Start it now')}
-        ${sc('data-shivo="apps"', IC.grid, 'All apps', 'The apps page on the TV')}</div>
-        <h3 class="tvx-h">TV settings</h3><div class="tvx-inputs">
-        ${sc('data-setting="display"', IC.picture, 'Picture', 'Mode, resolution')}
-        ${sc('data-setting="sound"', IC.vol, 'Sound', 'Mode, output')}
-        ${sc('data-setting="network"', IC.wifi, 'Network', 'Wi-Fi, internet')}
-        ${sc('data-setting="bluetooth"', IC.remote, 'Remotes', 'Bluetooth')}
-        ${sc('data-setting="all"', IC.gear, 'All settings', 'Everything else')}
-        ${sc('data-tvupdate="1"', IC.tv, 'Update the TV', dev.version ? `Shivo Labs TV ${dev.version}` : 'Newest version')}</div>
-        <div id="tvCodeBox"></div>
-        <h3 class="tvx-h">Video in a corner</h3>
-        <section class="tvx-ctl tvx-corner">
-          <input class="field" id="tvCornerUrl" placeholder="https://youtu.be/…" autocapitalize="off" autocorrect="off" spellcheck="false">
-          <div class="tvx-corner-b"><button class="btn sm pri" data-corner="mute">In the corner</button><button class="btn sm" data-corner="sound">With sound</button><button class="btn sm" data-corner="close">Close it</button></div></section>`;
-    }
-    if (tab === 'inputs') {
-      return inputs.length ? `<div class="tvx-inputs">${inputs.map((x) => `<button class="tvx-input" data-input="${esc(x.id)}"><span>${/hdmi/i.test(x.label) ? IC.hdmi : IC.input}</span><b>${esc(x.label)}</b><small>Switch the TV to this</small></button>`).join('')}</div>`
-        : '<p class="tvx-none">This TV has no inputs to switch to.</p>';
-    }
-    const rows = rowsOf(), w = watched(), sport = '<div id="tvTogether"></div><div id="tvSport"></div>';
+    // Watch: live sport, what was watched, the apps' own rows, the TV's apps (and Get apps), extras
+    const rows = rowsOf(), w = watched();
     const contHtml = w.length ? `<h3 class="tvx-h">Continue watching</h3>
       <div class="tvx-strip">${w.map((h, i) => `<button class="tvx-thumb" data-resume="${i}"><span class="tvx-thumb-p">${histPic(h)}${pct(h) ? `<i class="tvx-thumb-bar"><i style="width:${pct(h)}%"></i></i>` : ''}</span>
         <b>${esc(h.title)}</b><small class="tvx-thumb-s">${esc(label(h.pkg))}</small></button>`).join('')}</div>` : '';
-    if (!rows.length && w.length) return sport + contHtml;
-    if (!rows.length) return sport + '<p class="tvx-none">Nothing to suggest yet. Apps like YouTube fill this in once they have been opened on the TV.</p>';
-    return sport + contHtml + rows.map((r) => `<h3 class="tvx-h">${esc(label(r.pkg))}<span>${esc(r.name)}</span></h3>
+    const rowsHtml = rows.map((r) => `<h3 class="tvx-h">${esc(label(r.pkg))}<span>${esc(r.name)}</span></h3>
       <div class="tvx-strip">${r.items.slice(0, 14).map((it) => `<button class="tvx-thumb" data-uri="${esc(it.uri || '')}" data-pkg="${esc(r.pkg)}">
         <span class="tvx-thumb-p">${web(it.art) ? `<img src="${esc(web(it.art))}" alt="" loading="lazy">` : ''}</span><b>${esc(it.title)}</b></button>`).join('')}</div>`).join('');
+    return `<div id="tvTogether"></div><div id="tvSport"></div>${contHtml}${rowsHtml}
+      <h3 class="tvx-h tvf-h"><span class="tvf-ht">Apps on the TV</span><span class="tvf-hb"><button class="tvf-add" data-sheet="shop">${IC.plus}Get apps</button></span></h3>
+      ${apps.length ? `<div class="tvx-apps">${appTiles()}</div>` : '<p class="tvx-none">The TV’s apps show here once it answers.</p>'}
+      <h3 class="tvx-h">More</h3><div class="tvs-group">
+        ${row('data-sheet="corner"', IC.pip, 'Video in a corner', 'A second YouTube video over what is on')}
+        ${row('data-shivo="apps"', IC.grid, 'Apps page on the TV', 'All apps, on the TV’s screen', false)}</div>`;
   }
   // Layout: on a phone the Remote is the first tab (now playing, the remote, TV health) and the others below the tabs;
   // from 760 px (tablet, PC) the remote stays on the left, sized to fit the screen, and the tabs fill the right.
-  const TABS = [['remote', 'Remote'], ['foryou', 'For you'], ['family', 'Family'], ['apps', 'Apps'], ['features', 'Features'], ['inputs', 'Inputs'], ['more', 'Shortcuts']];
+  const TABS = [['remote', 'Remote'], ['watch', 'Watch'], ['family', 'Family'], ['tv', 'TV']];
   const wide = () => matchMedia('(min-width: 760px)').matches;
   function paint() {
-    if (tab === 'remote' && wide()) tab = 'foryou';
+    if (tab === 'remote' && wide()) tab = 'watch';
     root.innerHTML = `<div class="tvx${tab === 'remote' ? ' tab-remote' : ''}">
         <section class="tvx-tv"><span class="tvx-tv-ic">${IC.tv}</span>
           <div><b>${esc(cur.name || 'TV')}</b><small><i class="dot${offline ? ' wait' : ''}"></i><span id="tvWhere">${esc(whereText())}</span></small></div>
@@ -405,7 +415,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
     pics();
   }
   // ---- the remote: one card, like a real remote (remote.js) ----
-  const rmt = makeRemote({ call, toast, buzz, port: PORT, cur: () => cur, away: () => away, dev: () => dev, openLive: () => openLive(), setTab: (t) => setTab(t) });
+  const rmt = makeRemote({ call, toast, buzz, port: PORT, cur: () => cur, away: () => away, dev: () => dev, openLive: () => openLive(), setTab: (t) => (t === 'inputs' ? inputsSheet() : setTab(t)) });
   function wire() {
     root.querySelector('#tvSetup')?.addEventListener('click', () => setup());
     wireNow();
@@ -424,28 +434,70 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
       act('/media', { a: p.pkg, b: b.dataset.media }).then(() => setTimeout(pollNow, 700));
     }));
   }
-  // the Family and Features tabs live in family.js; they ask the TV themselves
-  let famTab = null, startNext = null;
-  // a feature's card in Features opens its tab at the right place (family.js DO)
-  function go(t, start) {
-    startNext = start; setTab(t);
-    const to = start?.to && t !== 'family' && root.querySelector('#' + start.to);
-    if (to) setTimeout(() => { to.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (to.tagName === 'INPUT') to.focus(); }, 350);
-  }
+  // what each tab asks the TV for itself (family.js): Watch its sport and Watch together, Family its lists, TV its health
+  // and the list of the TV's own features (the family ones are in the Family tab, each with its own settings)
+  const FAMILY_MODS = ['reminders', 'messages', 'birthdays', 'announce', 'photos', 'board', 'room', 'ai'];
+  let famTab = null;
+  const opts = () => ({ call, toast, buzz, pics, ai, nowPlaying: () => playing()[0] || null, appsOnTv: () => apps, tvName: () => cur?.name || 'the TV' });
   function mountTab() {
     famTab?.stop(); famTab = null;
     const hl = root.querySelector('#tvHealth'); if (hl && !offline) mountHealth(hl, { call, toast, buzz });
-    const start = startNext; startNext = null;
-    const opts = { call, toast, buzz, pics, ai, go, start, nowPlaying: () => playing()[0] || null, appsOnTv: () => apps, tvName: () => cur?.name || 'the TV' };
-    const shop = root.querySelector('#tvShop'); if (shop) { famTab = mountShop(shop, opts); return; }
+    if (root.querySelector('#tvFeat')) paintFeatures();
     const sp = root.querySelector('#tvSport');
     if (sp) {
-      const a = mountSport(sp, opts), b = mountTogether(root.querySelector('#tvTogether'), { ...opts, callOn, otherTvs: () => tvs.filter((t) => t !== cur && t.key), here: () => ({ now, hist }) });
+      const a = mountSport(sp, opts()), b = mountTogether(root.querySelector('#tvTogether'), { ...opts(), callOn, otherTvs: () => tvs.filter((t) => t !== cur && t.key), here: () => ({ now, hist }) });
       famTab = { stop() { a.stop(); b.stop(); } };
       return;
     }
-    const el = root.querySelector('#tvFam'); if (!el) return;
-    famTab = tab === 'family' ? mountFamily(el, opts) : mountFeatures(el, opts);
+    const el = root.querySelector('#tvFam'); if (el) famTab = mountFamily(el, opts());
+  }
+  // TV › Features: one row each, its state under the name; a tap opens its switch and settings from the bottom
+  const FEAT_IC = { adblock: 'shield', today: 'sun', sport: 'ball', store: 'bag', corner: 'pip', health: 'pulse' };
+  async function paintFeatures() {
+    const box = root.querySelector('#tvFeat'); if (!box) return;
+    try {
+      const mods = (await loadMods(call, true)).filter((m) => !FAMILY_MODS.includes(m.id));
+      if (!root.contains(box)) return;
+      box.innerHTML = mods.map((m) => row(`data-feat="${esc(m.id)}"`, IC[FEAT_IC[m.id]] || IC.spark, m.name, `${m.on ? 'On' : 'Off'} · ${m.about}`)).join('');
+      box.querySelectorAll('[data-feat]').forEach((b) => (b.onclick = () => { buzz(); featureSheet([b.dataset.feat], { call, toast, buzz, onChange: () => paintFeatures() }); }));
+    } catch (e) { box.innerHTML = `<p class="tvs-wait">${esc(e.message)}</p>`; }
+  }
+  // ---- sheets from the bottom: inputs (the remote's Inputs button), Get apps, a video in a corner, a code ----
+  function inputsSheet() {
+    buzz();
+    const el = sheet('Inputs', inputs.length ? `<div class="tvs-group">${inputRows()}</div>` : '<p class="tvx-none">This TV has no inputs to switch to.</p>', { done: true });
+    el.querySelectorAll('[data-input]').forEach((b) => (b.onclick = () => { act('/input', { a: b.dataset.input }, 'Switching the TV'); el.close(); }));
+  }
+  function shopSheet() {
+    const el = sheet('Get apps', '<div id="tvShopS"><p class="tvs-wait">Asking the TV…</p></div>', { done: true, wide: true });
+    const s = mountShop(el.querySelector('#tvShopS'), { ...opts(), pics: () => pics(el) });
+    return s;
+  }
+  function cornerSheet() {
+    const el = sheet('Video in a corner', `<p class="tvs-p">A second YouTube video plays small in a corner of the TV, over whatever is on. Close it from here or with Back on the remote.</p>
+      <input class="field" id="tvCornerUrl" placeholder="Paste a YouTube link" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url">
+      <div class="tvs-btns"><button class="btn pri" data-corner="mute">In the corner</button><button class="btn" data-corner="sound">With sound</button></div>
+      <button class="btn tvs-quiet" data-corner="close">Close the corner video</button>`, { done: true });
+    el.querySelectorAll('[data-corner]').forEach((b) => (b.onclick = async () => {
+      buzz();
+      if (b.dataset.corner === 'close') { await act('/corner/close', {}, 'Closed'); return el.close(); }
+      const u = el.querySelector('#tvCornerUrl').value.trim();
+      const m = u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/) || u.match(/^([A-Za-z0-9_-]{11})$/), t = u.match(/[?&]t=(\d+)/);
+      if (!m) return toast('Paste a YouTube link');
+      try { const r = await call('/corner', { a: m[1], b: t ? t[1] : 0, c: b.dataset.corner }, { post: true }); toast(r.ok ? 'Playing in the corner' : r.error || 'That did not work'); if (r.ok) el.close(); }
+      catch (e) { toast(e.message); }
+    }));
+    setTimeout(() => el.querySelector('#tvCornerUrl')?.focus(), 320);
+  }
+  // a code for another phone: they type it in Shivo Labs › TV › Use a code from the TV (any network, 10 minutes)
+  async function codeSheet() {
+    buzz();
+    const r = await act('/code', {}); if (!r?.code) return;
+    const c = `${r.code.slice(0, 3)} ${r.code.slice(3)}`;
+    const el = sheet('Add a phone', `<div class="tvs-code"><small>Code for one phone · 10 minutes</small><b>${esc(c)}</b>
+      <span>On their phone: Shivo Labs › TV › Use a code from the TV. It works from any network.</span></div>
+      <button class="btn pri" id="tvShare">Share the code</button>`, { done: true });
+    el.querySelector('#tvShare').onclick = () => { const t = `Shivo Labs TV code: ${c}. In Shivo Labs open TV, then "Use a code from the TV".`; navigator.share ? navigator.share({ text: t }).catch(() => {}) : navigator.clipboard?.writeText(t).then(() => toast('Copied')).catch(() => toast(c)); };
   }
   function wireContent() {
     mountTab();
@@ -461,30 +513,14 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
           : 'This TV needs Shivo Labs TV 1.0.10 for this button; it gets there by itself.');
       } catch (e) { toast(e.message); }
     }));
-    root.querySelectorAll('[data-corner]').forEach((b) => (b.onclick = async () => {
-      buzz();
-      if (b.dataset.corner === 'close') return act('/corner/close', {}, 'Closed');
-      const u = root.querySelector('#tvCornerUrl').value.trim();
-      const m = u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/) || u.match(/^([A-Za-z0-9_-]{11})$/), t = u.match(/[?&]t=(\d+)/);
-      if (!m) return toast('Paste a YouTube link');
-      try { const r = await call('/corner', { a: m[1], b: t ? t[1] : 0, c: b.dataset.corner }, { post: true }); toast(r.ok ? 'Playing' : r.error || 'That did not work'); }
-      catch (e) { toast(e.message); }
-    }));
+    root.querySelectorAll('[data-sheet]').forEach((b) => (b.onclick = () => { buzz(); ({ shop: shopSheet, corner: cornerSheet, inputs: inputsSheet })[b.dataset.sheet]?.(); }));
     root.querySelectorAll('[data-dream]').forEach((b) => (b.onclick = () => act('/dream', {}, 'Screensaver on')));
-    root.querySelectorAll('[data-code]').forEach((b) => (b.onclick = async () => {
-      // a code for another phone: they type it in Shivo Labs > TV > Use a code from the TV (any network, 10 minutes)
-      const r = await act('/code', {}); if (!r?.code) return;
-      const c = `${r.code.slice(0, 3)} ${r.code.slice(3)}`, box = root.querySelector('#tvCodeBox');
-      box.innerHTML = `<section class="tvx-ctl tvx-codebox"><small>Code for another phone · 10 minutes</small><b>${esc(c)}</b>
-        <span>On their phone: Shivo Labs › TV › Use a code from the TV.</span><button class="btn pri sm" id="tvShare">Share</button></section>`;
-      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      box.querySelector('#tvShare').onclick = () => { const t = `Shivo Labs TV code: ${c}. In Shivo Labs open TV, then "Use a code from the TV".`; navigator.share ? navigator.share({ text: t }).catch(() => {}) : navigator.clipboard?.writeText(t).then(() => toast('Copied')).catch(() => toast(c)); };
-    }));
+    root.querySelectorAll('[data-code]').forEach((b) => (b.onclick = () => codeSheet()));
     root.querySelectorAll('[data-resume]').forEach((b) => (b.onclick = () => resume(watched()[+b.dataset.resume])));
     root.querySelectorAll('.tvx-thumb:not([data-resume])').forEach((b) => (b.onclick = () => act(b.dataset.uri ? '/openUri' : '/open', { a: b.dataset.uri || b.dataset.pkg }, 'Playing on the TV').then(() => setTimeout(pollNow, 2500))));
   }
   function setTab(t) {
-    if (t === 'remote' && wide()) t = 'foryou';
+    if (t === 'remote' && wide()) t = 'watch';
     tab = t; try { localStorage.setItem('sl.tvTab', t); } catch {}
     buzz();
     root.querySelector('.tvx')?.classList.toggle('tab-remote', t === 'remote');
@@ -618,7 +654,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
       lastNowKey = nowKey;
       const hChanged = JSON.stringify(h.slice(0, 3).map((x) => [x.title, x.vid])) !== JSON.stringify(hist.slice(0, 3).map((x) => [x.title, x.vid]));
       hist = h;
-      if (hChanged && tab === 'foryou') { const c = root.querySelector('#tvContent'); if (c) { c.innerHTML = contentHtml(); wireContent(); pics(); } }
+      if (hChanged && tab === 'watch') { const c = root.querySelector('#tvContent'); if (c) { c.innerHTML = contentHtml(); wireContent(); pics(); } }
       if (hChanged || JSON.stringify(n.map((p) => [p.title, p.playing])) !== JSON.stringify(now.map((p) => [p.title, p.playing]))) {
         now = n; const box = root.querySelector('#tvNow'); if (box) { box.innerHTML = nowHtml(); wireNow(); pics(); }
       }

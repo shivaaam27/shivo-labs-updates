@@ -1,8 +1,8 @@
-// The TV's Family and Features tabs in the phone app (also the PC's, the hub shows this same screen).
+// The TV's Family tab in the phone app (also the PC's, the hub shows this same screen), and the sheets the other tabs use.
 // Family: send a message, have the TV say something or play a voice note, reminders and medicine (the TV shows a
-// card over any app; OK on the remote = done), birthdays and days to remember, and what happened (done, missed).
-// Features: every feature on the TV with its switch and its settings, exactly as the TV describes them (/mods), so a
-// newer TV's features show here without an app update. The TV keeps everything (tv/home Mods.java, Family.java).
+// card over any app; OK on the remote = done), birthdays and days to remember, calls, photos, and what happened.
+// Each part's switch and settings open from the button by its title (featureSheet), exactly as the TV describes them
+// (/mods), so a newer TV's features show without an app update. The TV keeps everything (tv/home Mods.java, Family.java).
 import { callTv, beCamera } from './call.js';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const svg = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
@@ -25,6 +25,7 @@ const IC = {
   video: svg('<rect x="3" y="6.5" width="12.5" height="11" rx="2.5"/><path d="M15.5 10.5 21 7.5v9l-5.5-3"/>'),
   cam: svg('<path d="M4 8.5h3l1.5-2h7l1.5 2h3v10H4z"/><circle cx="12" cy="13" r="3.2"/>'),
   spark: svg('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>'),
+  gear: svg('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
 };
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -50,24 +51,51 @@ const daysTo = (mmdd) => {
 };
 const inText = (n) => n === 0 ? 'Today' : n === 1 ? 'Tomorrow' : n < 14 ? `In ${n} days` : n < 60 ? `In ${Math.round(n / 7)} weeks` : `In ${Math.round(n / 30)} months`;
 
-// a sheet over the screen for adding and changing things (the TV tab has no sheets of its own)
-function sheet(title, body, { onSave, onDelete, saveText = 'Save' } = {}) {
+// a sheet from the bottom, like iPhone settings: a handle to pull it down, the title, its content; at the foot Save
+// (and Delete), or none when every change saves at once (done: a Done button in the header). On a tablet or PC it
+// opens in the middle. Back on Android and Escape close it.
+export function sheet(title, body, { onSave, onDelete, saveText = 'Save', done = false, wide = false, onClose = () => {} } = {}) {
   const el = document.createElement('div');
   el.className = 'tvf-sheet';
-  el.innerHTML = `<div class="tvf-sheet-b" role="dialog" aria-label="${esc(title)}"><div class="tvf-sheet-h"><b>${esc(title)}</b><button class="tvf-x" data-close aria-label="Close">${IC.x}</button></div>
+  el.innerHTML = `<div class="tvf-sheet-b${wide ? ' wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><i class="tvf-grab" aria-hidden="true"></i>
+    <div class="tvf-sheet-h"><b>${esc(title)}</b>${done ? '<button class="tvf-done" data-close>Done</button>' : `<button class="tvf-x" data-close aria-label="Close">${IC.x}</button>`}</div>
     <div class="tvf-sheet-c">${body}</div>
-    <div class="tvf-sheet-f">${onDelete ? `<button class="btn tvf-del" data-del>${IC.trash}Delete</button>` : ''}<button class="btn pri" data-save>${esc(saveText)}</button></div></div>`;
+    ${onSave ? `<div class="tvf-sheet-f">${onDelete ? `<button class="btn tvf-del" data-del>${IC.trash}Delete</button>` : ''}<button class="btn pri" data-save>${esc(saveText)}</button></div>` : ''}</div>`;
   document.body.appendChild(el);
+  document.documentElement.classList.add('tvf-locked');
   requestAnimationFrame(() => el.classList.add('in'));
-  const close = () => { el.classList.remove('in'); setTimeout(() => el.remove(), 250); };
+  const b = el.querySelector('.tvf-sheet-b');
+  let closed = false;
+  const close = () => {
+    if (closed) return; closed = true;
+    el.classList.remove('in'); b.style.transform = '';
+    removeEventListener('keydown', onKey);
+    setTimeout(() => { el.remove(); if (!document.querySelector('.tvf-sheet')) document.documentElement.classList.remove('tvf-locked'); onClose(); }, 280);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  addEventListener('keydown', onKey);
   el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-close]')) close(); });
-  el.querySelector('[data-save]').onclick = async (e) => { const b = e.currentTarget; b.disabled = true; try { if (await onSave(el) !== false) close(); } finally { b.disabled = false; } };
+  // pull down by the handle or the title to close (more than a quarter of its height, or a quick flick)
+  let y0 = 0, t0 = 0, dy = 0, pulling = false;
+  const head = el.querySelectorAll('.tvf-grab, .tvf-sheet-h');
+  head.forEach((h) => h.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    pulling = true; y0 = e.clientY; t0 = Date.now(); dy = 0; b.style.transition = 'none'; h.setPointerCapture?.(e.pointerId);
+  }));
+  head.forEach((h) => h.addEventListener('pointermove', (e) => { if (!pulling) return; dy = Math.max(0, e.clientY - y0); b.style.transform = `translateY(${dy}px)`; }));
+  const end = () => {
+    if (!pulling) return; pulling = false; b.style.transition = '';
+    if (dy > b.offsetHeight / 4 || (dy > 40 && dy / (Date.now() - t0) > 0.6)) close(); else b.style.transform = '';
+  };
+  head.forEach((h) => { h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end); });
+  el.querySelector('[data-save]')?.addEventListener('click', async (e) => { const x = e.currentTarget; x.disabled = true; try { if (await onSave(el) !== false) close(); } finally { x.disabled = false; } });
   // deleting asks twice: the first tap only says what the second one does
   el.querySelector('[data-del]')?.addEventListener('click', async (e) => {
-    const b = e.currentTarget;
-    if (!b.dataset.sure) { b.dataset.sure = '1'; b.lastChild.textContent = 'Tap again to delete'; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.lastChild.textContent = 'Delete'; } }, 4000); return; }
+    const x = e.currentTarget;
+    if (!x.dataset.sure) { x.dataset.sure = '1'; x.lastChild.textContent = 'Tap again to delete'; setTimeout(() => { if (x.isConnected) { delete x.dataset.sure; x.lastChild.textContent = 'Delete'; } }, 4000); return; }
     if (await onDelete() !== false) close();
   });
+  el.close = close;
   return el;
 }
 
@@ -94,12 +122,12 @@ export function mountFamily(box, { call, toast, buzz = () => {}, start = null, a
       if (start) { const s = start; start = null; begin(s); }
     } catch (e) {
       if (quiet) return;
-      box.innerHTML = e.old || /404/.test(e.message) ? `<p class="tvx-none">Update the TV to use this. Shortcuts › Update the TV.</p>`
+      box.innerHTML = e.old || /404/.test(e.message) ? `<p class="tvx-none">Update the TV to use this. TV › Update the TV.</p>`
         : `<p class="tvx-none">${esc(e.message)}</p>`;
     }
   }
   const off = (id) => mods[id] && !mods[id].on;
-  // opened from a feature's card in Features: the form, the right kind of message, or the section
+  // opened at a given place (start): the form, the right kind of message, or the section
   function begin(s) {
     if (s.add === 'reminder') return editReminder();
     if (s.add === 'birthday') return editDay();
@@ -116,59 +144,65 @@ export function mountFamily(box, { call, toast, buzz = () => {}, start = null, a
     // today's answer for a reminder (the log is newest first)
     const stateOf = (r) => { const e = data.log.find((l) => l.id === r.id && new Date(l.due).toDateString() === new Date().toDateString()); return e ? e.what : ''; };
     const nextYear = (m, dd) => { const t = new Date(); t.setHours(0, 0, 0, 0); return t.getFullYear() + (new Date(t.getFullYear(), m - 1, dd) < t ? 1 : 0); };
+    // each part has its own settings (the switch and options from Features), from the button by its title
+    const gear = (ids, name) => `<button class="tvf-gear" data-set="${ids}" aria-label="${esc(name)} settings">${IC.gear}</button>`;
+    const offPill = (id) => off(id) ? '<em class="tvf-offp">Off</em>' : '';
+    const head = (title, ids, add) => `<h3 class="tvx-h tvf-h"><span class="tvf-ht">${title}${offPill(ids.split(',')[0])}</span>
+      <span class="tvf-hb">${gear(ids, title)}${add ? `<button class="tvf-add" ${add}>${IC.plus}Add</button>` : ''}</span></h3>`;
+    const sendOff = mode === 'msg' ? off('messages') : mode === 'ask' ? off('ai') : off('announce');
     box.innerHTML = `
       ${asking ? `<section class="tvf-ask"><span>${IC.bell}</span><div><small>On the TV now</small><b>${esc(asking.title)}</b></div>
         <button class="btn sm" data-ans="later">Later</button><button class="btn sm pri" data-ans="ok">Done</button></section>` : ''}
       <section class="tvf-send">
-        <div class="seg tvf-seg">${[...(ai ? [['ask', 'Ask', IC.spark]] : []), ['msg', 'Message', IC.msg], ['say', 'Say it', IC.speak], ['voice', 'Voice note', IC.mic]].map(([id, n, ic]) => `<button data-mode="${id}" class="${mode === id ? 'on' : ''}">${ic}${n}</button>`).join('')}</div>
+        <div class="tvf-sendh"><div class="seg tvf-seg">${[...(ai ? [['ask', 'Ask', IC.spark]] : []), ['msg', 'Message', IC.msg], ['say', 'Say it', IC.speak], ['voice', 'Voice note', IC.mic]].map(([id, n, ic]) => `<button data-mode="${id}" class="${mode === id ? 'on' : ''}">${ic}<span>${n}</span></button>`).join('')}</div>
+          ${gear(ai ? 'messages,announce,ai' : 'messages,announce', 'Messages')}</div>
         ${mode === 'voice' ? `<div class="tvf-voice">
             <button class="tvf-rec${rec ? ' on' : ''}" id="tvfRec" aria-label="${rec ? 'Stop' : 'Record'}">${rec ? IC.stop : IC.mic}</button>
-            <div><b id="tvfRecT">${rec ? 'Recording… tap to stop' : clip ? `Voice note ready · ${clip.secs} s` : 'Tap to record'}</b><small>${clip ? 'Plays on the TV.' : 'Up to 60 seconds.'}</small></div>
+            <div><b id="tvfRecT">${rec ? 'Recording… tap to stop' : clip ? `Voice note ready · ${clip.secs} s` : 'Tap to record'}</b><small>${off('announce') ? 'Announce is off: turn it on in its settings.' : clip ? 'Plays on the TV.' : 'Up to 60 seconds.'}</small></div>
             ${clip && !rec ? `<button class="tvf-x" id="tvfDrop" aria-label="Throw away">${IC.trash}</button><button class="btn pri sm" id="tvfVoiceGo">${IC.send}Send</button>` : ''}</div>`
         : mode === 'ask' ? `<textarea class="field tvf-text" id="tvfText" rows="2" maxlength="500" placeholder="Ask a question"></textarea>
-           <div class="tvf-row"><small>${!ai ? 'Available in the phone app.' : off('ai') ? 'Off in Features.' : ''}</small>
-           <button class="btn pri sm" id="tvfAsk" ${!ai ? 'disabled' : ''}>${IC.spark}Ask</button></div>
+           <div class="tvf-row"><small>${sendOff ? 'Ask is off: turn it on in its settings.' : 'The answer shows on the TV.'}</small>
+           <button class="btn pri sm" id="tvfAsk">${IC.spark}Ask</button></div>
            ${answer ? `<div class="tvf-answer"><p>${esc(answer.text)}</p>${answer.done ? `<small>${esc(answer.done)}</small>` : ''}
              <div class="tvf-row"><span></span><button class="btn sm" id="tvfAnsSay">${IC.speak}Say it on the TV</button><button class="btn sm" id="tvfAnsShow">Show on the TV</button></div></div>` : ''}`
-        : `<textarea class="field tvf-text" id="tvfText" rows="2" maxlength="${mode === 'msg' ? 400 : 300}" placeholder="${mode === 'msg' ? 'Message' : 'Text to read aloud'}"></textarea>
-           <div class="tvf-row"><small>${mode === 'msg' ? off('messages') ? 'Off in Features.' : '' : off('announce') ? 'Off in Features.' : ''}</small>
+        : `<textarea class="field tvf-text" id="tvfText" rows="2" maxlength="${mode === 'msg' ? 400 : 300}" placeholder="${mode === 'msg' ? 'Message for the TV' : 'What the TV should say out loud'}"></textarea>
+           <div class="tvf-row"><small>${sendOff ? `${mode === 'msg' ? 'Messages are' : 'Announce is'} off: turn it on in its settings.` : mode === 'msg' ? 'Shows on the TV, over any app.' : 'Read out loud on the TV.'}</small>
            <button class="btn pri sm" id="tvfGo">${IC.send}${mode === 'msg' ? 'Send' : 'Say it'}</button></div>`}
       </section>
 
-      <h3 class="tvx-h" id="tvfRoom">Family room</h3>
-      ${off('room') ? '<p class="tvf-note">Off in Features.</p>' : `<div class="tvf-room">
-        <button class="tvf-roomb" id="tvfCall">${IC.video}<span><b>Video call the TV</b><small>Full screen on the TV</small></span></button>
-        <button class="tvf-roomb" id="tvfCam">${IC.cam}<span><b>Be the TV's camera</b><small>Use this phone as the TV camera</small></span></button></div>`}
-
-      <h3 class="tvx-h">Reminders and medicine<button class="tvf-add" data-add="reminder">${IC.plus}Add</button></h3>
-      ${off('reminders') ? '<p class="tvf-note">Reminders are off in Features.</p>' : ''}
+      ${head('Reminders and medicine', 'reminders', 'data-add="reminder"')}
       ${rem.length ? `<div class="tvf-list">${rem.map((r) => { const st = stateOf(r), t = TYPES.find((x) => x[0] === r.type) || TYPES[1]; return `
         <button class="tvf-item${r.on === false ? ' off' : ''}" data-edit="${esc(r.id)}"><span class="tvf-ic ${esc(r.type || 'reminder')}">${t[2]}</span>
           <span class="tvf-main"><b>${esc(r.title)}</b><small>${esc(r.at)} · ${esc(repeatText(r))}${r.on === false ? ' · off' : ''}</small></span>
           ${st ? `<span class="tvf-st ${esc(st)}">${esc(LOGW[st] || st)}</span>` : ''}${IC.chev}</button>`; }).join('')}</div>`
-      : '<p class="tvf-empty">No reminders.</p>'}
+      : '<button class="tvf-blank" data-add="reminder"><b>Add the first reminder</b><small>Medicine, a call to make, anything at a set time. It shows on the TV over any app.</small></button>'}
 
-      <h3 class="tvx-h">Birthdays and days to remember<button class="tvf-add" data-add="birthday">${IC.plus}Add</button></h3>
+      ${head('Birthdays and dates', 'birthdays', 'data-add="birthday"')}
       ${days.length ? `<div class="tvf-list">${days.map((d) => { const w = WHAT.find((x) => x[0] === d.what) || WHAT[0]; const [m, dd] = d.date.split('-').map(Number); return `
         <button class="tvf-item${d.on === false ? ' off' : ''}" data-edit="${esc(d.id)}"><span class="tvf-ic ${esc(d.what)}">${w[2]}</span>
           <span class="tvf-main"><b>${esc(d.what === 'birthday' ? `${d.title}'s birthday` : d.what === 'anniversary' ? `${d.title}'s anniversary` : d.title)}</b><small>${dd} ${MONTHS[m - 1]}${d.year && d.what !== 'day' ? ` · ${d.what === 'birthday' ? 'turns' : 'years:'} ${nextYear(m, dd) - d.year}` : ''}</small></span>
           <span class="tvf-st">${inText(d.in)}</span>${IC.chev}</button>`; }).join('')}</div>`
-      : '<p class="tvf-empty">No dates.</p>'}
+      : '<button class="tvf-blank" data-add="birthday"><b>Add a birthday or a date</b><small>The TV shows a card on the day, and the days coming up on its screensaver.</small></button>'}
 
-      <h3 class="tvx-h">Family photos<button class="tvf-add" id="tvfPhAdd">${IC.plus}Add</button></h3>
-      ${off('photos') ? '<p class="tvf-note">Off in Features.</p>' : ''}
+      ${head('Video call', 'room', '')}
+      <div class="tvf-room${off('room') ? ' off' : ''}">
+        <button class="tvf-roomb" id="tvfCall">${IC.video}<span><b>Call the TV</b><small>Full screen on the TV</small></span></button>
+        <button class="tvf-roomb" id="tvfCam">${IC.cam}<span><b>Be the TV's camera</b><small>A phone at home shows the room</small></span></button></div>
+
+      ${head('Family photos', 'photos,board', 'id="tvfPhAdd"')}
       <div id="tvfPhotos">${photosHtml()}</div>
 
-      <h3 class="tvx-h">What happened${data.log.length ? '<button class="tvf-add" id="tvfClear">Clear</button>' : ''}</h3>
-      ${data.log.length ? `<div class="tvf-log">${data.log.slice(0, 25).map((l) => `<div><span class="tvf-dot ${esc(l.what)}"></span><b>${esc(l.title)}</b>
-        <small>${LOGW[l.what] || esc(l.what)} · due ${when(l.due)}${l.what === 'done' ? ` · pressed ${new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</small></div>`).join('')}</div>`
-      : '<p class="tvf-empty">No history.</p>'}`;
+      ${data.log.length ? `<h3 class="tvx-h tvf-h"><span class="tvf-ht">What happened</span><span class="tvf-hb"><button class="tvf-add" id="tvfClear">Clear</button></span></h3>
+        <div class="tvf-log">${data.log.slice(0, 25).map((l) => `<div><span class="tvf-dot ${esc(l.what)}"></span><b>${esc(l.title)}</b>
+        <small>${LOGW[l.what] || esc(l.what)} · due ${when(l.due)}${l.what === 'done' ? ` · pressed ${new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</small></div>`).join('')}</div>` : ''}`;
     wire();
   }
   function wire() {
     box.querySelector('#tvfPhAdd')?.addEventListener('click', addPhotos);
-    box.querySelector('#tvfCall')?.addEventListener('click', () => { buzz(); callTv({ call, tvName: tvName(), toast }); });
-    box.querySelector('#tvfCam')?.addEventListener('click', () => { buzz(); beCamera({ call, tvName: tvName(), toast }); });
+    box.querySelectorAll('[data-set]').forEach((b) => (b.onclick = () => { buzz(); featureSheet(b.dataset.set.split(','), { call, toast, buzz, title: b.getAttribute('aria-label').replace(/ settings$/, ''), onChange: () => { modsAt = 0; load(true); } }); }));
+    const isOff = (id, name) => { if (!off(id)) return false; toast(`${name} is off on the TV`); featureSheet([id], { call, toast, buzz, onChange: () => { modsAt = 0; load(true); } }); return true; };
+    box.querySelector('#tvfCall')?.addEventListener('click', () => { buzz(); if (!isOff('room', 'Video call')) callTv({ call, tvName: tvName(), toast }); });
+    box.querySelector('#tvfCam')?.addEventListener('click', () => { buzz(); if (!isOff('room', 'Video call')) beCamera({ call, tvName: tvName(), toast }); });
     wirePhotos();
     box.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { mode = b.dataset.mode; buzz(); paint(); }));
     box.querySelectorAll('[data-ans]').forEach((b) => (b.onclick = async () => { try { await api('/items/answer', { a: b.dataset.ans }); buzz('success'); toast(b.dataset.ans === 'ok' ? 'Marked done' : 'The TV asks again later'); setTimeout(() => load(true), 800); } catch (e) { toast(e.message); } }));
@@ -177,6 +211,7 @@ export function mountFamily(box, { call, toast, buzz = () => {}, start = null, a
     const ask = box.querySelector('#tvfAsk');
     if (ask) ask.onclick = async () => {
       const q = box.querySelector('#tvfText').value.trim(); if (!q) return toast('Enter a question');
+      if (isOff('ai', 'Ask')) return;
       ask.disabled = true; ask.textContent = 'Thinking…';
       try { answer = await askTv(q); buzz('success'); }
       catch (e) { toast(e.message); }
@@ -187,6 +222,7 @@ export function mountFamily(box, { call, toast, buzz = () => {}, start = null, a
     const go = box.querySelector('#tvfGo');
     if (go) go.onclick = async () => {
       const t = box.querySelector('#tvfText').value.trim(); if (!t) return toast(mode === 'msg' ? 'Enter a message' : 'Enter text');
+      if (mode === 'msg' ? isOff('messages', 'Messages') : isOff('announce', 'Announce')) return;
       go.disabled = true;
       try {
         const r = await api(mode === 'msg' ? '/notify' : '/say', {}, { text: t });
@@ -201,7 +237,7 @@ export function mountFamily(box, { call, toast, buzz = () => {}, start = null, a
     });
     box.querySelector('#tvfRec')?.addEventListener('click', () => (rec ? stopRec() : startRec()));
     box.querySelector('#tvfDrop')?.addEventListener('click', () => { clip = null; paint(); });
-    box.querySelector('#tvfVoiceGo')?.addEventListener('click', sendVoice);
+    box.querySelector('#tvfVoiceGo')?.addEventListener('click', () => { if (!isOff('announce', 'Announce')) sendVoice(); });
   }
 
   // ---- voice note: recorded here, sent in pieces (the relay takes 64 KB at a time), played on the TV ----
@@ -322,7 +358,7 @@ Use "search" only when the person wants to watch or listen to something (YouTube
   let photos = null;
   async function loadPhotos() { try { photos = await call('/photos'); } catch { photos = null; } const el = box.querySelector('#tvfPhotos'); if (el) { el.innerHTML = photosHtml(); wirePhotos(); } }
   const photosHtml = () => !Array.isArray(photos) ? '' : photos.length ? `<div class="tvf-photos">${photos.slice().reverse().map((p) => `<button class="tvf-ph" data-ph="${esc(p.id)}"><img data-tvpic="/photo/${esc(p.id)}" alt=""><small>${esc(p.caption || new Date(p.date).toLocaleDateString())}</small></button>`).join('')}</div>`
-    : '<p class="tvf-empty">No photos. Added photos appear on the TV screensaver.</p>';
+    : '<p class="tvf-empty">Photos added here show on the TV\'s screensaver, with their caption.</p>';
   function wirePhotos() {
     box.querySelectorAll('[data-ph]').forEach((b) => (b.onclick = () => {
       const p = photos.find((x) => x.id === b.dataset.ph); if (!p) return;
@@ -349,7 +385,7 @@ Use "search" only when the person wants to watch or listen to something (YouTube
       <div class="tvf-f"><span>Repeat</span><div class="seg tvf-rep" id="fRep">${[['daily', 'Every day'], ['some', 'Some days'], ['once', 'Once']].map(([v, n]) => `<button data-v="${v}" class="${rep === v ? 'on' : ''}">${n}</button>`).join('')}</div>
         <div class="tvf-days" id="fDays" ${rep === 'some' ? '' : 'hidden'}>${DAYS.map((d, i) => `<button data-d="${i + 1}" class="${days.has(i + 1) ? 'on' : ''}">${d.slice(0, 2)}</button>`).join('')}</div>
         <input class="field" id="fDate" type="date" value="${esc(r.date || isoToday())}" min="${isoToday()}" ${rep === 'once' ? '' : 'hidden'}></div>
-      <div class="tvf-f"><span>Read it out loud</span><div class="seg" id="fSpeak">${[['def', 'As in Features'], ['yes', 'Yes'], ['no', 'No']].map(([v, n]) => `<button data-v="${v}" class="${speak === v ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+      <div class="tvf-f"><span>Read it out loud</span><div class="seg" id="fSpeak">${[['def', 'As set'], ['yes', 'Yes'], ['no', 'No']].map(([v, n]) => `<button data-v="${v}" class="${speak === v ? 'on' : ''}">${n}</button>`).join('')}</div></div>
       <label class="tvf-sw"><span><b>On</b></span><input type="checkbox" id="fOn" ${r.on !== false ? 'checked' : ''}><i></i></label>`, {
       onSave: async (s) => {
         const body = { kind: 'reminder', type, title: s.querySelector('#fTitle').value.trim(), text: s.querySelector('#fText').value.trim(), at: s.querySelector('#fAt').value,
@@ -410,75 +446,63 @@ Use "search" only when the person wants to watch or listen to something (YouTube
   return { stop() { alive = false; clearInterval(timer); stopRec(); } };
 }
 
-// ---- Features: the TV's own list, with switches and settings ----
-// what each feature's card opens: [button, tab, what to start there]
-const DO = {
-  reminders: ['Add a reminder', 'family', { add: 'reminder' }], birthdays: ['Add a date', 'family', { add: 'birthday' }],
-  messages: ['Send a message', 'family', { mode: 'msg' }], announce: ['Say something', 'family', { mode: 'say' }],
-  ai: ['Ask a question', 'family', { mode: 'ask' }], photos: ['Add photos', 'family', { photos: true }],
-  room: ['Video call the TV', 'family', { to: 'tvfRoom' }], board: ['Start the screensaver', '', { dream: true }],
-  health: ['Tidy up', 'more', { to: 'tvHealth' }], store: ['Get apps', 'apps', { to: 'tvShop' }],
-  sport: ['Live matches', 'foryou', { to: 'tvSport' }], corner: ['Play a corner video', 'more', { to: 'tvCornerUrl' }],
+// ---- a feature's switch and settings, in a sheet from the bottom (exactly as the TV describes them: /mods) ----
+// One sheet can hold several features (Family's message box: Messages, Announce, Ask). A newer TV's features and
+// settings show here without an app update. Each change is saved on the TV at once.
+let modsCache = null;
+export async function loadMods(call, fresh) {
+  if (modsCache && !fresh && Date.now() - modsCache.at < 30000) return modsCache.mods;
+  const r = await call('/mods');
+  if (!r || !Array.isArray(r.mods)) throw Object.assign(new Error('Update the TV to use this. TV › Update the TV.'), { old: true });
+  modsCache = { at: Date.now(), mods: r.mods };
+  return r.mods;
+}
+const fieldHtml = (m, f) => {
+  const v = m.settings[f.k];
+  if (f.t === 'bool') return `<label class="tvs-row tvf-sw"><span>${esc(f.l)}</span><input type="checkbox" data-m="${m.id}" data-k="${f.k}" ${v ? 'checked' : ''}><i></i></label>`;
+  if (f.t === 'multi') return `<div class="tvs-row col"><span>${esc(f.l)}</span><div class="tvf-chips sm" data-multi="${m.id}" data-k="${f.k}">${f.o.map(([val, n]) => `<button data-v="${esc(val)}" class="${(v || []).includes(val) ? 'on' : ''}">${esc(n)}</button>`).join('')}</div></div>`;
+  if (f.t === 'choice') return `<label class="tvs-row"><span>${esc(f.l)}</span><select class="tvs-in" data-m="${m.id}" data-k="${f.k}">${f.o.map(([val, n]) => `<option value="${esc(val)}" ${val === v ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`;
+  if (f.t === 'number') return `<label class="tvs-row"><span>${esc(f.l)}</span><span class="tvs-num"><input class="tvs-in" type="number" inputmode="numeric" min="${f.min ?? ''}" max="${f.max ?? ''}" value="${esc(v)}" data-m="${m.id}" data-k="${f.k}"><em>${esc(f.u || '')}</em></span></label>`;
+  if (f.t === 'time') return `<label class="tvs-row"><span>${esc(f.l)}</span><input class="tvs-in" type="time" value="${esc(v)}" data-m="${m.id}" data-k="${f.k}"></label>`;
+  return `<label class="tvs-row col"><span>${esc(f.l)}</span><input class="field" value="${esc(v)}" data-m="${m.id}" data-k="${f.k}"></label>`;
 };
-export function mountFeatures(box, { call, toast, buzz = () => {}, go = () => {}, ai = null }) {
-  let mods = [], open = '';
-  async function load() {
-    try {
-      const r = await call('/mods');
-      if (!r || !Array.isArray(r.mods)) throw Object.assign(new Error('old'), { old: true });
-      mods = r.mods; paint();
-    } catch (e) {
-      box.innerHTML = `<p class="tvx-none">${e.old || /404/.test(e.message) ? 'Update the TV to use this. Shortcuts › Update the TV.' : esc(e.message)}</p>`;
-    }
-  }
-  const field = (m, f) => {
-    const v = m.settings[f.k], id = `m_${m.id}_${f.k}`;
-    if (f.t === 'bool') return `<label class="tvf-sw sm"><span>${esc(f.l)}</span><input type="checkbox" data-m="${m.id}" data-k="${f.k}" ${v ? 'checked' : ''}><i></i></label>`;
-    if (f.t === 'multi') return `<div class="tvf-f"><span>${esc(f.l)}</span><div class="tvf-chips sm" data-multi="${m.id}" data-k="${f.k}">${f.o.map(([val, n]) => `<button data-v="${esc(val)}" class="${(v || []).includes(val) ? 'on' : ''}">${esc(n)}</button>`).join('')}</div></div>`;
-    if (f.t === 'choice') return `<label class="tvf-f"><span>${esc(f.l)}</span><select class="field" data-m="${m.id}" data-k="${f.k}">${f.o.map(([val, n]) => `<option value="${esc(val)}" ${val === v ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`;
-    if (f.t === 'number') return `<label class="tvf-f tvf-num"><span>${esc(f.l)}</span><span class="tvf-numin"><input class="field" id="${id}" type="number" inputmode="numeric" min="${f.min ?? ''}" max="${f.max ?? ''}" value="${esc(v)}" data-m="${m.id}" data-k="${f.k}"><em>${esc(f.u || '')}</em></span></label>`;
-    if (f.t === 'time') return `<label class="tvf-f tvf-num"><span>${esc(f.l)}</span><input class="field" type="time" value="${esc(v)}" data-m="${m.id}" data-k="${f.k}"></label>`;
-    return `<label class="tvf-f"><span>${esc(f.l)}</span><input class="field" value="${esc(v)}" data-m="${m.id}" data-k="${f.k}"></label>`;
+export async function featureSheet(ids, { call, toast, buzz = () => {}, title = '', onChange = () => {} }) {
+  let mods;
+  try { mods = (await loadMods(call)).filter((m) => ids.includes(m.id)); } catch (e) { return toast(e.message); }
+  if (!mods.length) return toast('This TV does not have this yet. It updates by itself.');
+  const body = () => mods.map((m) => `<div class="tvs-group">
+      <label class="tvs-row tvf-sw main"><span><b>${esc(m.name)}</b><small>${esc(m.about)}</small></span><input type="checkbox" data-on="${m.id}" ${m.on ? 'checked' : ''}><i></i></label>
+      ${m.on ? m.fields.map((f) => fieldHtml(m, f)).join('') : ''}</div>`).join('');
+  const el = sheet(title || mods[0].name, body(), { done: true });
+  const save = async (m, patch) => {
+    const r = await call('/mods/set', {}, { post: true, body: JSON.stringify({ id: m.id, ...patch }) });
+    if (!r || !r.ok) throw new Error(r?.error || 'Not saved');
+    if ('on' in r) m.on = r.on; if (r.settings) m.settings = r.settings;
+    onChange(m); return r;
   };
-  function paint() {
-    box.innerHTML = `
-      <div class="tvf-mods">${mods.map((m) => `<section class="tvf-mod${m.on ? '' : ' off'}${open === m.id ? ' open' : ''}">
-        <div class="tvf-mod-h"><button class="tvf-mod-t" data-open="${m.id}"><b>${esc(m.name)}</b><small>${esc(m.about)}</small></button>
-          <label class="tvf-sw bare"><input type="checkbox" data-on="${m.id}" ${m.on ? 'checked' : ''} aria-label="${esc(m.name)}"><i></i></label></div>
-        <div class="tvf-mod-a">${DO[m.id] && m.on && (m.id !== 'ai' || ai) ? `<button class="btn sm pri" data-do="${m.id}">${esc(DO[m.id][0])}</button>` : ''}
-        ${m.fields.length ? `<button class="tvf-more" data-open="${m.id}">${open === m.id ? 'Hide settings' : 'Settings'}${IC.chev}</button></div>
-        <div class="tvf-mod-s" ${open === m.id ? '' : 'hidden'}>${m.fields.map((f) => field(m, f)).join('')}</div>` : '</div>'}</section>`).join('')}</div>`;
-    box.querySelectorAll('[data-do]').forEach((b) => (b.onclick = () => {
-      const [, tab, start] = DO[b.dataset.do]; buzz();
-      if (start.dream) return call('/dream', {}, { post: true }).then(() => toast('Screensaver on')).catch((e) => toast(e.message));
-      go(tab, start);
+  const wire = () => {
+    const c = el.querySelector('.tvf-sheet-c');
+    c.querySelectorAll('[data-on]').forEach((x) => (x.onchange = async () => {
+      buzz(); const m = mods.find((y) => y.id === x.dataset.on);
+      try { await save(m, { on: x.checked }); c.innerHTML = body(); wire(); }
+      catch (e) { x.checked = !x.checked; toast(e.message); }
     }));
-    box.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => { open = open === b.dataset.open ? '' : b.dataset.open; buzz(); paint(); }));
-    box.querySelectorAll('[data-on]').forEach((c) => (c.onchange = async () => {
-      buzz();
-      try { const r = await call('/mods/set', {}, { post: true, body: JSON.stringify({ id: c.dataset.on, on: c.checked }) }); if (!r.ok) throw new Error(r.error); const m = mods.find((x) => x.id === c.dataset.on); m.on = r.on; paint(); toast(`${m.name}: ${r.on ? 'on' : 'off'}`); }
-      catch (e) { c.checked = !c.checked; toast(e.message || 'Not saved'); }
-    }));
-    // several of the options: each tap saves the new set
-    box.querySelectorAll('[data-multi]').forEach((g) => g.querySelectorAll('[data-v]').forEach((b) => (b.onclick = async () => {
-      b.classList.toggle('on');
-      const m = mods.find((x) => x.id === g.dataset.multi), val = [...g.querySelectorAll('.on')].map((x) => x.dataset.v);
-      try { const r = await call('/mods/set', {}, { post: true, body: JSON.stringify({ id: m.id, settings: { [g.dataset.k]: val } }) }); if (!r.ok) throw new Error(r.error); m.settings = r.settings; buzz('light'); toast('Saved'); }
-      catch (e) { b.classList.toggle('on'); toast(e.message || 'Not saved'); }
+    c.querySelectorAll('[data-multi]').forEach((g) => g.querySelectorAll('[data-v]').forEach((b) => (b.onclick = async () => {
+      b.classList.toggle('on'); const m = mods.find((y) => y.id === g.dataset.multi);
+      try { await save(m, { settings: { [g.dataset.k]: [...g.querySelectorAll('.on')].map((y) => y.dataset.v) } }); buzz('light'); }
+      catch (e) { b.classList.toggle('on'); toast(e.message); }
     })));
-    box.querySelectorAll('[data-k]:not([data-multi])').forEach((inp) => (inp.onchange = async () => {
-      const m = mods.find((x) => x.id === inp.dataset.m), k = inp.dataset.k;
+    c.querySelectorAll('[data-k]:not([data-multi])').forEach((inp) => (inp.onchange = async () => {
+      const m = mods.find((y) => y.id === inp.dataset.m), k = inp.dataset.k;
       const val = inp.type === 'checkbox' ? inp.checked : inp.type === 'number' ? Number(inp.value) : inp.value;
       try {
-        const r = await call('/mods/set', {}, { post: true, body: JSON.stringify({ id: m.id, settings: { [k]: val } }) });
-        if (!r.ok) throw new Error(r.error);
-        m.settings = r.settings; buzz('light');
-        if (inp.type !== 'checkbox' && String(r.settings[k]) !== String(inp.value)) { inp.value = r.settings[k]; toast('Adjusted to the allowed range'); } else toast('Saved');
-      } catch (e) { toast(e.message || 'Not saved'); }
+        const r = await save(m, { settings: { [k]: val } }); buzz('light');
+        if (inp.type !== 'checkbox' && String(r.settings[k]) !== String(inp.value)) { inp.value = r.settings[k]; toast('Kept within its limits'); }
+      } catch (e) { if (inp.type === 'checkbox') inp.checked = !inp.checked; toast(e.message); }
     }));
-  }
-  load();
-  return { stop() {} };
+  };
+  wire();
+  return el;
 }
 
 // ---- TV health: a small card under the remote (memory, storage, connection, Tidy up) ----
@@ -532,7 +556,7 @@ export function mountShop(box, { call, toast, buzz = () => {}, pics = () => {} }
       shop = s; doc = d; paint();
     } catch { box.innerHTML = ''; }
   }
-  const getHtml = () => shop.on === false ? '<p class="tvf-empty">Off in Features.</p>'
+  const getHtml = () => shop.on === false ? '<p class="tvf-empty">Get apps is off. Turn it on in TV › Features › Get apps.</p>'
     : !shop.play ? '<p class="tvf-empty">Google Play is disabled on this TV.</p>'
     : shop.groups.map((g) => `<h3 class="tvx-h">${esc(g.name)}</h3><div class="tvf-shop">${g.apps.map((a) => `
         <div class="tvf-app"><img data-tvpic="/storeicon/${esc(a.pkg)}" alt="" onerror="this.style.visibility='hidden'"><span><b>${esc(a.name)}</b><small>${esc(a.about)}</small></span>
@@ -600,7 +624,7 @@ export function mountSport(box, { call, toast, buzz = () => {} }) {
           <i>${m.state === 'in' ? `<u></u>${esc(m.clock || 'Live')}` : m.state === 'pre' ? `Starts ${hm(m.start)}` : 'Finished'}</i></button>`).join('')}</div>`;
       box.querySelectorAll('[data-sp]').forEach((b) => (b.onclick = async () => {
         buzz();
-        try { const r = await call('/sport/open', { a: b.dataset.sp }, { post: true }); toast(r.ok ? 'Opening' : 'Set the app in Features › Live sport'); }
+        try { const r = await call('/sport/open', { a: b.dataset.sp }, { post: true }); toast(r.ok ? 'Opening' : 'Choose the app in TV › Features › Live sport'); }
         catch (e) { toast(e.message); }
       }));
     } catch { box.innerHTML = ''; }

@@ -300,8 +300,10 @@ export function makeRemote(ctx) {
     side.classList.remove('tight');
     r.style.setProperty('--pad', '250px');
     const sc = side.closest('.scroll') || document.documentElement;
-    const bottom = Math.min(innerHeight, sc.getBoundingClientRect().bottom || innerHeight);
     const top = side.getBoundingClientRect().top;
+    // the remote's column has its own height limit (tv.css): fit inside that too, so its bottom is never cut off
+    const maxH = parseFloat(getComputedStyle(side).maxHeight) || Infinity;
+    const bottom = Math.min(innerHeight, sc.getBoundingClientRect().bottom || innerHeight, top + maxH);
     const over = top + side.scrollHeight - bottom + 14;
     let pad = Math.round(Math.max(130, Math.min(250, 250 - over)));
     if (250 - over < 200) { side.classList.add('tight'); const over2 = top + side.scrollHeight - bottom + 14; pad = Math.round(Math.max(120, Math.min(250, 250 - over2))); }

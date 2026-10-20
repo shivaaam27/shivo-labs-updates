@@ -1,14 +1,14 @@
 {
- "version": "1.0.360",
- "build": 360,
- "built": "2026-10-20T17:22:15.751Z",
+ "version": "1.0.362",
+ "build": 362,
+ "built": "2026-10-20T17:34:10.408Z",
  "notes": [
+  "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b",
+  "TV module in the phone app and hub: four tabs (Remote, Watch, Family, TV) instead of seven; each family feature's settings open from its own section as a sheet from the bottom (no Features duplicates); TV tab as grouped rows (health, inputs, the TV's own features, TV settings); Inputs, Get apps, corner video and the phone code in bottom sheets (handle, pull down, Done); the remote is never cut off on a tablet or PC. TV home: no big picture on the Apps page (it made moving there slow). New design for the TV pop-ups to approve (tv/home/design/popups.html). Plan for profiles and one installer (PROFILES-PLAN.md)",
   "Hub look: one place for each setting, Settings in two columns, one style for lists, fields and dropdowns",
   "Shivo Cloud phases 4 and 5: file versions, customer accounts",
   "Shivo Cloud phase 3: share links and request-files links",
-  "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b",
-  "Phone TV › Features: each feature's card has its main action (Add a reminder, Add a date, Send a message, Say something, Add photos, Video call the TV, Tidy up, Get apps, Live matches, Play a corner video, Start the screensaver) and opens the form or the right place; fake TV lists every feature",
-  "Shivo Cloud: one location on the iPhone, the Beam folder synced, PC uploads show on the phone"
+  "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11508,10 +11508,10 @@
   "phone/www/kit/forge.min.js": "dc67fd132427ad96c9666c844b39565413c40ddb1f2d063c53512fbf6d387dfd",
   "phone/www/tv/atvremote.js": "6750d9aa158f1e7910a0c573ac461bdd14d75a80b2acaf98421b8d672865e620",
   "phone/www/tv/call.js": "832a740a4a6e7cf48ee4b2f020a66ce167f6402f8a4d2ce264de121620410447",
-  "phone/www/tv/family.js": "468128e34626206575411701c0666cd1304e2fc86c6e0560fe79f5e334cf6eb9",
-  "phone/www/tv/remote.js": "5a0c11f3a9f2dd6707b49ac0c109387adc73b8842b527a63055e465c5828ae91",
-  "phone/www/tv/tv.css": "d74719fd399f167a433470d75c46cf643b877118443585a47e421ace50ed208d",
-  "phone/www/tv/tv.js": "efe7b23710fbd1c0e71ff8c55964c89961be2a5406ce25903d3a9a4bc5838663",
+  "phone/www/tv/family.js": "635b82119822963fdbb0241e88a60393b405a2007aef905671ddb5de484b59f4",
+  "phone/www/tv/remote.js": "9c7efd9dc2d16f6c80cf1de7b942ca1131296a3d4f534a10afa24d32a191c3d7",
+  "phone/www/tv/tv.css": "2553ef0a84f542ff2815d5ea0dfbd9290bc8472b37826307e4b7856e0019cb6b",
+  "phone/www/tv/tv.js": "d499b8c3caa8f3f55ec8927dcb9cec599cc414df09835066fe887de5d4277831",
   "shared/biz/api.js": "94aa1e1928d943c798ff50b3fc3e57f0fab972bcd4311a6f2ed84eeb489bb06a",
   "shared/biz/biz.css": "83ebb32e517aa24f0d9d80b165f4124388c0e91d848f08aa38136420a8f322ef",
   "shared/biz/buy.js": "e767b559bf6fcdc384f25d47ab7d5044feeeb5df2f209a41428888ae5b618942",
