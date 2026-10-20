@@ -71,7 +71,7 @@ function scan(root) {
 const toRecycleBin = (path) => process.env.HUB_SYNC_NO_RECYCLE ? Promise.resolve(rmSync(path, { recursive: true, force: true })) : new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
   `Add-Type -AssemblyName Microsoft.VisualBasic; $p = $env:SHIVO_DEL; if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } elseif (Test-Path -LiteralPath $p) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') }`],
   { windowsHide: true, timeout: 60000, env: { ...process.env, SHIVO_DEL: path } }, () => ok()));
-const conflictName = (rel) => { const e = extname(rel); return rel.slice(0, rel.length - e.length) + " (from Shivo Cloud)" + e; };
+const conflictName = (rel) => { const e = extname(rel); return rel.slice(0, rel.length - e.length) + " (from Shivo Labs Cloud)" + e; };
 
 // ---------- the cloud side
 async function ensureRoot(pair) {
@@ -145,7 +145,7 @@ async function round() {
         }
         continue;
       }
-      if (known && known[0] !== rel) {   // renamed or moved in Shivo Cloud
+      if (known && known[0] !== rel) {   // renamed or moved in Shivo Labs Cloud
         const from = join(pair.local, ...known[0].split("/"));
         try { mkdirSync(dirname(local), { recursive: true }); renameSync(from, local); } catch {}
         for (const k of Object.keys(p.entries)) if (k === known[0] || k.startsWith(known[0] + "/")) { p.entries[rel + k.slice(known[0].length)] = p.entries[k]; delete p.entries[k]; }

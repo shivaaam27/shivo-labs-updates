@@ -15,9 +15,9 @@ const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 // where each part keeps its data (shown in Settings; nothing here is deleted by an update)
 const PLACES = [
   ["Shivo Labs AI", "Chats, settings and your API key", join(homedir(), ".fabra-labs-ai")],
-  ["Beam", "Paired iPhones and the send list", join(process.env.APPDATA || "", "Beam")],
-  ["Received files", "Files sent from your phone with Beam", join(homedir(), "Downloads", "Beam")],
-  ["Shivo Cloud", "This PC's sign-in and encryption key for Files", process.env.HUB_FILES_DIR || join(process.env.APPDATA || "", "Shivo Labs", "Files")],
+  ["Sending", "Paired phones and files waiting for them", join(process.env.APPDATA || "", "Beam")],
+  ["Received files", "Files sent from your phone", join(homedir(), "Downloads", "Beam")],
+  ["Shivo Labs Cloud", "This PC's sign-in and encryption key", process.env.HUB_FILES_DIR || join(process.env.APPDATA || "", "Shivo Labs", "Files")],
   ["X Tools", "Your apps, Apple ID and the Linux it uses", join(process.env.LOCALAPPDATA || "", "Fabra Labs")],
   ["Business", "Your business data", join(process.env.APPDATA || "", "Shivo Labs", "Business")],
 ];

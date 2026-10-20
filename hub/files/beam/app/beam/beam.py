@@ -81,7 +81,7 @@ def save_config(cfg):
 #                    through the relay it must show that key, and nothing else (the pairing code and "accept this
 #                    phone" don't apply there). Removing a phone on the PC deletes its key.
 RELAY_URL = "https://shivo-labs-beam-relay.ishivamparmar.workers.dev"
-HUB_URL = os.environ.get("SHIVO_HUB", "http://127.0.0.1:4800")   # the hub on this PC (Shivo Cloud joins go through it)
+HUB_URL = os.environ.get("SHIVO_HUB", "http://127.0.0.1:4800")   # the hub on this PC (Shivo Labs Cloud joins go through it)
 RELAY = HOME / "relay.json"
 KEYS = HOME / "relay-keys.json"
 _keys, _key_lock = None, threading.Lock()
@@ -730,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                 yield b
 
     def files_join(self):
-        """A phone joining Shivo Cloud (hub/api/files.mjs): only on the home Wi-Fi (never through the relay, where
+        """A phone joining Shivo Labs Cloud (hub/api/files.mjs): only on the home Wi-Fi (never through the relay, where
         Cloudflare could swap the keys) and only a phone holding its Beam key. The phone's public key goes to the hub,
         which answers with the details sealed for that phone alone (files/FORMAT.md, "Joining a phone")."""
         if self.via_relay():

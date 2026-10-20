@@ -41,20 +41,13 @@
     "icon": "<rect x=\"2.5\" y=\"4\" width=\"13\" height=\"9\" rx=\"1.5\"/><path d=\"M6 17h6M9 13v4\"/><rect x=\"17\" y=\"8\" width=\"4.5\" height=\"9\" rx=\"1\"/>"
   },
   {
-    "id": "beam",
-    "name": "Beam",
-    "sub": "Files to and from your phone",
-    "page": true,
-    "engine": "beam",
-    "port": 8765,
-    "icon": "<path d=\"M4 12h11M11 7l5 5-5 5\"/><path d=\"M20 5v14\"/>"
-  },
-  {
     "id": "files",
-    "name": "Files",
-    "sub": "Shivo Cloud, with the PC off too",
+    "name": "Shivo Labs Cloud",
+    "sub": "Send and keep files, with the PC off too",
     "page": true,
-    "icon": "<path d=\"M7 18a4.5 4.5 0 0 1-.8-8.93A6 6 0 0 1 17.6 8.5 4 4 0 0 1 17 18z\"/><path d=\"M12 11v5m0-5-2 2m2-2 2 2\"/>"
+    "icon": "<path d=\"M7 18a4.5 4.5 0 0 1-.8-8.93A6 6 0 0 1 17.6 8.5 4 4 0 0 1 17 18z\"/><path d=\"M12 11v5m0-5-2 2m2-2 2 2\"/>",
+    "engine": "beam",
+    "port": 8765
   },
   {
     "id": "xtools",

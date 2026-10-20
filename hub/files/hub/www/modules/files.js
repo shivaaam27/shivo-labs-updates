@@ -1,6 +1,8 @@
-// Files: Shivo Cloud on the laptop (files/PLAN.md). Browse, upload (drop or choose), new folder, rename, delete to the
-// Trash, download, share links and request-files links. Everything is encrypted by the hub before it leaves this PC (hub/api/files.mjs).
+// Shivo Labs Cloud on the laptop (files/PLAN.md): sending to your phones (beam.js) and the files kept in the cloud,
+// on one page. Browse, upload (drop or choose), new folder, rename, delete to the Trash, download, versions, share links
+// and request-files links. Everything is encrypted by the hub before it leaves this PC (hub/api/files.mjs).
 import { enhanceSelects } from '/shared/select.js';
+import { mountBeam } from './beam.js';
 
 const ICON = {
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
@@ -28,11 +30,13 @@ async function copy(link, toast, what) {
 }
 const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
 
-export function mountFiles(root, { esc, toast }) {
+export function mountFiles(root, ctx) {
+  const { esc, toast } = ctx;
   let folder = '', path = [], trash = false, menuFor = '', st = null, busy = 0;
   root.innerHTML = `
     <div class="bm-grid">
       <div class="bm-col">
+        <div id="cSend"></div>
         <div class="card bm-card">
           <div class="bm-h fl-head"><nav class="fl-crumbs" id="flCrumbs"></nav>
             <button class="tbtn" id="flNew">${svg('plus')}New folder</button>
@@ -40,24 +44,27 @@ export function mountFiles(root, { esc, toast }) {
             <button class="tbtn" id="flTrash">${svg('trash')}Trash</button>
             <button class="tbtn" id="flCust" hidden>${svg('people')}Customers</button></div>
           <label class="fl-drop" id="flDrop"><input type="file" id="flPick" multiple hidden>
-            <span>${svg('up')}</span><b id="flDropT">Drop files here</b><small>or click to choose</small></label>
+            <span>${svg('up')}</span><b id="flDropT">Drop files to keep them here</b><small>or click to choose</small></label>
           <div id="flList"></div>
         </div>
+        <div id="cRecv"></div>
       </div>
       <div class="bm-col">
         <div class="card bm-card" id="flSide"></div>
+        <div id="cPair"></div>
       </div>
     </div>
     <div class="xt-veil" id="flVeil" hidden><div class="xt-dialog card" id="flDialog"></div></div>`;
   const $ = (s) => root.querySelector(s);
+  const leaveBeam = mountBeam(root, ctx, { send: $('#cSend'), pair: $('#cPair'), recv: $('#cRecv') });
 
   // ---------- the right-hand card: setup, space, devices, recovery
   async function side() {
     st = await (await fetch('/api/files/status')).json().catch(() => null);
     const el = $('#flSide');
     if (!st?.ready) {
-      el.innerHTML = `<div class="bm-h"><h2>Shivo Cloud</h2></div>
-        <p class="bm-note">Your files, available with this PC off and from anywhere. Encrypted on your devices before they leave them.</p>
+      el.innerHTML = `<div class="bm-h"><h2>Storage</h2></div>
+        <p class="bm-note">Keep your files in Shivo Labs Cloud: on your phone with this PC off, from anywhere. Encrypted on your devices before they leave them.</p>
         ${st?.operator ? '' : `<input class="field" id="flCodeIn" placeholder="Setup code (XXXX-XXXX)" autocomplete="off" spellcheck="false">
         <input class="field" id="flRecIn" placeholder="Recovery code" autocomplete="off" spellcheck="false" hidden>`}
         <button class="btn" id="flSetup">Set up</button><p class="bm-note" id="flSetupMsg"></p>`;
@@ -67,7 +74,7 @@ export function mountFiles(root, { esc, toast }) {
         $('#flSetup').disabled = true;
         const r = await post('/api/files/setup', { name: 'PC', code, recovery }); const j = await r.json().catch(() => ({}));
         $('#flSetup').disabled = false;
-        if (r.ok) { toast('Shivo Cloud is ready'); side(); show(); return; }
+        if (r.ok) { toast('Shivo Labs Cloud is ready'); side(); show(); return; }
         if (j.recovery) $('#flRecIn').hidden = false;
         $('#flSetupMsg').textContent = j.error || "Couldn't set up";
       };
@@ -86,18 +93,18 @@ export function mountFiles(root, { esc, toast }) {
       <div id="flFolders"></div>
       <p class="bm-note">${st.sync?.error ? 'Sync problem: ' + esc(st.sync.error) : st.sync?.busy ? esc(st.sync.busy) + '…' : st.sync?.last ? 'Synced ' + ago(st.sync.last) : 'Not synced yet'}. These folders open on your phone with this PC off.</p>
       <div id="flLinks"></div>
-      <div class="bm-h fl-sec"><h2>Devices</h2></div>
+      <div class="bm-h fl-sec"><h2>Access to your files</h2></div>
       ${devs.map((d) => `<div class="file"><span class="ext">${d.admin ? 'PC' : (d.kind || 'DEV').slice(0, 4).toUpperCase()}</span>
         <div class="meta"><div class="n">${esc(d.name)}</div><div class="s">${d.last_seen ? 'Seen ' + ago(d.last_seen) : 'Added ' + ago(d.created)}</div></div>
         ${d.admin ? '' : `<button class="ibtn" data-unlink="${esc(d.id)}" aria-label="Remove">${svg('trash')}</button>`}</div>`).join('')}
-      <p class="bm-note">Add an iPhone: on the phone, Shivo Labs › Files › Connect, on the same Wi-Fi as this PC.</p>
+      <p class="bm-note">A phone set up below gets access the next time it opens Shivo Labs on this PC's Wi-Fi.</p>
       <details class="bm-more"><summary>${svg('lock')}Recovery code</summary>
         <p class="bm-note">Keep this somewhere safe. Without it, files can't be read if this PC and your phones are lost.</p>
         <button class="tbtn" id="flShowCode">Show</button><code class="fl-code" id="flCode"></code></details>`;
     $('#flSyncNow').onclick = async () => { await post('/api/files/sync'); toast('Syncing'); setTimeout(() => { side(); show(); }, 4000); };
     folders();
     root.querySelectorAll('[data-unlink]').forEach((b) => (b.onclick = async () => {
-      if (!confirm('Remove this device? It loses access to Shivo Cloud.')) return;
+      if (!confirm('Remove this device? It loses access to your files in Shivo Labs Cloud.')) return;
       await post('/api/files/device-remove', { id: b.dataset.unlink }); toast('Removed'); side();
     }));
     $('#flShowCode').onclick = async () => { $('#flCode').textContent = (await (await fetch('/api/files/recovery')).json()).code; };
@@ -114,13 +121,13 @@ export function mountFiles(root, { esc, toast }) {
     el.innerHTML = row('Beam', f.beam, false) + (f.list || []).map((x) => row(x.name, x.path, true, x.missing)).join('');
     el.querySelectorAll('[data-unsync]').forEach((b) => (b.onclick = async () => {
       const r = await post('/api/beam/folders', { remove: b.dataset.unsync });
-      if (r.ok) { toast('No longer synced. The copy in Shivo Cloud stays.'); folders(); }
+      if (r.ok) { toast('No longer synced. The copy in the cloud stays.'); folders(); }
     }));
   }
   $('#flSide').addEventListener('click', async (e) => {
     if (!e.target.closest('#flAddF')) return;
     const r = await post('/api/beam/folders', { add: true }), j = await r.json().catch(() => ({}));
-    if (j.ok) { toast('Added. It syncs to Shivo Cloud in a moment.'); folders(); } else if (j.error) toast(j.error);
+    if (j.ok) { toast('Added. It syncs to Shivo Labs Cloud in a moment.'); folders(); } else if (j.error) toast(j.error);
   });
 
   // ---------- share links and request links that still work
@@ -159,11 +166,11 @@ export function mountFiles(root, { esc, toast }) {
     $('#flTrash').innerHTML = trash ? `${svg('back')}Files` : `${svg('trash')}Trash`;
     $('#flNew').hidden = trash; $('#flAsk').hidden = trash;
     $('#flCrumbs').innerHTML = trash ? '<b>Trash</b>'
-      : [{ id: '', name: 'Shivo Cloud' }, ...path].map((p, i, a) => i === a.length - 1 ? `<b>${esc(p.name)}</b>` : `<button class="tbtn" data-go="${esc(p.id)}">${esc(p.name)}</button><span>›</span>`).join('');
+      : [{ id: '', name: 'Your files' }, ...path].map((p, i, a) => i === a.length - 1 ? `<b>${esc(p.name)}</b>` : `<button class="tbtn" data-go="${esc(p.id)}">${esc(p.name)}</button><span>›</span>`).join('');
     root.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => open(b.dataset.go)));
     const r = await fetch(trash ? '/api/files/trash' : `/api/files/list?parent=${encodeURIComponent(folder)}`);
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { $('#flList').innerHTML = `<p class="emptyt">${esc(j.error || "Couldn't reach Shivo Cloud")}</p>`; return; }
+    if (!r.ok) { $('#flList').innerHTML = `<p class="emptyt">${esc(j.error || "Couldn't reach Shivo Labs Cloud")}</p>`; return; }
     const items = j.items || [];
     $('#flList').innerHTML = items.length ? items.map((f) => `
       <div class="file fl-row${f.kind === 'file' && isImg(f.name) ? ' img' : ''}" data-id="${esc(f.id)}">
@@ -318,5 +325,5 @@ export function mountFiles(root, { esc, toast }) {
 
   side().then(show);
   const timer = setInterval(() => { if (!busy && !menuFor && veil.hidden && document.visibilityState === 'visible') show(); }, 15000);
-  return () => clearInterval(timer);
+  return () => { clearInterval(timer); leaveBeam(); };
 }

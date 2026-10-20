@@ -29,12 +29,12 @@ function save(s) {
 
 class CloudError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 async function api(path, { method = "GET", body, raw, headers = {} } = {}) {
-  const s = load(); if (!s) throw new CloudError(409, "Shivo Cloud isn't set up on this PC yet");
+  const s = load(); if (!s) throw new CloudError(409, "Shivo Labs Cloud isn't set up on this PC yet");
   const r = await fetch(s.api + path, {
     method, headers: { authorization: "Bearer " + s.token, ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}), ...headers },
     body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined), duplex: raw ? "half" : undefined,
   });
-  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new CloudError(r.status, j.error || `Shivo Cloud answered ${r.status}`); }
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new CloudError(r.status, j.error || `Shivo Labs Cloud answered ${r.status}`); }
   return r;
 }
 export const apiJson = async (path, opts) => (await api(path, opts)).json();
@@ -177,7 +177,7 @@ async function setup(name, code, recovery) {
   else if (createKey()) r = await fetch(FILES_API + "/v1/account", { method: "POST", headers: { "x-create-key": createKey(), "content-type": "application/json" }, body: JSON.stringify({ name }) });
   else throw new CloudError(400, "Enter the setup code from Shivo Labs.");
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new CloudError(r.status, j.error || "Couldn't set up Shivo Cloud"); e.recovery = j.recovery; throw e; }
+  if (!r.ok) { const e = new CloudError(r.status, j.error || "Couldn't set up Shivo Labs Cloud"); e.recovery = j.recovery; throw e; }
   const st = { api: FILES_API, account: j.account, device: j.device, token: j.token, master: C.b64u(master), created: Date.now() };
   if (recovery) {   // the recovery code must open this account's names
     const top = await (await fetch(FILES_API + "/v1/items?parent=", { headers: { authorization: "Bearer " + j.token } })).json().catch(() => ({ items: [] }));
@@ -193,13 +193,13 @@ async function setup(name, code, recovery) {
 async function admin(path, method = "GET", body) {
   const r = await fetch(FILES_API + "/v1/admin/" + path, { method, headers: { "x-create-key": createKey(), ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new CloudError(r.status, j.error || `Shivo Cloud answered ${r.status}`);
+  if (!r.ok) throw new CloudError(r.status, j.error || `Shivo Labs Cloud answered ${r.status}`);
   return j;
 }
 // a phone joining on the home Wi-Fi (Beam's engine passes its request on): a device token of its own, and the master
 // key, sealed with a key only that phone can work out (files/FORMAT.md, "Joining a phone")
 async function joinPhone(pub, name, kind) {
-  const s = load(); if (!s) throw new CloudError(409, "Set up Shivo Cloud on the PC first (Files in Shivo Labs).");
+  const s = load(); if (!s) throw new CloudError(409, "Set up Shivo Labs Cloud on the PC first (Files in Shivo Labs).");
   const d = await apiJson("/v1/devices", { method: "POST", body: { name: String(name || "Phone").slice(0, 60), kind } });
   return C.joinBox(pub, { account: s.account, device: d.device, token: d.token, master: s.master, api: s.api });
 }

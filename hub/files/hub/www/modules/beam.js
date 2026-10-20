@@ -1,6 +1,7 @@
-// Beam's PC screen inside the hub: your phones and tablets as cards (pick one or several, or drop files on one),
-// send files and text to them, see what came in, set up a new one.
-// The installed Beam (tray) is the engine; the hub server's /api/beam/* reads and fills its folders.
+// The sending part of Shivo Labs Cloud (files.js lays out the page): your phones and tablets as cards (pick one or
+// several, or drop files on one), files and text waiting for them, setting up a new one, what came in.
+// Beam's engine (hub/engines/beam_host.py) does the work; the hub server's /api/beam/* reads and fills its folders.
+// slots: where the three parts go ({ send, pair, recv }, elements inside root).
 import { enhanceSelects } from '/shared/select.js';
 import qrcode from '/shared/qrcode.mjs';
 
@@ -28,45 +29,42 @@ const shape = (k) => `<svg viewBox="0 0 48 48" class="bm-shape">${SHAPE[k] || SH
 const KIND = { iphone: 'iPhone', ipad: 'iPad', android: 'Android phone', tablet: 'Tablet' };
 const names = (list) => list.length < 3 ? list.join(' and ') : `${list.length} devices`;
 
-export function mountBeam(root, { esc, toast, openModule }) {
+export function mountBeam(root, { esc, toast, openModule }, slots) {
   let st = null, pairMode = 'shortcut', timer = 0, sending = 0, menuFor = '';
   // the devices files go to (several allowed); none chosen = all of them
   let picked = new Set(); try { picked = new Set(JSON.parse(localStorage.getItem('beam.picked')) || []); } catch {}
   const savePicked = () => { try { localStorage.setItem('beam.picked', JSON.stringify([...picked])); } catch {} };
-  root.innerHTML = `
-    <div class="bm-grid">
-      <div class="bm-col">
-        <div class="card bm-card bm-devs" id="bmDevCard">
-          <div class="bm-h"><h2>Your devices</h2><small class="bm-hint" id="bmDevHint"></small></div>
-          <div class="bm-devlist" id="bmDevs"></div>
-        </div>
-        <label class="bm-drop card" id="bmDrop">
-          <input type="file" id="bmPick" multiple hidden>
-          <span class="mod-ic">${svg('up')}</span>
-          <b id="bmDropT">Drop files to send to iPhone</b><small id="bmDropS">or click to choose · or copy files and press Ctrl+V here</small>
-        </label>
-        <div class="card bm-card">
-          <div class="bm-h"><h2>Waiting to be collected</h2><span class="count" id="bmCount"></span></div>
-          <div id="bmWaiting"></div>
-          <details class="bm-more"><summary>${svg('text')}Send text instead</summary>
-            <textarea id="bmText" placeholder="Paste or type text to send"></textarea>
-            <button class="btn sm" id="bmTextBtn">Send text</button></details>
-        </div>
-        <div class="card bm-card">
-          <div class="bm-h"><h2>Received</h2><button class="tbtn" id="bmFolder">${svg('folder')}Open folder</button></div>
-          <label class="bm-links">Links from your phone open in <select id="bmBrowser"><option value="">Default browser</option></select></label>
-          <div id="bmReceived"></div>
-        </div>
+  slots.send.innerHTML = `
+    <div class="card bm-card bm-devs" id="bmDevCard">
+      <div class="bm-h"><h2>Send to your devices</h2><small class="bm-hint" id="bmDevHint"></small></div>
+      <div class="bm-devlist" id="bmDevs"></div>
+      <label class="fl-drop" id="bmDrop">
+        <input type="file" id="bmPick" multiple hidden>
+        <span>${svg('up')}</span><b id="bmDropT">Drop files to send</b><small id="bmDropS">or click to choose · Ctrl+V pastes</small>
+      </label>
+      <div id="bmWaitBox" hidden>
+        <div class="bm-h fl-sec"><h2>Waiting to be collected</h2><span class="count" id="bmCount"></span></div>
+        <div id="bmWaiting"></div>
       </div>
-      <div class="bm-col">
-        <div class="card bm-card bm-pair">
-          <div class="bm-h"><h2>Set up iPhone</h2></div>
-          <div class="seg" id="bmSeg"><button data-m="shortcut" class="on">Share menu</button><button data-m="web">Safari app</button></div>
-          <div class="bm-qr" id="bmQr"></div>
-          <ol class="bm-steps" id="bmSteps"></ol>
-          <p class="bm-note" id="bmNote"></p>
-        </div>
+      <details class="bm-more"><summary>${svg('text')}Send text instead</summary>
+        <textarea id="bmText" placeholder="Paste or type text to send"></textarea>
+        <button class="btn sm" id="bmTextBtn">Send text</button></details>
+    </div>`;
+  slots.pair.innerHTML = `
+    <div class="card bm-card bm-pair">
+      <div class="bm-h"><h2>Set up a phone</h2><button class="tbtn" id="bmPairTog" hidden>Show</button></div>
+      <div id="bmPairBody">
+      <div class="seg" id="bmSeg"><button data-m="shortcut" class="on">Share menu</button><button data-m="web">Safari app</button></div>
+      <div class="bm-qr" id="bmQr"></div>
+      <ol class="bm-steps" id="bmSteps"></ol>
+      <p class="bm-note" id="bmNote"></p>
       </div>
+    </div>`;
+  slots.recv.innerHTML = `
+    <div class="card bm-card">
+      <div class="bm-h"><h2>Received on this PC</h2><button class="tbtn" id="bmFolder">${svg('folder')}Open folder</button></div>
+      <label class="bm-links">Links from your phone open in <select id="bmBrowser"><option value="">Default browser</option></select></label>
+      <div id="bmReceived"></div>
     </div>`;
   const $ = (s) => root.querySelector(s);
 
@@ -78,8 +76,8 @@ export function mountBeam(root, { esc, toast, openModule }) {
   function paint() {
     const pill = document.getElementById('pageState');
     // (the relay is what lets a phone find this PC from anywhere, and at home when beam.local doesn't answer)
-    if (pill) pill.innerHTML = st.running ? `<i class="dot"></i>${esc(st.host)}${st.relay?.connected ? ' · reachable from anywhere' : ''}` : `<button class="tbtn" id="bmStart">Start Beam</button>`;
-    document.getElementById('bmStart')?.addEventListener('click', () => openModule('beam', true));
+    if (pill) pill.innerHTML = st.running ? `<i class="dot"></i>${esc(st.host)}${st.relay?.connected ? ' · reachable from anywhere' : ''}` : `<button class="tbtn" id="bmStart">Start sending</button>`;
+    document.getElementById('bmStart')?.addEventListener('click', () => openModule('files', true));
     const devs = st.devices || [];
     for (const id of picked) if (!devs.some((d) => d.id === id)) picked.delete(id);
     if (!renaming) paintDevices(devs);
@@ -87,14 +85,13 @@ export function mountBeam(root, { esc, toast, openModule }) {
     const all = [...st.waiting.map((f) => ({ ...f, to: '', who: devs.length ? 'Any device' : '' })),
       ...devs.flatMap((d) => d.waiting.map((f) => ({ ...f, to: d.id, who: d.name })))].sort((a, b) => b.at - a.at);
     $('#bmCount').textContent = all.length || '';
-    $('#bmWaiting').innerHTML = all.length
-      ? all.map((f) => `<div class="file${isImg(f.name) ? ' img' : ''}"><span class="ext">${esc(ext(f.name))}</span><div class="meta"><div class="n">${esc(f.name)}</div><div class="s">${f.who ? `<span class="bm-for">${esc(f.who)}</span> · ` : ''}${size(f.size)} · ${ago(f.at)}</div></div><button class="ibtn" data-rm="${esc(f.name)}" data-to="${esc(f.to)}" aria-label="Remove">${svg('x')}</button></div>`).join('')
-        + `<p class="bm-tip">On the phone or tablet, open Beam in the Shivo Labs app (or run <b>Get from PC</b>).</p>`
-      : `<p class="emptyt">Nothing waiting. Files you drop here wait until the device collects them.</p>`;
+    $('#bmWaitBox').hidden = !all.length;
+    $('#bmWaiting').innerHTML = all.map((f) => `<div class="file${isImg(f.name) ? ' img' : ''}"><span class="ext">${esc(ext(f.name))}</span><div class="meta"><div class="n">${esc(f.name)}</div><div class="s">${f.who ? `<span class="bm-for">${esc(f.who)}</span> · ` : ''}${size(f.size)} · ${ago(f.at)}</div></div><button class="ibtn" data-rm="${esc(f.name)}" data-to="${esc(f.to)}" aria-label="Remove">${svg('x')}</button></div>`).join('')
+      + (all.length ? `<p class="bm-tip">They save on the phone when Shivo Labs is opened there.</p>` : '');
     root.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => { await post(`/api/beam/remove?name=${encodeURIComponent(b.dataset.rm)}&to=${encodeURIComponent(b.dataset.to)}`); load(); }));
     $('#bmReceived').innerHTML = st.received.length
-      ? st.received.map((f) => `<button class="file${isImg(f.name) ? ' img' : ''}" data-rv="${esc(f.name)}"><span class="ext">${esc(ext(f.name))}</span><div class="meta"><div class="n">${esc(f.name)}</div><div class="s">${size(f.size)} · ${ago(f.at)}</div></div></button>`).join('')
-      : `<p class="emptyt">From iPhone: Share, then Send to PC. Files land in Downloads\\Beam.</p>`;
+      ? st.received.slice(0, 6).map((f) => `<button class="file${isImg(f.name) ? ' img' : ''}" data-rv="${esc(f.name)}"><span class="ext">${esc(ext(f.name))}</span><div class="meta"><div class="n">${esc(f.name)}</div><div class="s">${size(f.size)} · ${ago(f.at)}</div></div></button>`).join('')
+      : `<p class="emptyt">On the phone: Share, then Send to PC. Files land in Downloads\\Beam.</p>`;
     root.querySelectorAll('[data-rv]').forEach((b) => (b.onclick = () => post(`/api/beam/reveal?name=${encodeURIComponent(b.dataset.rv)}`)));
     paintPair();
   }
@@ -102,7 +99,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
   function paintDevices(devs) {
     $('#bmDevHint').textContent = devs.length ? (picked.size ? 'Click again to unselect' : devs.length > 1 ? 'None chosen: files go to all of them' : 'Drop files on it, or below') : '';
     if (!devs.length) {
-      $('#bmDevs').innerHTML = `<p class="emptyt">Phones and tablets show here after they open Beam once. Set one up on the right.</p>`;
+      $('#bmDevs').innerHTML = `<p class="emptyt">Phones and tablets show here once they're set up (on the right).</p>`;
       return;
     }
     $('#bmDevs').innerHTML = devs.map((d) => `
@@ -122,7 +119,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
     root.querySelectorAll('[data-ren]').forEach((b) => (b.onclick = () => rename(b.dataset.ren)));
     root.querySelectorAll('[data-forget]').forEach((b) => (b.onclick = async () => {
       await post('/api/beam/device', JSON.stringify({ id: b.dataset.forget, remove: true }));
-      picked.delete(b.dataset.forget); savePicked(); menuFor = ''; toast('Removed. It comes back if it opens Beam again.'); load();
+      picked.delete(b.dataset.forget); savePicked(); menuFor = ''; toast('Removed. It comes back if it opens Shivo Labs again.'); load();
     }));
     // drop straight onto a device
     root.querySelectorAll('.bm-dev').forEach((el) => {
@@ -154,13 +151,19 @@ export function mountBeam(root, { esc, toast, openModule }) {
     const all = st?.devices || [], d = all.filter((x) => ids.includes(x.id)).map((x) => x.name);
     return !d.length ? 'your phone' : d.length > 1 && d.length === all.length ? 'all your devices' : names(d);
   };
+  // folded away once a phone is set up (open it to add another)
+  let pairOpen = null;
+  $('#bmPairTog').onclick = () => { pairOpen = !pairOpen; paintPair(); };
   function paintPair() {
+    if (pairOpen === null) pairOpen = !(st.devices || []).length;
+    $('#bmPairBody').hidden = !pairOpen; $('#bmPairTog').hidden = !(st.devices || []).length;
+    $('#bmPairTog').textContent = pairOpen ? 'Hide' : 'Add a phone';
     const url = pairMode === 'shortcut' ? st.shortcut : pairMode === 'web' ? st.web : st.webIp;
     const steps = pairMode === 'shortcut'
       ? ['Point the iPhone Camera at this code and tap the link.', 'Tap <b>Add Shortcut</b>.', 'Share anything, then <b>Send to PC</b>. The first time, click Accept on the PC.']
-      : ['Point the iPhone Camera at this code and tap the link.', 'In Safari, tap Share, then <b>Add to Home Screen</b>.', 'Open Beam on the iPhone to send and receive.'];
+      : ['Point the iPhone Camera at this code and tap the link.', 'In Safari, tap Share, then <b>Add to Home Screen</b>.', 'Open it from the Home Screen to send and receive.'];
     if (url) { const q = qrcode(0, 'M'); q.addData(url); q.make(); $('#bmQr').innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }); }
-    else $('#bmQr').innerHTML = '<p class="emptyt">Start Beam once to make the link.</p>';
+    else $('#bmQr').innerHTML = '<p class="emptyt">Press Start sending at the top to make the link.</p>';
     $('#bmSteps').innerHTML = steps.map((s) => `<li>${s}</li>`).join('');
     $('#bmNote').innerHTML = `Set up on the same Wi-Fi as this PC. After that it also works away from home.${pairMode === 'web' ? ' <button class="tbtn" id="bmIp">Link won\'t open? Use the IP address</button>' : ''}${st.trusted ? ` ${st.trusted} iPhone${st.trusted > 1 ? 's' : ''} trusted.` : ''}`;
     $('#bmIp')?.addEventListener('click', () => { pairMode = 'web-ip'; paintPair(); });
@@ -182,7 +185,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
   function busy() {
     $('#bmDrop').classList.toggle('busy', sending > 0);
     $('#bmDropT').textContent = sending ? `Preparing ${sending} item${sending > 1 ? 's' : ''}…` : `Drop files to send to ${label(chosen().map((d) => d.id))}`;
-    $('#bmDropS').textContent = sending ? '' : 'or click to choose · or copy files and press Ctrl+V here';
+    $('#bmDropS').textContent = sending ? '' : 'or click to choose · Ctrl+V pastes';
   }
   const drop = $('#bmDrop');
   $('#bmPick').onchange = (e) => { sendFiles([...e.target.files]); e.target.value = ''; };
