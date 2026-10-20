@@ -1,14 +1,14 @@
 {
- "version": "1.0.347",
- "build": 347,
- "built": "2026-10-20T15:12:19.825Z",
+ "version": "1.0.349",
+ "build": 349,
+ "built": "2026-10-20T15:37:03.599Z",
  "notes": [
+  "X Tools: new Wi-Fi tools package 27bfb6ba (shivo-sign with App Groups for every PC)",
+  "Beam README: staying reachable, never stuck at 0%, Send to PC in the Share menu",
   "Beam foolproof: the PC stays reachable, sends never hang at 0%, Send to PC in the Share menu",
   "Beam relay: after the PC refuses an upload (or goes away), read the rest and then answer",
   "Beam: a refused upload through the relay says why, instead of 'Beam is not running'",
-  "Files module: plan (Dropbox-like, works with the PC off; R2 + D1 + PC sync + share links)",
-  "Beam: phone sees only the Beam folder plus folders added on the PC; six bug fixes",
-  "Files extension: no main of its own (it looped and crashed), its class kept by name"
+  "Files module: plan (Dropbox-like, works with the PC off; R2 + D1 + PC sync + share links)"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11536,7 +11536,7 @@
   "shared/select.js": "39774f9d7f0dfcead4d729806e9b4503e80de270f750447db40d08fa39fc819b",
   "shared/tokens.css": "d7b3795c8214efee088c74497c7d7b9779e779bfe9cce859ac9275a8c2f622d3",
   "x-tools/installer/src/Engine/provision.sh": "cff00d9fabc7755ac3754045c6b55efee22d959df81593a63550e5617aa390ed",
-  "x-tools/installer/src/host/Engine.ps1": "22c7ca97ccded99d727f72c166f7d42aae70f407cd6aebf2566c3fcef999c2fc",
+  "x-tools/installer/src/host/Engine.ps1": "8d5a4f60cef46193907d072f20d13298c04af2caecfb5caacb1765c6af22ecbd",
   "x-tools/installer/src/host/update-key.xml": "ca38621b5cadbbaca3d748c766b0b706acadc2da00628cea574e7bd40afec7b7",
   "x-tools/installer/src/version.txt": "7fbd210ebec11f65a97190ef900795c4b8da3805af3f5a1b8d1d272556b292ca",
   "x-tools/wifi/wifi.sh": "b181f32c3d46fe6b5e6be9ffecc8eca25b0e5d9a7322d952a061cb52834f8755"

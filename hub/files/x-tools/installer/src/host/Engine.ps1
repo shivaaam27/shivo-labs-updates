@@ -383,8 +383,8 @@ function Set-WifiPhone([string]$Udid, [hashtable]$Changes) {
 
 # wifi.sh into Linux, and the two programs: x-tools/wifi/package.sh's package, downloaded once (and again when it
 # changes), checked against its SHA-256. SHIVO_WIFI_TOOLS_URL / _SHA256 override them for testing a new package.
-$WifiToolsUrl = 'https://github.com/shivaaam27/shivo-labs-updates/releases/download/shivo-wifi-tools-62de8c15/shivo-wifi-tools.tar.gz'
-$WifiToolsSha = '62de8c1558663ad3c12089563039aa06d00a452ac6995f6e0d97203d14ff6c6e'
+$WifiToolsUrl = 'https://github.com/shivaaam27/shivo-labs-updates/releases/download/shivo-wifi-tools-27bfb6ba/shivo-wifi-tools.tar.gz'
+$WifiToolsSha = '27bfb6ba496023a78b501056c258b6faad340c216d51efc1357f49d40280c480'
 function Install-WifiTools {
     # the script travels inside the command (base64), not by a /mnt/c path: nothing depends on where the files are
     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $EngineDir 'wifi.sh')))
