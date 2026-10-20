@@ -1,14 +1,14 @@
 {
- "version": "1.0.380",
- "build": 380,
- "built": "2026-10-20T21:08:41.243Z",
+ "version": "1.0.381",
+ "build": 381,
+ "built": "2026-10-20T21:28:31.275Z",
  "notes": [
+  "Chat on the phone: Details has a way back",
   "Chat: the owner's PC sets up Shivam's team in one click",
   "Installer docs: slow lines, installing again, sandbox tests, clean-PC checklist, plans for signed phone updates and laptop updates behind the pass",
   "Installer: downloads carry on after a break, installing again needs no code, full install + uninstall tested, Mirror finds WebView2",
   "Chat: a private team per shivo-id customer",
-  "Distribution plan: live test of the code-based install recorded",
-  "Laptop publish: each pack upload to R2 is tried 3 times (Cloudflare answered 500 once)"
+  "Distribution plan: live test of the code-based install recorded"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11535,8 +11535,8 @@
   "shared/biz/stock.js": "fb388a3a62c1cf3b7b9712e7159789231cada5d2ad1a5320b6f5dc95dc3fb38d",
   "shared/biz/till.js": "1538f577e789ccd8e86247dd9407f00cd6d00d109c0fe8f733d0f33f8acf1eb7",
   "shared/biz/ui.js": "ab9d0e3570ee448c6e128c25a8e44a02e400f672065c2272889c921fbb65aa3c",
-  "shared/chat/chat.css": "b4e52286b9d1bf68989d501e757322be649a838e29896f8c67141821ce339cbc",
-  "shared/chat/chat.js": "3596895a08dab0f2a711f97d81488f46c94f0d66082ba54d97d265335fe1725c",
+  "shared/chat/chat.css": "b744ce2d09ccedb4c6d31c299c418da59e1ce8b6852ec3273a97a618f91a4287",
+  "shared/chat/chat.js": "ef4aa4d439d65dcbb5ee37a9f262a8666e158e68549ba7bf1a36aa59f44890fb",
   "shared/chat/demo.js": "6bec00d380d5b9ac3be6485e9fec6a8131139fbf2ea5108c11dde1f25b3f4dd0",
   "shared/fabra-loader.css": "f392a4ccf93938b7de7682b2e604bc6fd87e6b72b80ab45faff29bf460e9fa91",
   "shared/fabra-loader.js": "a83a80e56e113929c85f8e25fa47d899fe0a58096b5c6b1fb1c7807478d7a8b6",

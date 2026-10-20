@@ -2,6 +2,8 @@
 // mountChat(root, { toast, haptic, home }) draws everything inside root and returns a function that cleans up.
 // haptic(style) gives a light tap on phones; home(), when given, adds a button back to the app's home screen.
 // getPass(), when given (the hub), returns this PC's shivo-id pass, so it joins its company's own team without a code.
+// cover(on), when given (the phone app), is told when a full-screen layer opens or closes, so the iPhone's native glass
+// buttons (drawn by iOS over the page) step aside and don't sit on top of its close button.
 // It talks to the Shivo Labs Chat server (chat/worker, on Cloudflare): HTTP for changes, a websocket for live events.
 
 import { createDemo } from './demo.js';
@@ -51,7 +53,7 @@ const onlyEmoji = (s) => s && s.length <= 12 && /^(\p{Extended_Pictographic}|\p{
 const mark0 = (cls) => (typeof window.shivoMark === 'function' ? window.shivoMark(cls) : '');
 const dur = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-export function mountChat(root, { toast = () => {}, haptic = () => {}, home = null, getPass = null } = {}) {
+export function mountChat(root, { toast = () => {}, haptic = () => {}, home = null, getPass = null, cover = null } = {}) {
   const buzz = (k = 'light') => { try { haptic(k); } catch {} };
   const cfg = store.get('shivoChat') || {};
   if (!cfg.server && DEFAULT_SERVER) cfg.server = DEFAULT_SERVER;
@@ -61,6 +63,9 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   const listeners = [];
   const on = (el, ev, fn, opt) => { el.addEventListener(ev, fn, opt); listeners.push(() => el.removeEventListener(ev, fn, opt)); };
   const $ = (s) => root.querySelector(s);
+  // full-screen layers that are open now (Details on a phone, sheets): while any is, the phone's glass buttons step aside
+  const layers = new Set();
+  const layer = (k, up) => { const was = layers.size > 0; if (up) layers.add(k); else layers.delete(k); if (was !== layers.size > 0) try { cover?.(layers.size > 0); } catch {} };
   root.classList.add('ch-root');
 
   // ---------- server calls
@@ -210,6 +215,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   }
   function signedOut() {
     const wasDemo = !!demo; demo = null; cfg.demo = false;
+    layer('info', false); layer('modal', false);
     cfg.token = ''; store.set('shivoChat', cfg);
     try { ws?.close(); } catch {}
     ws = null; clearTimeout(wsTimer); clearInterval(pingTimer);
@@ -686,12 +692,12 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
 
   // ---------- small dialogs
   function modal(html, cls = '') {
-    const v = $('#chVeil'); v.hidden = false;
+    const v = $('#chVeil'); v.hidden = false; layer('modal', true);
     v.innerHTML = `<div class="ch-modal ${cls}"><div class="ch-grab"></div><button class="gbtn ch-modal-x" title="Close">${svg('x')}</button><div class="ch-mbody">${html}</div></div>`;
     v.onclick = (e) => { if (e.target === v || e.target.closest('.ch-modal-x')) closeModal(); };
     return v.firstElementChild;
   }
-  const closeModal = () => { const v = $('#chVeil'); if (v) { v.hidden = true; v.innerHTML = ''; } };
+  const closeModal = () => { const v = $('#chVeil'); if (v) { v.hidden = true; v.innerHTML = ''; } layer('modal', false); };
   function confirmBox(text, yes, fn) {
     const m = modal(`<h3>${esc(text)}</h3><div class="ch-acts"><button class="btn" data-n>Cancel</button><button class="btn pri danger" data-y>${esc(yes)}</button></div>`, 'sm');
     m.querySelector('[data-n]').onclick = closeModal;
@@ -708,7 +714,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     setTimeout(() => inp.focus(), 50);
   }
   function lightbox(src, name) {
-    const v = $('#chVeil'); v.hidden = false;
+    const v = $('#chVeil'); v.hidden = false; layer('modal', true);
     v.innerHTML = `<div class="ch-light"><img src="${esc(src)}" alt=""><div class="ch-light-bar"><span>${esc(name)}</span><a class="ch-ib" href="${esc(src)}" download="${esc(name)}" target="_blank">${svg('down')}</a><button class="ch-ib" data-x>${svg('x')}</button></div></div>`;
     v.onclick = (e) => { if (!e.target.closest('a')) closeModal(); };
   }
@@ -756,10 +762,11 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   function renderInfo(tab) {
     const el = $('#chInfo'), c = S.chats.get(S.open);
     el.hidden = !S.info || !c; $('#chApp').classList.toggle('info', !el.hidden);
+    layer('info', !el.hidden && innerWidth <= 760);   // on a phone, Details covers the whole screen
     if (el.hidden) return;
     const admin = c.my_role === 'admin' || ['owner', 'admin'].includes(user(S.me).role);
     const u = c.kind === 'dm' ? user(otherOf(c)) : null;
-    el.innerHTML = `<div class="ch-info-top"><b>${tab === 'search' ? 'Search' : 'Details'}</b><button class="gbtn" id="chInfoX" title="Close">${svg('x')}</button></div>
+    el.innerHTML = `<div class="ch-info-top"><button class="gbtn ch-info-back" id="chInfoB" title="Back">${svg('back')}</button><b>${tab === 'search' ? 'Search' : 'Details'}</b><button class="gbtn" id="chInfoX" title="Close">${svg('x')}</button></div>
       <div class="ch-info-body">
       ${tab === 'search' ? `<label class="ch-search">${svg('search')}<input id="chIQ" placeholder="Search in ${esc(chatName(c))}" autocomplete="off"></label><div id="chIHits"><div class="ch-nothing sm"><span>${svg('search')}</span><small>Words, links and file names in this chat.</small></div></div>` : `
       <div class="ch-info-who">${avatar(c, 'xl')}<b>${esc(chatName(c))}</b>
@@ -775,11 +782,11 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
       <div class="ch-info-sec"><h4>Pinned messages</h4><div id="chIPins"><p class="ch-hint">Loading…</p></div></div>
       ${c.kind === 'group' ? `<div class="ch-info-sec"><h4>${c.members.length} member${c.members.length === 1 ? "" : "s"}</h4>
         ${admin ? `<button class="ch-person act" id="chAdd"><span class="ch-av sm add">${svg('plus')}</span><b>Add people</b></button>` : ''}
-        ${c.members.slice().sort((a, b) => (b.role === 'admin') - (a.role === 'admin') || nameOf(a.user).localeCompare(nameOf(b.user))).map((x) => `<div class="ch-person" data-m="${x.user}">${uAvatar(x.user, 'sm')}<b>${esc(nameOf(x.user))}</b><small>${x.role === 'admin' ? 'Group admin' : esc(user(x.user).online ? 'online' : '')}</small>
+        ${c.members.slice().sort((a, b) => (b.role === 'admin') - (a.role === 'admin') || nameOf(a.user).localeCompare(nameOf(b.user))).map((x) => `<div class="ch-person${x.user !== S.me ? ' act' : ''}" data-m="${x.user}" title="${x.user !== S.me ? 'Message' : ''}">${uAvatar(x.user, 'sm')}<b>${esc(nameOf(x.user))}</b><small>${x.role === 'admin' ? 'Group admin' : esc(user(x.user).online ? 'online' : '')}</small>
           ${admin && x.user !== S.me ? `<button class="ch-ib sm" data-mm="${x.user}">${svg('more')}</button>` : ''}</div>`).join('')}
         <button class="ch-person act danger" id="chLeave">${svg('back')}<b>Leave group</b></button></div>` : ''}`}
       </div>`;
-    $('#chInfoX').onclick = () => { S.info = false; renderInfo(); renderHeader(); };
+    $('#chInfoX').onclick = $('#chInfoB').onclick = () => { S.info = false; renderInfo(); renderHeader(); };
     if (tab === 'search') {
       let t; const inp = $('#chIQ'); inp.focus();
       inp.oninput = () => { clearTimeout(t); t = setTimeout(async () => {
@@ -803,6 +810,8 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     });
     $('#chAdd')?.addEventListener('click', () => pickPeople('Add people', c.members.map((x) => x.user), 'Add', async (users) => { if (users.length && await tryAct('chat.add', { chat: c.id, users })) closeModal(); }));
     $('#chLeave')?.addEventListener('click', () => confirmBox(`Leave “${c.name}”?`, 'Leave', () => tryAct('chat.remove', { chat: c.id, user: S.me })));
+    // tap someone in the group to message them (the ••• button has the admin options)
+    el.querySelectorAll('.ch-person.act[data-m]').forEach((r) => (r.onclick = (e) => { if (!e.target.closest('[data-mm]')) dmWith(r.dataset.m); }));
     el.querySelectorAll('[data-mm]').forEach((b) => (b.onclick = () => {
       const uid = b.dataset.mm, isAdm = c.members.find((x) => x.user === uid)?.role === 'admin';
       const p = popup(b, `<button data-k="dm">${svg('send')}Message</button><button data-k="role">${svg('star')}${isAdm ? 'Remove as admin' : 'Make group admin'}</button><button data-k="rm" class="danger">${svg('trash')}Remove from group</button>`, 'ch-menu');
@@ -1239,6 +1248,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   if (cfg.demo || (cfg.server && cfg.token)) start(); else showSignIn();
 
   return () => {
+    if (layers.size) { layers.clear(); try { cover?.(false); } catch {} }
     alive = false; clearTimeout(wsTimer); clearInterval(pingTimer); clearInterval(typingSweep); clearTimeout(readTimer);
     try { ws?.close(); } catch {}
     if (rec) stopRec(false);
