@@ -357,8 +357,14 @@ input.ch-sw:checked::after{transform:translateX(20px)}
 @media (max-width:760px){
   .ch-app,.ch-app.info{grid-template-columns:1fr;gap:0;height:calc(100dvh - 104px)}
   .ch-app .ch-main{display:none}
-  .ch-app.open .ch-side{display:none}
-  .ch-app.open .ch-main{display:flex}
+  /* a conversation slides in over the list like iPhone apps; the list waits underneath (shown while it slides,
+     and while a finger swipes back from the left edge, phone/www/app.js) */
+  .ch-app.open .ch-side{position:absolute;inset:0;visibility:hidden}
+  .ch-app.open .ch-main{display:flex;z-index:1;background:var(--bg)}
+  .ch-app.push .ch-main{animation:chslide .38s cubic-bezier(.2,.8,.2,1);box-shadow:-12px 0 30px -18px rgba(0,0,0,.35)}
+  .ch-app.push .ch-side{visibility:visible;animation:chunder .38s cubic-bezier(.2,.8,.2,1) forwards}
+  .ch-app.pop .ch-main{animation:chslideout .3s cubic-bezier(.2,.8,.2,1) forwards;box-shadow:-12px 0 30px -18px rgba(0,0,0,.35)}
+  .ch-app.pop .ch-side{visibility:visible;animation:chover .3s cubic-bezier(.2,.8,.2,1)}
   .ch-back{display:grid!important}
   .ch-b-wrap{max-width:86%}
   .ch-msgs{padding:4px 0 10px}
@@ -369,7 +375,7 @@ input.ch-sw:checked::after{transform:translateX(20px)}
   .ch-modal-x{top:22px}
 }
 @keyframes chsheet{from{transform:translateY(100%)}}
-@media (prefers-reduced-motion:reduce){.ch-m,.ch-modal,.ch-pop{animation:none}}
+@media (prefers-reduced-motion:reduce){.ch-m,.ch-modal,.ch-pop,.ch-app.push .ch-main,.ch-app.push .ch-side,.ch-app.pop .ch-main,.ch-app.pop .ch-side{animation:none}}
 
 /* "Look around first" (demo with a sample team) */
 .ch-skip{display:block;width:100%;padding:10px;font:600 14.5px var(--body);color:var(--muted)}
@@ -510,6 +516,9 @@ html[data-theme=dark] .ch-pop-veil{background:rgba(0,0,0,.5)}
   .ch-info-body{padding:8px 16px max(20px,env(safe-area-inset-bottom))}
 }
 @keyframes chslide{from{transform:translateX(100%)}}
+@keyframes chslideout{to{transform:translateX(100%)}}
+@keyframes chunder{to{transform:translateX(-30%);opacity:.35}}
+@keyframes chover{from{transform:translateX(-30%);opacity:.35}}
 
 /* sheets: the handle and close button stay, the content scrolls under them */
 .ch-modal{overflow:hidden;padding:0}
@@ -533,3 +542,5 @@ html[data-theme=dark] .ch-pop-veil{background:rgba(0,0,0,.5)}
 /* waiting files: readable in dark mode */
 .ch-att-t{background:color-mix(in srgb,var(--text) 9%,transparent)}
 .ch-att-f b{color:var(--text)}
+/* phones: text boxes at 16px, or the iPhone zooms the whole page in when one is tapped */
+@media (hover:none){.ch-search input,.ch-field,.ch-row-l input,.ch-modal .ch-f input{font-size:16px}}

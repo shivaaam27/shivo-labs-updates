@@ -322,12 +322,20 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   const mark = (html, q) => html.replace(new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (m) => `<mark>${m}</mark>`);
 
   // ---------- a conversation
+  // the phone's push and pop: the conversation slides over the list and back (chat.css .push / .pop)
+  function slide(cls, ms, then) {
+    const a = $('#chApp');
+    if (!cls || innerWidth > 760 || matchMedia('(prefers-reduced-motion: reduce)').matches) return then?.();
+    a.classList.remove('push', 'pop'); void a.offsetWidth; a.classList.add(cls);
+    clearTimeout(slide.t); slide.t = setTimeout(() => { a.classList.remove(cls); then?.(); }, ms);
+  }
   async function openChat(id, jumpTo = 0) {
     const c = S.chats.get(id); if (!c) return;
     S.open = id; S.reply = null; S.edit = null;
     const lastRead = c.unread ? c.members.find((m) => m.user === S.me)?.last_read || 0 : 0;
     S.firstNew = null;
-    $('#chApp').classList.add('open');
+    const fresh = !$('#chApp').classList.contains('open');
+    $('#chApp').classList.add('open'); if (fresh) slide('push', 400);
     renderMain(); renderList(); if (S.info) renderInfo();
     if (!S.msgs.has(id) || jumpTo || S.detached.has(id)) await load(id, jumpTo ? { around: jumpTo } : {});
     else { draw(); await catchUp(id); }
@@ -397,7 +405,12 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
       <button class="ch-head-who" id="chWho">${avatar(c, 'sm')}<span><b>${esc(chatName(c))}</b><small>${sub}</small></span></button>
       <button class="gbtn" id="chFind" title="Search in this chat">${svg('search')}</button>
       <button class="gbtn${S.info ? ' on' : ''}" id="chInfoBtn" title="Details">${svg('info')}</button>`;
-    $('#chBack').onclick = () => { S.open = null; $('#chApp').classList.remove('open'); renderList(); };
+    $('#chBack').onclick = () => {
+      document.activeElement?.blur?.();   // the keyboard leaves with the conversation
+      const a = $('#chApp'), swiped = !!$('#chMain').style.transform;   // a swipe from the edge already slid it away
+      S.open = null; renderList();
+      slide(swiped ? '' : 'pop', 300, () => { if (!S.open) a.classList.remove('open'); });
+    };
     $('#chWho').onclick = $('#chInfoBtn').onclick = () => { S.info = !S.info; renderInfo(); renderHeader(); };
     $('#chFind').onclick = () => { S.info = true; renderInfo('search'); renderHeader(); };
     typingBubble();
@@ -565,6 +578,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     const noClick = () => { S.noClick = true; setTimeout(() => (S.noClick = false), 60); };
     on(root, 'pointerdown', (e) => {
       if (e.pointerType === 'mouse' || e.button) return;
+      if (e.clientX < 28) return;   // the left edge is the phone's swipe back, not swipe-to-reply (that opened the keyboard)
       const row = e.target.closest('.ch-sw'), msg = !row && e.target.closest('.ch-m:not(.pend)');
       if (!row && !msg) return;
       if (S.sw && S.sw !== row) { closeSw(); noClick(); }
@@ -952,6 +966,8 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     t.onpaste = (e) => { const files = [...(e.clipboardData?.files || [])]; if (files.length && S.files) { e.preventDefault(); addAtt(files); } };
     t.onfocus = () => setTimeout(() => { if (near(260)) { const s = $('#chScroll'); if (s) s.scrollTop = s.scrollHeight; } }, 280);  // keyboard opening
     $('#chSend').onclick = send;
+    // tapping Send keeps the keyboard up for the next message (on Android the button would take the focus away)
+    $('#chSend').addEventListener('mousedown', (e) => { if (document.activeElement === t) e.preventDefault(); });
     $('#chMic').onclick = startRec;
     $('#chEmoBtn').onclick = () => ($('#chEmo').hidden ? showEmo() : hideEmo());
     $('#chEmoTabs').onclick = (e) => { const b = e.target.closest('[data-tab]'); if (b) showEmo(b.dataset.tab); };
@@ -959,6 +975,10 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     // on the phone, tapping the text box brings the keyboard back instead of the emoji tray
     t.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') hideEmo(); });
     $('#chScroll').addEventListener('pointerdown', hideEmo);
+    // on a phone, scrolling the messages puts the keyboard away (like Messages), so you can read what is above
+    let sy = null;
+    $('#chScroll').addEventListener('touchstart', (e) => { sy = e.touches[0].clientY; }, { passive: true });
+    $('#chScroll').addEventListener('touchmove', (e) => { if (sy !== null && Math.abs(e.touches[0].clientY - sy) > 24 && document.activeElement === t) { t.blur(); sy = null; } }, { passive: true });
     $('#chAttach').onclick = attachSheet;
     for (const id of ['chFile', 'chPhotos', 'chCamera']) $('#' + id).onchange = (e) => { addAtt([...e.target.files]); e.target.value = ''; };
     $('#chAtt').onclick = (e) => { const b = e.target.closest('[data-rm]'); if (!b) return; const [a] = S.att.splice(+b.dataset.rm, 1); URL.revokeObjectURL(a.url); renderAtt(); };
