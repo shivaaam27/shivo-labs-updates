@@ -146,3 +146,35 @@ function killSession(id, s) {
 }
 export function closeTerminals(owner) { for (const [id, s] of sessions) if (!owner || s.owner === owner) killSession(id, s); }
 export function listTerminals() { return [...sessions].map(([id, s]) => ({ id, owner: s.owner, command: s.command, open: s.exited === null })); }
+
+// ---- The user's own terminal panel: one live PowerShell per chat (key), drawn by xterm.js in the page.
+// Output is kept (last ~300 KB) so the panel shows it again after switching chats or reloading.
+const userTerms = new Map(); // id -> { p, key, buf, subs:Set, exited }
+export function userTermOpen({ key, cwd, env, cols = 100, rows = 24 }) {
+  if (!pty) throw new Error("The terminal part isn't installed (" + loadError + ").");
+  for (const [id, s] of userTerms) if (s.key === key && s.exited === null) { try { s.p.resize(cols, rows); } catch {} return id; }
+  const p = pty.spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass"], {
+    name: "xterm-256color", cols: Math.min(400, Math.max(20, cols)), rows: Math.min(200, Math.max(5, rows)), cwd, env: { ...env, TERM: "xterm-256color" },
+  });
+  const id = "u" + nextId++;
+  const s = { p, key, buf: "", subs: new Set(), exited: null };
+  userTerms.set(id, s);
+  p.onData((d) => { s.buf += d; if (s.buf.length > 300000) s.buf = s.buf.slice(-200000); for (const f of s.subs) f({ type: "out", data: d }); });
+  p.onExit(({ exitCode }) => { s.exited = exitCode ?? 0; for (const f of s.subs) f({ type: "exit", code: s.exited }); setTimeout(() => userTerms.delete(id), 60000); });
+  return id;
+}
+export function userTermSubscribe(id, fn) {
+  const s = userTerms.get(id); if (!s) return null;
+  fn({ type: "out", data: s.buf }); if (s.exited !== null) fn({ type: "exit", code: s.exited });
+  s.subs.add(fn); return () => s.subs.delete(fn);
+}
+export function userTermInput(id, data) { const s = userTerms.get(id); if (!s || s.exited !== null) return false; s.p.write(String(data)); return true; }
+export function userTermResize(id, cols, rows) { const s = userTerms.get(id); if (!s || s.exited !== null) return false; try { s.p.resize(Math.min(400, Math.max(20, cols | 0)), Math.min(200, Math.max(5, rows | 0))); } catch {} return true; }
+export function userTermClose(id) {
+  const s = userTerms.get(id); if (!s) return false;
+  try { require("node:child_process").spawn("taskkill", ["/pid", String(s.p.pid), "/T", "/F"], { windowsHide: true }); } catch {}
+  try { s.p.kill(); } catch {}
+  userTerms.delete(id); return true;
+}
+export function closeUserTerms() { for (const id of [...userTerms.keys()]) userTermClose(id); }
+export const ptyReady = () => Boolean(pty);

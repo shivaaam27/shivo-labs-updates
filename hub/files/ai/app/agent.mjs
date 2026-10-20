@@ -79,6 +79,24 @@ export const TOOLS = [
     },
   },
   {
+    name: "notebook_edit",
+    description:
+      "Change one cell of a Jupyter notebook (.ipynb): replace its source, insert a new cell, or delete it. Read the notebook with read_file first (it shows each cell's number and id). " +
+      "Find the cell by cell_id, or by cell_number (1-based). insert puts the new cell after that cell (or at the top when neither is given). Replacing a code cell clears its old outputs.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        cell_id: { type: "string" },
+        cell_number: { type: "integer", description: "1-based position, when the cell has no id" },
+        new_source: { type: "string", description: "The cell's new text (not needed for delete)" },
+        cell_type: { type: "string", enum: ["code", "markdown"], description: "Needed for insert; for replace, changes the type" },
+        edit_mode: { type: "string", enum: ["replace", "insert", "delete"], description: "Default replace" },
+      },
+      required: ["path"],
+    },
+  },
+  {
     name: "list_files",
     description: "Find files by glob pattern, e.g. '**/*.tsx' or 'src/*'. Skips node_modules and .git.",
     input_schema: {
@@ -216,6 +234,41 @@ export const TOOLS = [
       required: ["todos"],
     },
   },
+  {
+    name: "schedule_task",
+    description:
+      "Manage the app's scheduled tasks: a prompt that runs by itself (with every tool, in auto mode) on a schedule while the app is open; its result arrives as a notification. " +
+      "Use it when the user asks for something recurring or later (\"every morning…\", \"remind me at 3pm…\", \"check this every hour\"). " +
+      "action: create, update, list, delete or run (run now). The prompt must be complete on its own: the task doesn't see this chat.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["create", "update", "list", "delete", "run"] },
+        id: { type: "string", description: "The task's id, for update, delete and run" },
+        name: { type: "string", description: "Short name" },
+        prompt: { type: "string", description: "What the task should do, fully explained" },
+        when: {
+          type: "object",
+          description: "{type:'daily', time:'HH:MM', days:[0-6, 0 = Sunday; leave out for every day]}, {type:'interval', minutes:N (5 or more)}, or {type:'once', at:'YYYY-MM-DDTHH:MM' local time}",
+          properties: { type: { type: "string", enum: ["daily", "interval", "once"] }, time: { type: "string" }, days: { type: "array", items: { type: "integer" } }, minutes: { type: "integer" }, at: { type: "string" } },
+        },
+        cwd: { type: "string", description: "Folder it works in (default: this chat's folder)" },
+        model: { type: "string" },
+        effort: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"] },
+        enabled: { type: "boolean" },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "notify",
+    description: "Send the user a desktop notification (shown even when the app is in the background). Use it when something they're waiting on finishes or needs them, e.g. after a long job or a watched process.",
+    input_schema: {
+      type: "object",
+      properties: { title: { type: "string" }, body: { type: "string" } },
+      required: ["title"],
+    },
+  },
 ];
 
 TOOLS.push(...PTY_TOOLS); // real interactive terminals (pty.mjs)
@@ -239,7 +292,7 @@ export const serverToolsFor = (depth) => {
 export const SERVER_TOOLS = serverToolsFor("normal");
 
 // Tools that change things, and so need the user's OK in "ask" mode.
-export const WRITE_TOOLS = new Set(["write_file", "edit_file", "run_command", "stop_process", "preview_start", "terminal_open", "terminal_send", "terminal_close"]);
+export const WRITE_TOOLS = new Set(["write_file", "edit_file", "notebook_edit", "schedule_task", "run_command", "stop_process", "preview_start", "terminal_open", "terminal_send", "terminal_close"]);
 // Tools a helper agent may use (look, don't touch).
 export const HELPER_TOOLS = TOOLS.filter((t) => ["read_file", "list_files", "search_files", "fetch_url", "search_web"].includes(t.name));
 
@@ -421,6 +474,23 @@ export function killProcess(pid) {
   return true;
 }
 
+// A Jupyter notebook as readable cells (number, id, type, source, short outputs), like Claude Code shows it.
+function notebookText(raw) {
+  const nb = JSON.parse(raw), lang = nb.metadata?.kernelspec?.language || nb.metadata?.language_info?.name || "python";
+  const join = (s) => (Array.isArray(s) ? s.join("") : String(s || ""));
+  const cells = (nb.cells || []).map((c, n) => {
+    const head = `<cell ${n + 1}${c.id ? ` id="${c.id}"` : ""} type="${c.cell_type}">`;
+    let outs = "";
+    for (const o of c.outputs || []) {
+      const t = o.text ? join(o.text) : o.data?.["text/plain"] ? join(o.data["text/plain"]) : o.ename ? `${o.ename}: ${o.evalue}` : o.data?.["image/png"] ? "[image]" : "";
+      if (t) outs += t;
+    }
+    if (outs.length > 3000) outs = outs.slice(0, 3000) + "…(output trimmed)";
+    return `${head}\n${join(c.source)}\n</cell>${outs.trim() ? `\n<output of cell ${n + 1}>\n${outs.trim()}\n</output>` : ""}`;
+  });
+  return `Jupyter notebook (${lang}), ${cells.length} cells. Change cells with notebook_edit.\n\n` + cells.join("\n\n");
+}
+
 // onBeforeWrite(path) lets the server snapshot a file before it changes, for undo.
 // onOutput(chunk) streams command output live to the app's terminal panel.
 // ---- Persistent shell state (folder, environment, variables) per chat ----
@@ -479,6 +549,7 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
       const p = abs(path);
       if (!existsSync(p)) throw new Error(`File not found: ${p}`);
       if (statSync(p).isDirectory()) throw new Error(`${p} is a folder; use list_files.`);
+      if (/\.ipynb$/i.test(p)) { try { return notebookText(readFileSync(p, "utf8")); } catch {} } // cells, not raw JSON
       const lines = readFileSync(p, "utf8").split(/\r?\n/);
       const start = Math.max(1, offset);
       const slice = lines.slice(start - 1, start - 1 + limit);
@@ -509,6 +580,39 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
       onBeforeWrite(p);
       writeFileSync(p, replace_all ? src.split(find).join(repl) : src.replace(find, () => repl));
       return `Edited ${p} (${replace_all ? count : 1} change${count > 1 && replace_all ? "s" : ""})`;
+    },
+    notebook_edit({ path, cell_id, cell_number, new_source = "", cell_type, edit_mode = "replace" }) {
+      const p = abs(path);
+      if (!insideAllowed(p)) throw new Error(`Editing outside the linked folders isn't allowed: ${p}`);
+      if (!/\.ipynb$/i.test(p)) throw new Error("notebook_edit is for .ipynb files; use edit_file for other files.");
+      const raw = existsSync(p) ? readFileSync(p, "utf8") : "";
+      const nb = raw.trim() ? JSON.parse(raw) : { cells: [], metadata: {}, nbformat: 4, nbformat_minor: 5 };
+      nb.cells ||= [];
+      let i = -1;
+      if (cell_id) { i = nb.cells.findIndex((c) => c.id === cell_id); if (i < 0) throw new Error(`No cell with id ${cell_id}.`); }
+      else if (cell_number) { i = Number(cell_number) - 1; if (i < 0 || i >= nb.cells.length) throw new Error(`The notebook has ${nb.cells.length} cells; there's no cell ${cell_number}.`); }
+      const src = (s) => String(s).split(/(?<=\n)/);
+      if (edit_mode === "insert") {
+        const type = cell_type || "code";
+        const cell = { cell_type: type, id: Math.random().toString(36).slice(2, 10), metadata: {}, source: src(new_source) };
+        if (type === "code") Object.assign(cell, { execution_count: null, outputs: [] });
+        nb.cells.splice(i + 1, 0, cell);
+        i = i + 1;
+      } else {
+        if (i < 0) throw new Error("Say which cell: cell_id or cell_number.");
+        if (edit_mode === "delete") nb.cells.splice(i, 1);
+        else {
+          const c = nb.cells[i];
+          c.source = src(new_source);
+          if (cell_type && cell_type !== c.cell_type) { c.cell_type = cell_type; if (cell_type === "markdown") { delete c.outputs; delete c.execution_count; } }
+          if (c.cell_type === "code") { c.outputs = []; c.execution_count = null; }
+        }
+      }
+      onBeforeWrite(p);
+      mkdirSync(dirname(p), { recursive: true });
+      const indent = /^\{\r?\n( +)/.exec(raw)?.[1].length || 1;
+      writeFileSync(p, JSON.stringify(nb, null, indent) + "\n");
+      return `${edit_mode === "insert" ? "Inserted" : edit_mode === "delete" ? "Deleted" : "Replaced"} cell ${i + 1} in ${p} (${nb.cells.length} cells now).`;
     },
     async list_files({ pattern, path }) {
       const root = abs(path);

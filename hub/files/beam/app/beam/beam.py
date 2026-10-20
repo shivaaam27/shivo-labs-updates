@@ -549,6 +549,10 @@ class Handler(BaseHTTPRequestHandler):
                 return False
             self._did = did
             return True
+        # a phone that holds its own key (given when the PC accepted it) is trusted on the home Wi-Fi too: iPhones change
+        # their Wi-Fi hardware address now and then ("Private Wi-Fi Address"), which used to bring "Accept?" back
+        if device_for_key(self.headers.get("X-Beam-Key", "") or self.param("k")):
+            return True
         tok = self.server.cfg["token"]
         cookie = re.search(r"beam=([\w-]+)", self.headers.get("Cookie", ""))
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("t", [""])[0]
@@ -858,9 +862,26 @@ class Handler(BaseHTTPRequestHandler):
                 part.unlink(missing_ok=True)
                 raise
 
+        mark_from_elsewhere(dest)
         received_notice(self.server.batch, dest.name)
         if on_received:
             on_received(dest)
+
+
+# Programs and archives from a phone get Windows' "came from another computer" mark (like a browser download), so
+# SmartScreen and Office warn before they run. Photos, videos and documents stay unmarked (no Protected View nagging).
+RISKY = {"exe", "msi", "msix", "appx", "bat", "cmd", "com", "scr", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "hta",
+         "lnk", "url", "reg", "dll", "jar", "cpl", "iso", "img", "vhd", "vhdx", "zip", "7z", "rar", "docm", "xlsm", "pptm"}
+
+
+def mark_from_elsewhere(p):
+    if os.name != "nt" or p.suffix.lower().lstrip(".") not in RISKY:
+        return
+    try:
+        with open(str(p) + ":Zone.Identifier", "w") as f:
+            f.write("[ZoneTransfer]\nZoneId=3\n")
+    except OSError:
+        pass
 
 
 def is_media(p):

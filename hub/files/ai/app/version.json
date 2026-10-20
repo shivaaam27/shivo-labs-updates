@@ -1,7 +1,10 @@
 {
-    "version": "2.0.19",
+    "version": "2.0.20",
     "notes": [
-        "Auto memory: the AI now keeps its own notes between chats, like Claude Code. Tell it \"remember...\" (or it notices something worth keeping) and later chats in the same project know it. It shares the notes folder with Claude Code.",
-        "Type /memory to see the notes and switch auto memory off or on."
+        "Real terminal panel (Ctrl+`): a live PowerShell for each chat, like Claude Code's terminal. The folder and variables stay between commands, you can answer prompts, and full-screen programs work.",
+        "@ mentions: type @ in the message box to pick a file or folder from the chat's folder. The AI gets the file's contents with your message.",
+        "The AI can now set up scheduled tasks itself (\"every morning at 8...\", \"remind me at 3pm...\"), including one-time tasks, and send you a notification when something finishes.",
+        "Jupyter notebooks: the AI reads them cell by cell and can change, add or remove cells.",
+        "Fix: new parts of an update (like the AI's terminals from 2.0.15) are now installed even if an earlier try failed."
     ]
 }

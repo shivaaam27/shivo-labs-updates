@@ -476,6 +476,9 @@ body.pv-open #pv{animation:pvIn .22s var(--ease)}
 #termOut{margin:0;padding:8px 12px;height:190px;overflow:auto;font:12px/1.5 var(--mono);white-space:pre-wrap;word-break:break-all;color:var(--text)}
 #termOut .cmd{color:var(--sage);font-weight:600}
 #termOut .who{color:var(--faint)}
+#termX{display:none;height:260px;padding:6px 4px 4px 10px}
+.term.x #termX{display:block}
+.term.x #termOut,.term.x .termin{display:none}
 .termin{display:flex;align-items:center;gap:6px;border-top:1px solid var(--line);padding:5px 10px;font:12px var(--mono)}
 .termin span{color:var(--sage)}
 .termin input{flex:1;border:0;outline:0;background:none;font:12px var(--mono);color:var(--text)}
@@ -977,6 +980,7 @@ body.focus #scroll{padding-top:40px}
         <button class="ib" id="termClose" data-tip="Hide terminal"><svg class="i"><use href="#i-x"/></svg></button>
       </div>
       <pre id="termOut"></pre>
+      <div id="termX"></div>
       <div class="termin"><span>PS&gt;</span><input id="termIn" spellcheck="false" placeholder="Type a command and press Enter (runs in this chat's folder)"><button class="pvb" id="termStop" hidden>Stop</button></div>
     </div>
     <div class="editbar" id="editBar"><span>Editing an earlier message. Sending will redo the chat from there.</span><button class="pvb" id="editCancel">Cancel</button></div>
@@ -1082,6 +1086,8 @@ body.focus #scroll{padding-top:40px}
           <input id="seTime" type="time" value="09:00" style="width:120px">
           <label style="font-weight:400;display:flex;gap:6px;align-items:center;margin:0"><input type="radio" name="seType" value="interval" style="width:auto"> Every</label>
           <input id="seMin" type="number" min="5" value="60" style="width:80px"> <span style="color:var(--muted)">minutes</span>
+          <label style="font-weight:400;display:flex;gap:6px;align-items:center;margin:0"><input type="radio" name="seType" value="once" style="width:auto"> Once at</label>
+          <input id="seAt" type="datetime-local" style="width:200px">
         </div>
         <div id="seDays" style="display:flex;gap:4px;flex-wrap:wrap"></div>
       </div>
@@ -1278,6 +1284,7 @@ function newChat() {
 function openChat(id) {
   current = chats.find((c) => c.id === id); syncPicks(); loadCustomCommands();
   renderThread(); $("side").classList.remove("open");
+  if ($("term").classList.contains("show")) { $("termCwd").textContent = termDir() || "your home folder"; xtAttach(); } // each chat has its own terminal
 }
 
 function group(ts) {
@@ -1361,15 +1368,15 @@ const md = (t) => DOMPurify.sanitize(marked.parse(t || ""));
 function nearBottom() { const s = $("scroll"); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
 function scrollDown(force) { const s = $("scroll"); if (force || nearBottom()) s.scrollTop = s.scrollHeight; }
 
-const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", preview_start: "Started the preview of", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched", find_tools: "Loaded connector tools" };
-const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", preview_start: "Starting the dev server…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "A helper is working…", find_tools: "Finding connector tools…" };
+const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", notebook_edit: "Edited notebook", schedule_task: "Scheduled tasks:", notify: "Sent a notification:", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", preview_start: "Started the preview of", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched", find_tools: "Loaded connector tools" };
+const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", notebook_edit: "Editing the notebook…", schedule_task: "Scheduling…", notify: "Notifying…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", preview_start: "Starting the dev server…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "A helper is working…", find_tools: "Finding connector tools…" };
 // A helper's step title: its type (explore, plan, general, or a custom helper's name).
 function helperTitle(i = {}) {
   const a = String(i.agent || "explore").toLowerCase();
   return (a === "explore" ? "Helper researched" : a === "plan" ? "Helper planned" : /^general/.test(a) ? "Helper worked on" : `Helper "${i.agent}"`) + (i.background ? " (background)" : "");
 }
 function detail(name, i = {}) {
-  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, preview_start: i.name || "the project", terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task, find_tools: i.query })[name] || "";
+  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, notebook_edit: i.path, schedule_task: [i.action, i.name].filter(Boolean).join(" "), notify: i.title, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, preview_start: i.name || "the project", terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task, find_tools: i.query })[name] || "";
 }
 // Line count; a final line break doesn't count as an extra line.
 function lines(s) { return s ? String(s).replace(/\r?\n$/, "").split("\n").length : 0; }
@@ -1436,7 +1443,7 @@ function fkLoader(k) {
 function fkKind(name, input = {}) {
   if (name === "run_command") return /^\s*(git|gh)\b/i.test(input.command || "") ? "git" : "run";
   return ({ read_file: "read", use_skill: "read", view_file: "read", read_artifact: "read", write_file: "write", create_artifact: "write", update_artifact: "write",
-    edit_file: "edit", list_files: "search", search_files: "search", find_tools: "search", check_process: "run", wait_for_process: "run", watch_process: "run", preview_start: "run", terminal_open: "run", terminal_send: "run", terminal_read: "run", terminal_close: "run", stop_process: "run",
+    edit_file: "edit", notebook_edit: "edit", schedule_task: "run", notify: "run", list_files: "search", search_files: "search", find_tools: "search", check_process: "run", wait_for_process: "run", watch_process: "run", preview_start: "run", terminal_open: "run", terminal_send: "run", terminal_read: "run", terminal_close: "run", stop_process: "run",
     web_search: "web", web_fetch: "web", search_web: "web", fetch_url: "web", update_plan: "plan", delegate_task: "agent", browser: "look", ask_user: "wait" })[name] || "think";
 }
 // Swap the loader's animation, only when the kind actually changes (so it doesn't restart).
@@ -1514,7 +1521,7 @@ function stepsBox(body) {
   return g.querySelector(".sl");
 }
 const STEP_WORDS = {
-  read_file: ["read", "file"], view_file: ["looked at", "file"], write_file: ["edited", "file"], edit_file: ["edited", "file"],
+  read_file: ["read", "file"], view_file: ["looked at", "file"], write_file: ["edited", "file"], edit_file: ["edited", "file"], notebook_edit: ["edited", "file"],
   run_command: ["ran", "command"], list_files: ["searched", "time"], search_files: ["searched", "time"],
   web_search: ["searched the web", ""], web_fetch: ["read", "web page"], search_web: ["searched the web", ""], fetch_url: ["read", "web page"], browser: ["checked in the browser", ""],
   delegate_task: ["asked a helper", ""], check_process: ["checked a server", ""], wait_for_process: ["waited for a process", ""], watch_process: ["set a watch on", "process"], preview_start: ["started", "preview"], terminal_open: ["opened", "terminal"], terminal_send: ["typed in a terminal", ""], terminal_read: ["read a terminal", ""], terminal_close: ["closed", "terminal"], stop_process: ["stopped", "process"],
@@ -1531,7 +1538,7 @@ function refreshGroup(list) {
     const name = s.dataset.name || "";
     if (!s.classList.contains("ok") && !s.classList.contains("bad")) running = true;
     if (s.classList.contains("bad")) failed++;
-    if (name === "write_file" || name === "edit_file") { files.add(s.dataset.path || name); continue; }
+    if (name === "write_file" || name === "edit_file" || name === "notebook_edit") { files.add(s.dataset.path || name); continue; }
     const [verb, noun] = STEP_WORDS[name] || (name.startsWith("mcp__") ? ["used " + prettyTool(name).split(":")[0], ""] : ["did", "step"]);
     const key = verb + "|" + (noun || "");
     counts.set(key, (counts.get(key) || 0) + 1);
@@ -1578,7 +1585,7 @@ function addStep(body, t) {
 function addFiles(body, tools, turn) {
   const map = new Map();
   for (const t of tools) {
-    if (!["write_file", "edit_file"].includes(t.name) || t.isError || !t.done) continue;
+    if (!["write_file", "edit_file", "notebook_edit"].includes(t.name) || t.isError || !t.done) continue;
     const p = t.input?.path || t.input?.file_path; if (!p) continue; // cloud tasks call it file_path
     const d = diffOf(t); const cur = map.get(p) || { add: 0, del: 0 };
     map.set(p, { add: cur.add + d.add, del: cur.del + d.del });
@@ -1628,6 +1635,8 @@ function permSummary(tool, i = {}) {
   if (tool === "terminal_send") return ["Type in a terminal", [i.text, ...(i.keys || [])].filter(Boolean).join(" + ")];
   if (tool === "terminal_close") return ["Close a terminal", "Terminal " + i.id];
   if (tool === "write_file") return ["Create a file", i.path];
+  if (tool === "schedule_task") { const w = i.when || {}; return [(i.action === "delete" ? "Delete" : i.action === "run" ? "Run" : i.action === "update" ? "Change" : "Create") + " a scheduled task", [i.name || i.id, w.type ? whenText(w) : "", i.prompt].filter(Boolean).join("\n\n").slice(0, 700)]; }
+  if (tool === "notebook_edit") return [(i.edit_mode === "delete" ? "Delete a cell in" : i.edit_mode === "insert" ? "Add a cell to" : "Change a cell in") + " a notebook", i.path + (i.new_source ? "\n\n" + String(i.new_source).slice(0, 400) : "")];
   if (tool === "edit_file") return ["Edit a file", i.path + "\n\n- " + String(i.old_text || "").slice(0, 300) + "\n+ " + String(i.new_text || "").slice(0, 300)];
   return ["Use " + tool, JSON.stringify(i, null, 2).slice(0, 600)];
 }
@@ -1662,7 +1671,7 @@ function addTodo(body, input) {
 }
 // Diff view: every change a reply made to a file (or to all files when path is omitted).
 function showDiff(tools, path) {
-  const changes = tools.filter((t) => ["write_file", "edit_file"].includes(t.name) && t.done && !t.isError && (!path || t.input.path === path));
+  const changes = tools.filter((t) => ["write_file", "edit_file", "notebook_edit"].includes(t.name) && t.done && !t.isError && (!path || t.input.path === path));
   const body = $("diffBody"); body.innerHTML = "";
   for (const t of changes) {
     const h = document.createElement("div"); h.className = "fh";
@@ -2143,7 +2152,7 @@ $("input").addEventListener("keydown", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); }
-  if (e.key === "Escape") {
+  if (e.key === "Escape" && !e.target.closest?.("#termX")) { // Esc inside the terminal belongs to the program there
     const open = document.querySelectorAll(".modal.show");
     if (open.length) open.forEach((m) => m.classList.remove("show"));
     else if ($("folderMenu").classList.contains("show")) $("folderMenu").classList.remove("show");
@@ -2187,7 +2196,7 @@ function syncPicks() {
 }
 function setChat(k, v) { current[k] = v; if (k === "model") delete current.usedModel; setPref(k, v); syncPicks(); save(); }
 function showMenu(anchor, title, items) {
-  const m = $("menu"); m.className = "menu"; m.innerHTML = title ? `<div class="mh"></div>` : "";
+  const m = $("menu"); m.className = "menu"; m.dataset.for = ""; m.innerHTML = title ? `<div class="mh"></div>` : "";
   if (title) m.firstChild.textContent = title;
   let n = 0, first = true;
   for (const it of items) {
@@ -2532,6 +2541,43 @@ function renderThumbs() {
 }
 $("imgBtn").onclick = () => $("file").click();
 $("file").onchange = (e) => { addImages(e.target.files); e.target.value = ""; };
+// @ mentions, like Claude Code: typing @ lists files and folders in the chat's folder; Enter, Tab or a click
+// puts the path in the message, and the server sends the file's text along with it.
+let atTimer = null;
+function atToken() {
+  const t = $("input"), v = t.value.slice(0, t.selectionStart);
+  const m = /(?:^|\s)@([^\s@"]*)$/.exec(v);
+  return m ? { q: m[1], start: t.selectionStart - m[1].length - 1 } : null;
+}
+function atMenu() {
+  const tok = atToken();
+  if (!tok || !current?.cwd) { if ($("menu").dataset.for === "at") hideMenu(); return; }
+  clearTimeout(atTimer);
+  atTimer = setTimeout(async () => {
+    const cwd = current.cwd;
+    let list = []; try { list = await (await fetch(`/api/files?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(tok.q)}`)).json(); } catch {}
+    const now = atToken(); if (!now || now.q !== tok.q || current?.cwd !== cwd) return;
+    if (!list.length) { if ($("menu").dataset.for === "at") hideMenu(); return; }
+    showMenu($("box"), "Files in " + cwd.split(/[\\/]/).filter(Boolean).pop(), list.map((f) => ({ icon: f.endsWith("/") ? "folder" : "file", html: `<code>${escHtml(f)}</code>`, run: () => pickAt(f) })));
+    $("menu").style.left = "8px"; $("menu").dataset.for = "at";
+  }, 120);
+}
+function pickAt(f) {
+  const t = $("input"), tok = atToken(); if (!tok) return;
+  const ins = "@" + (/\s/.test(f) ? `"${f}"` : f) + (f.endsWith("/") ? "" : " ");
+  t.value = t.value.slice(0, tok.start) + ins + t.value.slice(t.selectionStart);
+  const pos = tok.start + ins.length; t.focus(); t.setSelectionRange(pos, pos); autosize();
+  if (f.endsWith("/")) atMenu(); // a folder: keep going inside it
+}
+$("input").addEventListener("input", atMenu);
+// Capture phase, so Enter picks a file instead of sending the message.
+$("input").addEventListener("keydown", (e) => {
+  const m = $("menu"); if (!m.classList.contains("show") || m.dataset.for !== "at") return;
+  if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.isComposing) {
+    const b = m.querySelector("button.hl"); if (!b) return;
+    e.preventDefault(); e.stopImmediatePropagation(); b.dispatchEvent(new MouseEvent("mousedown"));
+  } else if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); hideMenu(); }
+}, true);
 $("input").addEventListener("paste", (e) => { const f = [...e.clipboardData.files]; if (f.length) { e.preventDefault(); addImages(f); } });
 const box = $("box");
 box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("drag"); });
@@ -2842,11 +2888,11 @@ function toggleTerm(force) {
   const on = force ?? !$("term").classList.contains("show");
   $("term").classList.toggle("show", on);
   $("termCwd").textContent = termDir() || "your home folder";
-  if (on) { termOut.scrollTop = termOut.scrollHeight; $("termIn").focus(); }
+  if (on) { termOut.scrollTop = termOut.scrollHeight; $("termIn").focus(); xtAttach(); }
 }
 $("termBtn").onclick = () => toggleTerm();
 $("termClose").onclick = () => toggleTerm(false);
-$("termClear").onclick = () => { termOut.textContent = ""; };
+$("termClear").onclick = () => { termOut.textContent = ""; xt?.term.clear(); };
 $("termExt").onclick = () => { const d = termDir(); d ? openTarget(d, "terminal") : toast("Send a first message, or link a folder"); };
 document.addEventListener("keydown", (e) => { if (e.ctrlKey && e.key === "`") { e.preventDefault(); toggleTerm(); } });
 let termRun = null;
@@ -2877,9 +2923,66 @@ $("termIn").addEventListener("keydown", async (e) => {
 });
 $("termStop").onclick = () => { if (termRun) post("/api/term/stop", { id: termRun }); };
 
+// ---- The real terminal panel, like Claude Code's: xterm.js drawing a live PowerShell per chat (pty.mjs), so cd and
+// variables carry over, prompts can be answered and full-screen programs work. Falls back to the one-command panel above.
+let xtLib = null, xt = null, xtOff = false, xtQ = "", xtSending = false; // xt: { term, fit, id, key, es, closed }
+function loadXterm() {
+  return xtLib ||= new Promise((ok, bad) => {
+    const css = document.createElement("link"); css.rel = "stylesheet"; css.href = "/vendor/xterm/css/xterm.css"; document.head.appendChild(css);
+    const add = (src, next) => { const s = document.createElement("script"); s.src = src; s.onload = next; s.onerror = () => bad(new Error(src)); document.head.appendChild(s); };
+    add("/vendor/xterm/lib/xterm.js", () => add("/vendor/xterm-fit/lib/addon-fit.js", () => ok()));
+  });
+}
+function xtTheme() {
+  const cs = getComputedStyle(document.body), v = (n, d) => cs.getPropertyValue(n).trim() || d;
+  return { background: v("--code", "#111111"), foreground: v("--text", "#dddddd"), cursor: v("--text", "#dddddd"), cursorAccent: v("--code", "#111111"), selectionBackground: "rgba(128,128,128,.35)" };
+}
+// Keystrokes go one request at a time, in order (fast typing must not arrive shuffled).
+async function xtSend(id, d) {
+  xtQ += d; if (xtSending) return; xtSending = true;
+  while (xtQ) { const s = xtQ; xtQ = ""; try { await post("/api/uterm/input", { id, data: s }); } catch {} }
+  xtSending = false;
+}
+function xtDetach() { if (!xt) return; try { xt.es.close(); } catch {} try { xt.term.dispose(); } catch {} xt = null; xtQ = ""; }
+async function xtAttach() {
+  if (xtOff || !current) return false;
+  const key = current.id;
+  if (xt && xt.key === key && !xt.closed) { try { xt.fit.fit(); } catch {} xt.term.focus(); return true; }
+  try { await loadXterm(); } catch { xtOff = true; return false; }
+  if (!window.Terminal || !window.FitAddon) { xtOff = true; return false; }
+  xtDetach();
+  $("term").classList.add("x");
+  const el = $("termX"); el.innerHTML = "";
+  const mono = getComputedStyle(document.body).getPropertyValue("--mono").trim() || "Consolas, monospace";
+  const term = new Terminal({ cursorBlink: true, fontFamily: mono, fontSize: 12.5, scrollback: 5000, theme: xtTheme() });
+  const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(el); try { fit.fit(); } catch {}
+  let id;
+  try {
+    const r = await post("/api/uterm/open", { key, cwd: termDir(), cols: term.cols, rows: term.rows });
+    if (!r.ok) throw new Error(); id = (await r.json()).id;
+  } catch { term.dispose(); $("term").classList.remove("x"); xtOff = true; return false; }
+  if (current?.id !== key) { term.dispose(); return false; } // switched chats meanwhile
+  const es = new EventSource("/api/uterm/stream?id=" + encodeURIComponent(id));
+  const me = xt = { term, fit, id, key, es, closed: false };
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === "out") term.write(ev.data);
+    else if (ev.type === "exit" || ev.type === "gone") { me.closed = true; es.close(); term.write("\r\n\x1b[2m(PowerShell closed. Press Enter for a new one.)\x1b[0m\r\n"); }
+  };
+  term.onData((d) => {
+    if (!me.closed) return xtSend(id, d);
+    if (d === "\r" && xt === me) { xtDetach(); xtAttach(); }
+  });
+  term.onResize(({ cols, rows }) => { if (!me.closed) post("/api/uterm/resize", { id, cols, rows }); });
+  term.focus();
+  return true;
+}
+new ResizeObserver(() => { if (xt && $("term").classList.contains("show")) try { xt.fit.fit(); } catch {} }).observe($("termX"));
+
 // ---------- scheduled tasks
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const whenText = (w) => w?.type === "interval" ? `Every ${w.minutes} minutes`
+  : w?.type === "once" ? `Once, ${new Date(w.at).toLocaleString()}`
   : `${(w?.days?.length && w.days.length < 7) ? w.days.map((d) => DAYS[d]).join(", ") : "Every day"} at ${w?.time || "09:00"}`;
 async function showSchedules() {
   const list = await (await fetch("/api/schedules")).json();
@@ -2928,6 +3031,8 @@ function editSchedule(t) {
   const w = t?.when || { type: "daily", time: "09:00", days: [1, 2, 3, 4, 5] };
   document.querySelector(`input[name=seType][value=${w.type}]`).checked = true;
   $("seTime").value = w.time || "09:00"; $("seMin").value = w.minutes || 60;
+  const at = new Date(w.type === "once" ? w.at : Date.now() + 3600000); at.setMinutes(at.getMinutes() - at.getTimezoneOffset());
+  $("seAt").value = at.toISOString().slice(0, 16);
   const days = $("seDays"); days.innerHTML = "";
   DAYS.forEach((d, i) => {
     const b = document.createElement("button"); b.type = "button"; b.className = "pvb"; b.textContent = d; b.dataset.d = i;
@@ -2950,7 +3055,7 @@ $("seSave").onclick = async () => {
   const type = document.querySelector("input[name=seType]:checked").value;
   const body = {
     ...(seEditing || {}), name: $("seName").value.trim(), prompt: $("sePrompt").value.trim(), cwd: $("seCwd").value, model: seModel, effort: "medium",
-    when: type === "interval" ? { type, minutes: Number($("seMin").value) || 60 } : { type, time: $("seTime").value || "09:00", days: [...$("seDays").querySelectorAll(".on")].map((b) => Number(b.dataset.d)) },
+    when: type === "interval" ? { type, minutes: Number($("seMin").value) || 60 } : type === "once" ? { type, at: $("seAt").value } : { type, time: $("seTime").value || "09:00", days: [...$("seDays").querySelectorAll(".on")].map((b) => Number(b.dataset.d)) },
   };
   if (type === "daily" && !body.when.days.length) { $("seErr").textContent = "Pick at least one day."; return; }
   const r = await post("/api/schedules", body); const j = await r.json();

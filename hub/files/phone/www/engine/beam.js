@@ -219,9 +219,21 @@ export async function batchReady() {
   const N = plugin('ShivoNative'); if (!N) return false;
   try { return !!(await N.info()).beamBatch; } catch { return false; }
 }
+// Batches this page started (a batch it didn't start, still "active", is left over from before the app was closed,
+// renewed or updated: iOS may have dropped its downloads, and older native builds then wait for it forever)
+const ownBatches = new Set();
+let stuckId = '';
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 export async function receiveBatch(items, onStep, opts = {}) {
   const N = plugin('ShivoNative');
-  const st = await N.beamStatus().catch(() => ({}));
+  let st = await N.beamStatus().catch(() => ({}));
+  if (st.active && !ownBatches.has(st.id)) {
+    // a leftover: give it 20 s to show it is still moving; if not, it's stuck and the caller saves the plain way
+    if (st.id === stuckId) return { stuck: true, done: 0, photos: 0, failed: [] };
+    const first = st.done;
+    for (let i = 0; i < 10 && st.active && st.done === first; i++) { await sleep(2000); st = await N.beamStatus().catch(() => ({})); }
+    if (st.active && st.done === first) { stuckId = st.id; return { stuck: true, done: 0, photos: 0, failed: [] }; }
+  }
   if (!st.active) {
     const already = new Set(seenList().map((x) => x.k)), fresh = [];
     for (const it of items) {
@@ -234,6 +246,8 @@ export async function receiveBatch(items, onStep, opts = {}) {
         name: it.name, kind: it.kind || 'file', size: it.size || 0 })),
       from: opts.from || 'your PC', look: opts.look || 'auto', accent: opts.accent || '#7FB08B',
     });
+    const now = await N.beamStatus().catch(() => ({}));
+    if (now.id) ownBatches.add(now.id);
   }
   return new Promise((resolve) => {
     let h1, h2, over = false;

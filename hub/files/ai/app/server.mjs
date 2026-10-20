@@ -12,6 +12,7 @@ import {
 } from "./agent.mjs";
 import { loadAgents, findHelper, helperToolNames, helperModel, helperSystem, changesThings } from "./subagents.mjs";
 import { connectorTools, searchTools, FIND_TOOLS } from "./toolsearch.mjs";
+import { userTermOpen, userTermSubscribe, userTermInput, userTermResize, userTermClose, closeUserTerms, ptyReady } from "./pty.mjs";
 import { relayFor, probePort } from "./relay.mjs";
 import { cloudTurn, followCloud } from "./cloud.mjs";
 import { cliStatus, loginState, startWebLogin, cancelWebLogin, tokenLogin, logout as ghLogout, setIdentity } from "./cli.mjs";
@@ -296,6 +297,29 @@ app.post("/api/term/stop", (req, res) => {
   if (c) spawn("taskkill", ["/pid", String(c.pid), "/T", "/F"], { windowsHide: true });
   res.json({ ok: Boolean(c) });
 });
+// The real terminal panel (pty.mjs + xterm.js in the page): one live PowerShell per chat that keeps its folder,
+// answers prompts and draws full-screen programs. The page falls back to the one-command panel above without it.
+app.post("/api/uterm/open", (req, res) => {
+  if (!ptyReady()) return res.status(501).json({ error: "no pty" });
+  const cwd = String(req.body.cwd || "");
+  try {
+    const id = userTermOpen({ key: String(req.body.key || "default").slice(0, 100), cwd: cwd && existsSync(cwd) ? cwd : homedir(),
+      env: { ...process.env, FORCE_COLOR: "1" }, cols: Number(req.body.cols) || 100, rows: Number(req.body.rows) || 24 });
+    res.json({ id });
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
+app.get("/api/uterm/stream", (req, res) => {
+  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  const off = userTermSubscribe(String(req.query.id || ""), (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`));
+  if (!off) { res.write(`data: ${JSON.stringify({ type: "gone" })}\n\n`); return res.end(); }
+  const ping = setInterval(() => res.write(": ping\n\n"), 25000);
+  req.on("close", () => { off(); clearInterval(ping); });
+});
+app.post("/api/uterm/input", (req, res) => res.json({ ok: userTermInput(String(req.body.id || ""), String(req.body.data ?? "").slice(0, 100000)) }));
+app.post("/api/uterm/resize", (req, res) => res.json({ ok: userTermResize(String(req.body.id || ""), Number(req.body.cols), Number(req.body.rows)) }));
+app.post("/api/uterm/close", (req, res) => res.json({ ok: userTermClose(String(req.body.id || "")) }));
+app.use("/vendor/xterm", express.static(join(here, "node_modules", "@xterm", "xterm")));
+app.use("/vendor/xterm-fit", express.static(join(here, "node_modules", "@xterm", "addon-fit")));
 
 app.get("/api/status", (_req, res) => {
   res.json({ hasKey: Boolean(apiKey), key: maskKey(apiKey), home: homedir() });
@@ -747,6 +771,49 @@ app.post("/api/export", async (req, res) => {
 // Skills the app can use (its own folder is where new ones are created).
 const skillsDir = join(dataDir, "skills");
 mkdirSync(skillsDir, { recursive: true });
+// Files for the @ list in the message box: git's list when the folder is a repository (fast, skips ignored
+// files), otherwise a short walk. Cached per folder for 20 seconds; best matches first.
+const fileLists = new Map(); // folder -> { at, files }
+function folderFiles(dir) {
+  const c = fileLists.get(dir);
+  if (c && Date.now() - c.at < 20000) return Promise.resolve(c.files);
+  return new Promise((done) => {
+    execFile("git", ["-c", "core.quotepath=false", "ls-files", "--cached", "--others", "--exclude-standard"], { cwd: dir, windowsHide: true, maxBuffer: 32 * 1024 * 1024, timeout: 8000 }, (e, out) => {
+      let files = !e && out.trim() ? out.split(/\r?\n/).filter(Boolean).slice(0, 50000) : null;
+      if (!files) {
+        files = [];
+        const walk = (d, rel, depth) => {
+          if (files.length >= 5000 || depth > 6) return;
+          let list = []; try { list = readdirSync(d, { withFileTypes: true }); } catch { return; }
+          for (const x of list) {
+            if (/^(node_modules|\.git|dist|build|\.next|__pycache__|\.venv|venv)$/.test(x.name)) continue;
+            const r = rel ? rel + "/" + x.name : x.name;
+            if (x.isDirectory()) walk(join(d, x.name), r, depth + 1); else files.push(r);
+          }
+        };
+        walk(dir, "", 0);
+      }
+      fileLists.set(dir, { at: Date.now(), files });
+      done(files);
+    });
+  });
+}
+app.get("/api/files", async (req, res) => {
+  const dir = String(req.query.cwd || ""), q = String(req.query.q || "").toLowerCase().replace(/\\/g, "/");
+  if (!dir || !existsSync(dir)) return res.json([]);
+  const files = await folderFiles(dir);
+  const dirs = [...new Set(files.flatMap((f) => { const p = f.split("/"); return p.slice(0, -1).map((_, i) => p.slice(0, i + 1).join("/") + "/"); }))];
+  const score = (f) => {
+    const l = f.toLowerCase(), name = l.replace(/\/$/, "").split("/").pop();
+    if (!q) return f.endsWith("/") ? 1 : 2 - f.split("/").length * 0.01;
+    if (name.startsWith(q)) return 5 - l.length * 0.001;
+    if (name.includes(q)) return 4 - l.length * 0.001;
+    if (l.includes(q)) return 3 - l.length * 0.001;
+    let i = 0; for (const ch of l) if (ch === q[i]) i++; // letters in order (fuzzy)
+    return i === q.length ? 1 - l.length * 0.001 : 0;
+  };
+  res.json([...dirs, ...files].map((f) => [f, score(f)]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 30).map((x) => x[0]));
+});
 app.get("/api/skills", (req, res) => res.json({ dir: skillsDir, skills: loadSkills(req.query.cwd ? String(req.query.cwd) : "", skillsDir) }));
 
 // Custom slash commands and CLAUDE.md files for a folder.
@@ -952,6 +1019,17 @@ app.post("/api/chat", async (req, res) => {
   }
   if (files.length) content.push({ type: "text", text: "The user attached " + (files.length > 1 ? "these files" : "this file") + " (saved on this PC):\n" + files.map((f) => `- ${f.name}: ${f.path}`).join("\n") +
     "\nOpen them yourself: view_file for PDFs and Word, Excel or PowerPoint files, read_file for text and code, PowerShell or Python for anything else (zip, csv, audio...). Don't ask the user to paste their contents." });
+  // @mentions picked from the @ list in the message box: the file's text goes along (like Claude Code), or a pointer when it's big or not text.
+  const mentions = [...new Set([...String(prompt || "").matchAll(/(?:^|\s)@("[^"]+"|[^\s"]+)/g)].map((m) => m[1].replace(/^"|"$/g, "").replace(/[.,;:!?)]+$/, "")))].slice(0, 10);
+  for (const m of mentions) {
+    const p = resolve(workDir, m); let st; try { st = statSync(p); } catch { continue; }
+    if (st.isDirectory()) { content.push({ type: "text", text: `The user mentioned the folder @${m} (${p}).` }); continue; }
+    if (!st.isFile()) continue;
+    let text = null; try { if (st.size <= 100000) { text = readFileSync(p, "utf8"); if (text.includes("\u0000")) text = null; } } catch {}
+    content.push({ type: "text", text: text === null
+      ? `The user mentioned the file @${m} (${p}, ${Math.round(st.size / 1024)} KB). Open it with read_file or view_file.`
+      : `The user mentioned the file @${m} (${p}). Its contents:\n\`\`\`\n${text}\n\`\`\`` });
+  }
   if (session.note) { content.push({ type: "text", text: session.note }); delete session.note; }
   if (rules.hooks.UserPromptSubmit) {
     const h = await runHooks(rules, "UserPromptSubmit", { session_id: chatId, prompt: String(prompt || "") }, { workDir });
@@ -1419,6 +1497,9 @@ app.post("/api/chat", async (req, res) => {
     if (!via) { // the chat's own tools; helpers have none of these
     if (t.name === "delegate_task") return startHelper(t);
     if (STUDIO_NAMES.has(t.name)) return runStudioTool(t.name, t.input);
+    if (t.name === "schedule_task" && req.body.unattended && ["create", "update"].includes(t.input.action)) return { text: "A scheduled task can't create or change scheduled tasks itself.", isError: true };
+    if (t.name === "schedule_task") { try { return { text: scheduleTool(t.input, { cwd: scratch ? "" : workDir, model, effort }), isError: false }; } catch (e) { return { text: String(e.message || e), isError: true }; } }
+    if (t.name === "notify") { notify(String(t.input.title || "Shivo Labs AI").slice(0, 100), String(t.input.body || "").slice(0, 300), { chatId }); return { text: "Notification sent.", isError: false }; }
     if (t.name === "ask_user") return { text: "The user answered: " + (await askUser(t.input)), isError: false };
     if (t.name === "use_skill") {
       const s = skills.find((x) => x.name.toLowerCase() === String(t.input.name || "").toLowerCase());
@@ -1429,7 +1510,7 @@ app.post("/api/chat", async (req, res) => {
     }
     // For file changes, remember the file before so the app can show a diff.
     let target = null, before = null;
-    if ((t.name === "write_file" || t.name === "edit_file") && t.input.path) {
+    if ((t.name === "write_file" || t.name === "edit_file" || t.name === "notebook_edit") && t.input.path) {
       target = resolve(workDir, String(t.input.path));
       if (!isAllowed(target) && !(await askAccess(dirname(target))))
         return { text: `The user didn't allow access to ${dirname(target)}. Save somewhere inside the linked folders, or ask them.`, isError: true };
@@ -1701,6 +1782,7 @@ const notices = []; // { id, at, title, body, chatId? }
 const notify = (title, body, extra = {}) => { notices.push({ id: crypto.randomUUID(), at: Date.now(), title, body, ...extra }); if (notices.length > 100) notices.shift(); };
 
 function nextRun(t, from = Date.now()) {
+  if (t.when?.type === "once") return t.ran ? null : Number(t.when.at) || null;
   if (t.when?.type === "interval") return (t.lastRun || from) + Math.max(5, Number(t.when.minutes) || 60) * 60000;
   // daily at HH:MM on chosen weekdays (0 = Sunday)
   const [h, m] = String(t.when?.time || "09:00").split(":").map(Number);
@@ -1742,7 +1824,7 @@ async function runSchedule(t) {
   } catch (e) { run.status = "failed"; run.text += "\n\nError: " + (e.message || e); }
   run.text = run.text.trim().slice(0, 20000);
   const after = loadScheds(); const c2 = after.find((x) => x.id === t.id);
-  if (c2) { c2.runs = (c2.runs || []).map((x) => (x.chatId === chatId ? run : x)); saveScheds(after); }
+  if (c2) { c2.runs = (c2.runs || []).map((x) => (x.chatId === chatId ? run : x)); if (c2.when?.type === "once") { c2.ran = true; c2.enabled = false; } saveScheds(after); }
   notify(`${t.name}: ${run.status === "done" ? "finished" : "failed"}`, run.text.replace(/\s+/g, " ").slice(0, 160), { scheduleId: t.id, chatId });
 }
 
@@ -1759,20 +1841,51 @@ setInterval(() => {
 }, 30000);
 
 app.get("/api/schedules", (_req, res) => res.json(loadScheds().map((t) => ({ ...t, next: t.enabled ? nextRun(t, t.lastRun || Date.now()) : null, running: runningScheds.has(t.id) }))));
-app.post("/api/schedules", (req, res) => {
-  const b = req.body, all = loadScheds();
-  if (!String(b.name || "").trim() || !String(b.prompt || "").trim()) return res.status(400).json({ error: "Give the task a name and say what it should do." });
+// Save a task from the Scheduled screen or from the AI (schedule_task). Returns the task, or { error }.
+function saveSchedule(b) {
+  const all = loadScheds();
+  if (!String(b.name || "").trim() || !String(b.prompt || "").trim()) return { error: "Give the task a name and say what it should do." };
+  const w = b.when || {};
+  const when = w.type === "interval" ? { type: "interval", minutes: Math.max(5, Number(w.minutes) || 60) }
+    : w.type === "once" ? { type: "once", at: Number(new Date(w.at)) }
+    : { type: "daily", time: /^\d{1,2}:\d{2}$/.test(w.time) ? w.time : "09:00", days: (w.days || []).map(Number).filter((d) => d >= 0 && d <= 6) };
+  if (when.type === "once" && !(when.at > Date.now())) return { error: "A one-time task needs a time in the future (local date and time, e.g. 2026-10-21T09:00)." };
   const t = {
     id: b.id || crypto.randomUUID().slice(0, 8), name: String(b.name).slice(0, 80), prompt: String(b.prompt),
     cwd: b.cwd || "", model: MODELS.includes(b.model) ? b.model : "claude-sonnet-5-5", effort: EFFORTS.includes(b.effort) ? b.effort : "medium",
-    when: b.when?.type === "interval" ? { type: "interval", minutes: Math.max(5, Number(b.when.minutes) || 60) } : { type: "daily", time: /^\d{1,2}:\d{2}$/.test(b.when?.time) ? b.when.time : "09:00", days: (b.when?.days || []).map(Number).filter((d) => d >= 0 && d <= 6) },
-    enabled: b.enabled !== false, created: Date.now(),
+    when, enabled: b.enabled !== false, created: Date.now(),
   };
   const i = all.findIndex((x) => x.id === t.id);
   // Keep history and last run when editing; a changed schedule starts counting from now.
   if (i >= 0) { t.runs = all[i].runs; t.created = all[i].created; t.lastRun = Date.now(); all[i] = t; } else { t.lastRun = Date.now(); all.push(t); }
-  saveScheds(all); res.json(t);
+  saveScheds(all);
+  return t;
+}
+app.post("/api/schedules", (req, res) => {
+  const t = saveSchedule(req.body);
+  if (t.error) return res.status(400).json(t);
+  res.json(t);
 });
+// The AI managing scheduled tasks itself (schedule_task tool).
+function scheduleTool(input, { cwd, model, effort }) {
+  const when = (t) => t.when?.type === "interval" ? `every ${t.when.minutes} min` : t.when?.type === "once" ? `once at ${new Date(t.when.at).toLocaleString("en-GB")}` : `daily at ${t.when?.time}${t.when?.days?.length && t.when.days.length < 7 ? " on days " + t.when.days.join(",") : ""}`;
+  const line = (t) => `- ${t.id}: ${t.name} (${when(t)}${t.enabled ? "" : ", off"}${t.cwd ? ", in " + t.cwd : ""})`;
+  const a = String(input.action || "list");
+  const find = () => { const t = loadScheds().find((x) => x.id === input.id); if (!t) throw new Error(`No task ${input.id}. Use action list to see the ids.`); return t; };
+  if (a === "list") { const all = loadScheds(); return all.length ? "Scheduled tasks (they run while the app is open):\n" + all.map(line).join("\n") : "No scheduled tasks."; }
+  if (a === "delete") { const t = find(); saveScheds(loadScheds().filter((x) => x.id !== t.id)); return `Deleted "${t.name}".`; }
+  if (a === "run") {
+    const t = find(); if (runningScheds.has(t.id)) return "It's already running.";
+    runningScheds.add(t.id); runSchedule(t).finally(() => runningScheds.delete(t.id));
+    return `Started "${t.name}" now; its result arrives as a notification.`;
+  }
+  if (a !== "create" && a !== "update") throw new Error("action is create, update, list, delete or run.");
+  const old = a === "update" ? find() : null;
+  const given = Object.fromEntries(Object.entries(input).filter(([k, v]) => v !== undefined && v !== null && k !== "action"));
+  const t = saveSchedule({ ...(old || { cwd, model, effort }), ...given });
+  if (t.error) throw new Error(t.error);
+  return `${a === "create" ? "Created" : "Updated"} the scheduled task:\n${line(t)}\nIt runs by itself while Shivo Labs AI is open, and its result arrives as a notification (also under Scheduled).`;
+}
 app.delete("/api/schedules/:id", (req, res) => { saveScheds(loadScheds().filter((t) => t.id !== req.params.id)); res.json({ ok: true }); });
 app.post("/api/schedules/:id/run", (req, res) => {
   const t = loadScheds().find((x) => x.id === req.params.id);
@@ -1820,6 +1933,7 @@ let server, contentServer;
 function cleanupChildren() {
   stopBackgroundProcesses();
   for (const c of userTerms.values()) { try { spawn("taskkill", ["/pid", String(c.pid), "/T", "/F"], { windowsHide: true }); } catch {} }
+  closeUserTerms();
   connectors.closeAll();
   try { awake?.kill(); } catch {}
 }
@@ -1834,8 +1948,9 @@ app.post("/api/update/install", (req, res) => {
     copyTree(here, backup);
     const oldPkg = readFileSync(join(here, "package.json"), "utf8");
     copyTree(updatesDir, here);
-    // New packages only when the update needs them.
-    if (readFileSync(join(here, "package.json"), "utf8") !== oldPkg) {
+    // New packages only when the update needs them, or when a listed package is missing (an earlier install failed).
+    const deps = Object.keys(JSON.parse(readFileSync(join(here, "package.json"), "utf8")).dependencies || {});
+    if (readFileSync(join(here, "package.json"), "utf8") !== oldPkg || deps.some((d) => !existsSync(join(here, "node_modules", d, "package.json")))) {
       execSync("npm install --omit=dev --no-audit --no-fund", { cwd: here, stdio: "ignore", windowsHide: true, timeout: 300000 });
     }
   } catch (e) {

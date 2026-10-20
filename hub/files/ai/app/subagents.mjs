@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 
 // Tools a look-only helper gets, and the ones a helper that does work gets.
 export const LOOK = ["read_file", "list_files", "search_files", "fetch_url", "search_web"];
-export const DO = [...LOOK, "write_file", "edit_file", "run_command", "check_process", "wait_for_process", "stop_process", "preview_start"];
+export const DO = [...LOOK, "write_file", "edit_file", "notebook_edit", "run_command", "check_process", "wait_for_process", "stop_process", "preview_start"];
 const QUIET = new Set([...LOOK, "check_process", "wait_for_process"]); // change nothing
 
 // Claude Code's tool names in a custom agent's "tools:" line, mapped to this app's.

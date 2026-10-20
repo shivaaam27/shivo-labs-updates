@@ -198,6 +198,8 @@ export async function install() {
 // On installs (no live folder) the AI app is part of the hub's own update package instead.
 const AI_LIVE = process.env.HUB_AI_LIVE || join(process.env.USERPROFILE || "", "Documents", "Shivo Labs AI"); // HUB_AI_LIVE: tests only
 const readVer = (f) => { try { return JSON.parse(readFileSync(f, "utf8")).version || "0.0.0"; } catch { return "0.0.0"; } };
+// Packages a Node app's package.json lists that aren't in its node_modules.
+const missingDeps = (dir) => { try { return Object.keys(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).dependencies || {}).filter((d) => !existsSync(join(dir, "node_modules", d, "package.json"))); } catch { return []; } };
 const sameFile = (a, b) => { try { return readFileSync(a).equals(readFileSync(b)); } catch { return false; } };
 const run = (cmd, args, cwd) => new Promise((ok) => execFile(cmd, args, { cwd, windowsHide: true, timeout: 600000 }, (e, out, err) => ok({ ok: !e, out: String(out || "") + String(err || "") })));
 let aiBusyHanding = false;
@@ -211,8 +213,9 @@ export async function handAiUpdate() {
   if (!newer(repoVer, handed)) { state.aiHandOff ||= { version: repoVer }; installAi(); return state.aiHandOff; }
   aiBusyHanding = true;
   try {
-    // new packages: add them to the live app first (adding packages doesn't disturb it)
-    if (!sameFile(join(ROOT, "ai", "app", "package.json"), join(AI_LIVE, "fabra-labs-ai", "package.json"))) {
+    // new packages: add them to the live app first (adding packages doesn't disturb it). Also when a package
+    // the app lists is missing (an earlier install failed after package.json was already copied).
+    if (!sameFile(join(ROOT, "ai", "app", "package.json"), join(AI_LIVE, "fabra-labs-ai", "package.json")) || missingDeps(join(AI_LIVE, "fabra-labs-ai")).length) {
       writeFileSync(join(AI_LIVE, "fabra-labs-ai", "package.json"), readFileSync(join(ROOT, "ai", "app", "package.json")));
       const lock = join(ROOT, "ai", "app", "package-lock.json");
       if (existsSync(lock)) writeFileSync(join(AI_LIVE, "fabra-labs-ai", "package-lock.json"), readFileSync(lock));

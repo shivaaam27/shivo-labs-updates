@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { exec } from "node:child_process";
 
 // Claude Code tool names -> this app's tool names.
-const ALIAS = { Bash: "run_command", PowerShell: "run_command", Edit: "edit_file", MultiEdit: "edit_file", Write: "write_file", Read: "read_file", Glob: "list_files", Grep: "search_files", WebFetch: "web_fetch", WebSearch: "web_search", Task: "delegate_task", Agent: "delegate_task", TodoWrite: "update_plan" };
+const ALIAS = { Bash: "run_command", PowerShell: "run_command", Edit: "edit_file", MultiEdit: "edit_file", NotebookEdit: "notebook_edit", Write: "write_file", Read: "read_file", Glob: "list_files", Grep: "search_files", WebFetch: "web_fetch", WebSearch: "web_search", Task: "delegate_task", Agent: "delegate_task", TodoWrite: "update_plan" };
 const REVERSE = {}; for (const [k, v] of Object.entries(ALIAS)) REVERSE[v] ||= k;
 
 export function settingsFiles(workDir, dataDir) {
