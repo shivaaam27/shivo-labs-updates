@@ -59,7 +59,17 @@ def config():
 
 
 def save_config(cfg):
-    (HOME / "config.json").write_text(json.dumps(cfg))
+    """Only the engine's own entries (pairing code, port, trusted phones): the hub changes others in the same file
+    (the browser for links, "awake"), and writing the copy read at start used to undo those."""
+    f = HOME / "config.json"
+    try:
+        cur = json.loads(f.read_text())
+    except (OSError, ValueError):
+        cur = {}
+    cur.update({k: cfg[k] for k in ("token", "port", "trusted") if k in cfg})
+    tmp = f.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cur))
+    os.replace(tmp, f)
 
 
 # ---------- away from home: the relay on Cloudflare ----------
@@ -160,6 +170,64 @@ def lan_ips():
     except OSError:
         pass
     return [ip for ip in out if not ip.startswith(("127.", "169.254.", "100."))][:4]
+
+
+# ---------- staying reachable ----------
+# A PC that sleeps leaves the Wi-Fi, and often comes back at a new address: a phone's send then hangs. So while the
+# PC is on mains power Beam asks Windows not to sleep (the screen still turns off), and during every transfer it
+# asks again whatever the power (a send in progress keeps the PC up). config.json "awake": false turns the first off
+# (hub > Beam > Keep this PC available).
+ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+
+
+def _exec_state(flags):
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(ctypes.c_uint(flags))
+        except Exception:
+            pass
+
+
+def on_mains():
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+
+        class SPS(ctypes.Structure):
+            _fields_ = [("ac", ctypes.c_ubyte), ("bf", ctypes.c_ubyte), ("bp", ctypes.c_ubyte), ("ss", ctypes.c_ubyte),
+                        ("blt", ctypes.c_ulong), ("bft", ctypes.c_ulong)]
+        st = SPS()
+        return bool(ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(st))) and st.ac == 1
+    except Exception:
+        return False
+
+
+def stay_available(stop):
+    """Runs in its own thread for as long as the engine does (the request is tied to this thread)."""
+    held = None
+    while not stop.is_set():
+        try:
+            want = config().get("awake", True) is not False and on_mains()
+        except (OSError, ValueError):
+            want = on_mains()
+        if want != held:
+            _exec_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED if want else ES_CONTINUOUS)
+            held = want
+        stop.wait(30)
+    _exec_state(ES_CONTINUOUS)
+
+
+_last_pulse = [0.0]
+
+
+def transfer_pulse():
+    """During a transfer: tell Windows the PC is busy (resets its sleep timer). At most every 20 s."""
+    now = time.time()
+    if now - _last_pulse[0] > 20:
+        _last_pulse[0] = now
+        _exec_state(ES_SYSTEM_REQUIRED)
 
 
 # ---------- your devices: each one gets its own waiting list ----------
@@ -481,6 +549,7 @@ class Handler(BaseHTTPRequestHandler):
         log(f"{self.client_address[0]} {getattr(self, 'command', '-')} {path} -> {code}")
 
     def handle_one_request(self):
+        transfer_pulse()
         try:
             super().handle_one_request()
         except Exception:
@@ -646,6 +715,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not b:
                         raise CutShort("the upload stopped part-way")
                     left -= len(b)
+                    transfer_pulse()
                     yield b
                 self.rfile.readline()
         else:
@@ -655,6 +725,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not b:
                     raise CutShort("the upload stopped part-way")
                 left -= len(b)
+                transfer_pulse()
                 yield b
 
     def drain(self):
@@ -683,7 +754,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         with open(p, "rb") as f:
-            shutil.copyfileobj(f, self.wfile, CHUNK)
+            copy_out(f, self.wfile)
 
     def fs(self, method, path):
         def write_body(f):
@@ -704,7 +775,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         size, t0 = p.stat().st_size, time.time()
         with open(p, "rb") as f:
-            shutil.copyfileobj(f, self.wfile, CHUNK)
+            copy_out(f, self.wfile)
         secs = max(time.time() - t0, 0.001)
         log(f"  sent {p.name}: {size / 1e6:.1f} MB in {secs:.1f}s ({size / 1e6 / secs:.0f} MB/s)")
         if delete:
@@ -934,6 +1005,15 @@ def mark_from_elsewhere(p):
             f.write("[ZoneTransfer]\nZoneId=3\n")
     except OSError:
         pass
+
+
+def copy_out(f, out):
+    while True:
+        b = f.read(CHUNK)
+        if not b:
+            return
+        out.write(b)
+        transfer_pulse()
 
 
 def is_media(p):

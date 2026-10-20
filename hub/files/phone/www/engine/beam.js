@@ -98,10 +98,15 @@ function learn(j) {
 // "Your PC" in the Files app (newer builds, ShivoFiles extension): it needs where the PC is and this phone's key.
 // Handed over once per app start, and again when they change; it also makes Files look at the PC's folders again.
 let sharedSig = '';
+// every way to reach the PC, the one that answered last first: its home addresses, beam.local, the relay
+function allWays() {
+  const R = rd(RK);
+  return [...new Set([route.base, ...(rd(LK) || []).map(lanBase), lanBase(host), R?.url && R?.id ? relayBase(R) : ''].filter(Boolean))];
+}
 function shareWithFiles(pc) {
   const N = plugin('ShivoNative'), R = rd(RK);
   if (!N?.beamShare || !R?.key) return;
-  const bases = [...new Set([route.mode === 'lan' ? route.base : '', ...(rd(LK) || []).map(lanBase), lanBase(host), R.url && R.id ? relayBase(R) : ''].filter(Boolean))];
+  const bases = allWays();
   const sig = JSON.stringify([bases, R.key, pc]);
   if (sig === sharedSig) return;
   sharedSig = sig;
@@ -231,7 +236,8 @@ export async function sendNative(list, onStep, opts = {}) {
     look = setInterval(() => N.beamSendStatus().then((s) => { if (s.id && s.id !== before && !s.active) finish(s); }).catch(() => {}), 3000);
     Promise.resolve(N.addListener('beamSendProgress', (e) => onStep?.(e.done, e.total, e.name, e.size))).then((h) => { h1 = h; });
     Promise.resolve(N.addListener('beamSendFinished', finish)).then((h) => { h2 = h; });
-    N.beamSend({ files: list.map((f) => ({ path: f.path, name: f.name })), url: base() + who('/upload'),
+    // ways + path: newer builds try every way to the PC in turn when one fails or stalls (older ones use url)
+    N.beamSend({ files: list.map((f) => ({ path: f.path, name: f.name })), url: base() + who('/upload'), ways: allWays(), path: who('/upload'),
       to: opts.to || 'your PC', look: opts.look || 'auto', accent: opts.accent || '#7FB08B' })
       .catch((e) => { if (!over) { over = true; h1?.remove?.(); h2?.remove?.(); clearInterval(look); reject(e); } });
   });

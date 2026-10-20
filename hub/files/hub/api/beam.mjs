@@ -317,6 +317,15 @@ export async function beamApi(req, res, path, url) {
     await writeFile(file + ".tmp", JSON.stringify(cfg)); await rename(file + ".tmp", file);
     return json(res, 200, { ok: true }), true;
   }
+  if (req.method === "POST" && what === "awake") {   // keep this PC available for the phone while plugged in (beam.py)
+    let body = ""; for await (const c of req) body += c;
+    const { on } = JSON.parse(body || "{}");
+    const file = join(HOME, "config.json"), cfg = await config();
+    if (!cfg.token) return json(res, 409, { error: "Start Beam once first" }), true;
+    if (on) delete cfg.awake; else cfg.awake = false;
+    await writeFile(file + ".tmp", JSON.stringify(cfg)); await rename(file + ".tmp", file);
+    return json(res, 200, { ok: true, awake: !!on }), true;
+  }
   if (req.method === "GET" && what === "status") {
     const cfg = await config(), port = cfg.port || 8765;
     const ip = await lanIp();
@@ -326,6 +335,7 @@ export async function beamApi(req, res, path, url) {
       webIp: cfg.token ? `http://${ip}:${port}/p/${cfg.token}` : null,
       waiting: await files(OUTBOX), received: await files(INBOX, 8), devices: await deviceList(),
       relay: { connected: relayState.connected, since: relayState.since, error: relayState.error },
+      awake: cfg.awake !== false,
     }), true;
   }
   // ---------- folders on the phone (the iPhone's Files app): the Beam folder always, plus the ones added here

@@ -70,6 +70,10 @@ export function mountBeam(root, { esc, toast, openModule }) {
           <p class="bm-note">Shown in the Files app on your phone. Files download only when opened.</p>
           <div id="bmFolders"></div>
         </div>
+        <div class="card bm-card">
+          <label class="bm-links"><input type="checkbox" id="bmAwake"> Keep this PC available while plugged in</label>
+          <p class="bm-note">The screen still turns off. On battery the PC sleeps as usual.</p>
+        </div>
       </div>
     </div>`;
   const $ = (s) => root.querySelector(s);
@@ -84,6 +88,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
     // (the relay is what lets a phone find this PC from anywhere, and at home when beam.local doesn't answer)
     if (pill) pill.innerHTML = st.running ? `<i class="dot"></i>${esc(st.host)}${st.relay?.connected ? ' · reachable from anywhere' : ''}` : `<button class="tbtn" id="bmStart">Start Beam</button>`;
     document.getElementById('bmStart')?.addEventListener('click', () => openModule('beam', true));
+    const aw = $('#bmAwake'); if (aw && document.activeElement !== aw) aw.checked = st.awake !== false;
     const devs = st.devices || [];
     for (const id of picked) if (!devs.some((d) => d.id === id)) picked.delete(id);
     if (!renaming) paintDevices(devs);
@@ -220,6 +225,10 @@ export function mountBeam(root, { esc, toast, openModule }) {
     else if (j.error) toast(j.error);
   };
   loadFolders();
+  $('#bmAwake').onchange = async (e) => {
+    const r = await post('/api/beam/awake', JSON.stringify({ on: e.target.checked }));
+    toast(r.ok ? (e.target.checked ? 'This PC stays available while plugged in' : 'This PC sleeps as usual') : "Couldn't save that");
+  };
   // which browser opens links shared from the phone (Safari > Share > Beam / Send to PC)
   fetch('/api/beam/browsers').then((r) => r.json()).then(({ chosen, list }) => {
     const sel = $('#bmBrowser');

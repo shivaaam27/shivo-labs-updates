@@ -73,6 +73,8 @@ def main():
         except Exception as e:  # Beam still works by IP / pairing link without beam.local
             print("beam.local unavailable:", e, file=sys.stderr)
     threading.Thread(target=advertise, daemon=True).start()
+    # on mains power the PC stays up for the phone (a sleeping PC leaves the Wi-Fi; beam.py, stay_available)
+    threading.Thread(target=beam.stay_available, args=(stop,), daemon=True).start()
     try:
         srv.serve_forever()
     finally:
