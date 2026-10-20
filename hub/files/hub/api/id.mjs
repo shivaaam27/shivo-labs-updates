@@ -7,14 +7,13 @@
 // The Owner page (customers, codes, modules) works only on a PC that holds the owner key (%USERPROFILE%\.fabra-labs-ai\
 // shivo-id\admin.json, made by id/setup.mjs); the key never goes to the page.
 import { generateKeyPairSync, createPrivateKey, createPublicKey, sign, verify, createHash } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, rmSync, createWriteStream } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir, hostname, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { state as upd, signedOk, restartHub } from "./update.mjs";
+import { download } from "./download.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const HUB = join(here, "..");
@@ -117,26 +116,32 @@ async function fetchPacks() {
     const [text, sig] = await Promise.all([get("index.json"), get("index.sig")]);
     if (!signedOk(text, sig)) throw new Error("The list of modules isn't signed by Shivo Labs");
     const index = JSON.parse(text);
+    // a pack that broke off halfway stays here (named after its checksum) and the next try carries on from there
     const work = join(process.env.LOCALAPPDATA || tmpdir(), "Shivo Labs", "packs");
+    mkdirSync(work, { recursive: true });
     let got = 0;
     for (const m of want) {
       const info = index.packs?.[m];
       if (!info) { status.error = `${m} isn't published yet`; continue; }   // not a reason to restart (that looped)
-      rmSync(work, { recursive: true, force: true }); mkdirSync(work, { recursive: true });
-      const zip = join(work, `${m}.zip`);
-      const r = await fetch(`${ID_API}/packs/${m}.zip?pass=${encodeURIComponent(load().pass)}`, { signal: AbortSignal.timeout(900000) });
-      if (!r.ok) throw new Error(`Couldn't download ${m} (${r.status})`);
-      await pipeline(Readable.fromWeb(r.body), createWriteStream(zip));
-      const h = createHash("sha256").update(readFileSync(zip)).digest("hex");
-      if (h !== info.sha256) throw new Error(`The ${m} download was damaged. It will try again later.`);
+      const zip = join(work, `${m}-${info.sha256.slice(0, 12)}.zip`), x = join(work, "x");
+      const url = `${ID_API}/packs/${m}.zip?pass=${encodeURIComponent(load().pass)}`;
+      const sum = () => createHash("sha256").update(readFileSync(zip)).digest("hex");
+      try { await download(url, zip); } catch (e) { throw new Error(`Couldn't download ${m} (${e.status || e.message}). It will carry on later.`); }
+      if (sum() !== info.sha256) {   // a damaged or out-of-date part: once more from zero
+        rmSync(zip, { force: true });
+        await download(url, zip);
+        if (sum() !== info.sha256) { rmSync(zip, { force: true }); throw new Error(`The ${m} download was damaged. It will try again later.`); }
+      }
+      rmSync(x, { recursive: true, force: true });
       const q = (s) => `'${s.replace(/'/g, "''")}'`;
       await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-        `Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory(${q(zip)}, ${q(join(work, "x"))}); ` +
-        `robocopy ${q(join(work, "x"))} ${q(ROOT)} /E /NFL /NDL /NJH /NJS /NP | Out-Null; if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }`]);
+        `Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory(${q(zip)}, ${q(x)}); ` +
+        `robocopy ${q(x)} ${q(ROOT)} /E /NFL /NDL /NJH /NJS /NP | Out-Null; if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }`]);
       writeFileSync(INSTALLED, JSON.stringify({ modules: [...new Set([...installed(), m])] }));
+      rmSync(zip, { force: true }); rmSync(x, { recursive: true, force: true });
       got++;
     }
-    rmSync(work, { recursive: true, force: true });
+    if (got === want.length) rmSync(work, { recursive: true, force: true });
     if (got === want.length) status.error = null;
     return got > 0;
   } catch (e) { status.error = e.message; return false; } finally { status.fetching = []; }
@@ -157,7 +162,13 @@ function startIdNow() {
     if (status.enrolling) return;
     status.enrolling = true;
     try { await enrol(JSON.parse(readFileSync(ENROL, "utf8")).code); rmSync(ENROL, { force: true }); }
-    catch (e) { status.error = e.message; if (e.status === 404 || e.status === 400) rmSync(ENROL, { force: true }); }
+    catch (e) {
+      status.error = e.message;
+      if (e.status === 404 || e.status === 400) {   // a code that can't be used (any more): a PC that joined before carries on with that
+        rmSync(ENROL, { force: true });
+        if (load()?.device) renew().catch(() => {});
+      }
+    }
     finally { status.enrolling = false; }
   };
   if (existsSync(ENROL)) { join_().catch(() => {}); const t = setInterval(() => (existsSync(ENROL) ? join_().catch(() => {}) : clearInterval(t)), 60e3); }

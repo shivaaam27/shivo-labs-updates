@@ -49,7 +49,7 @@ function onState(s) {
 function start() { try { rx().start(); state.wanted = true; return true; } catch (e) { log("couldn't start: " + e.message); return false; } }
 function stop() { state.wanted = false; receiver?.stop(); closeFloat(); }
 // always on in the real hub (and in a named preview copy): an iPhone can find the receiver whenever the hub runs
-export function superviseMirror() { setTimeout(() => start(), 2500); }
+export function superviseMirror() { setTimeout(() => { start(); if (!webview2()) fetchWebview2(); }, 2500); }
 
 // ---------- frames -> pages (length-prefixed binary over a long HTTP response)
 const clients = new Set();     // { res, needKey }
@@ -79,22 +79,44 @@ function emit(f) {
 }
 
 // ---------- the floating window
-const float = { proc: null, closedByUser: false, closing: false };
+const float = { proc: null, closedByUser: false, closing: false, wantedOpen: false };
+// Microsoft's WebView2 files: an installed copy carries them next to the hub (..\wv2). The repo (Shivam's PC) fetches
+// them once with installer\get-webview2.ps1 (fixed version, signature checked) into %LOCALAPPDATA%\Shivo Labs\wv2;
+// a NuGet package cache is used too if there is one.
+const WV2 = join(process.env.LOCALAPPDATA || homedir(), "Shivo Labs", "wv2");
+const hasWv2 = (d) => ["Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.Wpf.dll", "WebView2Loader.dll"].every((f) => existsSync(join(d, f)));
 function webview2() {
-  // an installed copy carries the files next to the hub; on this PC they come from the NuGet package cache
-  const bundled = join(HUB, "..", "wv2");
-  if (existsSync(join(bundled, "Microsoft.Web.WebView2.Wpf.dll"))) return { lib: bundled, loader: bundled };
+  for (const d of [join(HUB, "..", "wv2"), WV2]) if (hasWv2(d)) return { lib: d, loader: d };
   const pkg = join(homedir(), ".nuget", "packages", "microsoft.web.webview2");
   try {
     const v = readdirSync(pkg).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
-    if (v) return { lib: join(pkg, v, "lib", "net462"), loader: join(pkg, v, "runtimes", "win-x64", "native") };
+    if (v && existsSync(join(pkg, v, "lib", "net462", "Microsoft.Web.WebView2.Wpf.dll"))) return { lib: join(pkg, v, "lib", "net462"), loader: join(pkg, v, "runtimes", "win-x64", "native") };
   } catch {}
   return null;
+}
+let wv2Fetch = null;
+function fetchWebview2() {
+  const script = join(HUB, "..", "installer", "get-webview2.ps1");
+  if (!existsSync(script)) return Promise.resolve(false);
+  return (wv2Fetch ??= new Promise((ok) => {
+    log("floating window: getting Microsoft's WebView2 files");
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Out", WV2, "-Cache", WV2 + "-cache"],
+      { windowsHide: true, timeout: 300000 }, (e, out, err) => {
+        wv2Fetch = null;
+        if (e) log("floating window: couldn't get WebView2 (" + String(err || e.message).trim().split(/\r?\n/)[0] + ")");
+        ok(hasWv2(WV2));
+      });
+  }));
 }
 function openFloat() {
   if (float.proc) return true;
   const wv = webview2();
-  if (!wv) { log("floating window: Microsoft's WebView2 files weren't found"); return false; }
+  if (!wv) {   // the repo without the files yet: fetch them, then open (if the phone is still there)
+    fetchWebview2().then((ok) => { if (ok && !float.proc && (state.rx.phase === "streaming" || float.wantedOpen)) openFloat(); else if (!ok) log("floating window: Microsoft's WebView2 files weren't found"); });
+    float.wantedOpen = true;
+    return true;
+  }
+  float.wantedOpen = false;
   const port = process.env.HUB_PORT || process.argv[2] || 4800;
   const aspect = state.rx.width && state.rx.height ? state.rx.width / state.rx.height : 886 / 1920;
   const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-STA", "-File", join(HUB, "engines", "mirror-window.ps1"),
@@ -113,7 +135,7 @@ function openFloat() {
   log("floating window opened");
   return true;
 }
-function closeFloat() { if (!float.proc) return; float.closing = true; try { float.proc.kill(); } catch {} float.proc = null; }
+function closeFloat() { float.wantedOpen = false; if (!float.proc) return; float.closing = true; try { float.proc.kill(); } catch {} float.proc = null; }
 
 // ---------- firewall: Node must be allowed to take connections from the Wi-Fi (asked once, Windows confirms)
 const ps = (cmd) => new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd], { windowsHide: true }, (e, out) => ok(e ? "" : String(out))));
