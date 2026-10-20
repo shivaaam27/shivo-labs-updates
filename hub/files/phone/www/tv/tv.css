@@ -106,14 +106,6 @@ html[data-theme=dark] .tvx-track i{background:var(--glow)}
 .tvx-app-l{font:500 13px/1.3 var(--body);padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tvx-app:active .tvx-app-p{transform:scale(.95)}
 
-.tvx-inputs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-.tvx-input{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:16px;border-radius:18px;text-align:left;background:var(--panel);
-  box-shadow:var(--shadow-1),0 0 0 1px var(--line);transition:transform .2s var(--spring)}
-.tvx-input span{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:var(--soft);margin-bottom:8px}
-.tvx-input span svg{width:21px;height:21px}
-.tvx-input b{font:600 16px/1.2 var(--display)}
-.tvx-input small{color:var(--muted);font-size:12.5px}
-.tvx-input:active{transform:scale(.96)}
 .tvx-forget{align-self:center;margin-top:18px;padding:10px 14px;color:var(--err);font:600 14px var(--body)}
 
 /* what was watched: progress on the picture, the app under the title; Continue in the Now playing panel */
@@ -160,11 +152,6 @@ html[data-theme=dark] .tvp-tvrow > svg:first-child{color:var(--glow)}
 .tvx-offline .btn{width:auto;flex:none}
 .tvx-tv .dot.wait{background:var(--faint,#999);animation:none}
 /* Shortcuts tab: a code for another phone */
-.tvx-codebox{margin-top:16px;align-items:center;text-align:center;gap:8px}
-.tvx-codebox small{color:var(--muted);font-size:13px}
-.tvx-codebox b{font:600 34px/1.1 var(--display,var(--body));letter-spacing:.12em}
-.tvx-codebox span{color:var(--muted);font-size:13.5px}
-.tvx-h + .tvx-inputs{margin-bottom:18px}
 
 /* the air mouse (Pointer): a full-screen sheet with a touch pad */
 
@@ -234,27 +221,11 @@ html[data-theme=dark] .tvf-ask > span{color:var(--glow)}
 .tvf-days button.on{background:var(--sage);color:#fff;box-shadow:none}
 .tvf-sw{display:flex;align-items:center;gap:12px;cursor:pointer;position:relative}
 .tvf-sw > span{flex:1;min-width:0}.tvf-sw b{display:block;font:600 15px var(--body)}.tvf-sw small{display:block;color:var(--muted);font-size:12.5px}
-.tvf-sw.sm > span{font:500 14px/1.35 var(--body)}
 .tvf-sw input{position:absolute;opacity:0;width:0;height:0}
 .tvf-sw i{width:46px;height:28px;border-radius:99px;background:var(--tile);position:relative;flex:none;transition:background .2s}
 .tvf-sw i::after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .25s var(--spring)}
 .tvf-sw input:checked + i{background:var(--sage)}.tvf-sw input:checked + i::after{transform:translateX(18px)}
 .tvf-sw input:focus-visible + i{box-shadow:0 0 0 3px var(--sage-soft)}
-/* features */
-.tvf-intro{color:var(--muted);font-size:13.5px;line-height:1.45;margin:0 4px 12px}
-.tvf-mods{display:flex;flex-direction:column;gap:10px}
-.tvf-mod{border-radius:var(--r-card);background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);padding:14px 16px}
-.tvf-mod-h{display:flex;align-items:flex-start;gap:12px}
-.tvf-mod-t{flex:1;min-width:0;text-align:left;color:var(--text)}.tvf-mod-t b{display:block;font:600 15.5px/1.3 var(--body)}
-.tvf-mod-t small{display:block;color:var(--muted);font-size:13px;line-height:1.4;margin-top:3px}
-.tvf-mod.off .tvf-mod-t{opacity:.55}
-.tvf-more{display:inline-flex;align-items:center;gap:4px;margin-top:10px;font:600 13px var(--body);color:var(--sage)}
-html[data-theme=dark] .tvf-more{color:var(--glow)}
-.tvf-more svg{width:15px;height:15px;transition:transform .2s}.tvf-mod.open .tvf-more svg{transform:rotate(90deg)}
-.tvf-mod-s{display:flex;flex-direction:column;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
-.tvf-num{flex-direction:row;align-items:center;justify-content:space-between;gap:12px}
-.tvf-num > span:first-child{flex:1;font:500 14px/1.35 var(--body);color:var(--text)}
-.tvf-num .field{width:auto}.tvf-numin{display:flex;align-items:center;gap:6px}.tvf-numin .field{width:82px;text-align:right}.tvf-numin em{font-style:normal;color:var(--muted);font-size:13px;min-width:28px}
 /* health card and the shop (family.js) */
 .tvf-health{gap:12px}
 .tvf-health-h{display:flex;align-items:center;gap:10px;text-align:left;color:var(--text)}
@@ -310,8 +281,6 @@ html[data-theme=dark] .tvf-more{color:var(--glow)}
 html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 .tvf-roomb b{display:block;font:600 15px/1.3 var(--body)}.tvf-roomb small{display:block;color:var(--muted);font-size:12.5px;line-height:1.35;margin-top:2px}
 
-.tvx-corner{gap:10px}.tvx-corner small{color:var(--muted);font-size:13px;line-height:1.4}.tvx-corner .field{width:100%}
-.tvx-corner-b{display:flex;flex-wrap:wrap;gap:8px}.tvx-corner-b .btn{width:auto;margin:0}
 
 /* ---- the remote (remote.js): one card, like a real remote ---- */
 .tvr{border-radius:28px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px;
@@ -423,9 +392,6 @@ html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 .tvr-dpad[data-go="up"] .tvr-dk.up,.tvr-dpad[data-go="down"] .tvr-dk.down,.tvr-dpad[data-go="left"] .tvr-dk.left,.tvr-dpad[data-go="right"] .tvr-dk.right{
   background:color-mix(in srgb,var(--sage) 18%,transparent);color:var(--sage)}
 html[data-theme=dark] .tvr-dpad[data-go] .tvr-dk{color:var(--text)}
-.tvf-mod-a{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:12px}
-.tvf-mod-a .btn{width:auto;flex:none}
-.tvf-mod-a .tvf-more{margin-top:0}
 
 /* ---- four tabs (Remote, Watch, Family, TV): grouped rows like iPhone Settings, sheets from the bottom ---- */
 /* the tab bar fills the width on a phone, every tab visible */

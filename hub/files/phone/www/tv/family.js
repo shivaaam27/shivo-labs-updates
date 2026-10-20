@@ -99,7 +99,7 @@ export function sheet(title, body, { onSave, onDelete, saveText = 'Save', done =
   return el;
 }
 
-export function mountFamily(box, { call, toast, buzz = () => {}, start = null, ai = null, nowPlaying = () => null, appsOnTv = () => [], pics = () => {}, tvName = () => 'the TV' }) {
+export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowPlaying = () => null, appsOnTv = () => [], pics = () => {}, tvName = () => 'the TV' }) {
   let answer = null, modsAt = 0, lastMods = null;
   let data = null, mods = {}, mode = ai ? 'ask' : 'msg', rec = null, clip = null, alive = true, timer = 0, lastSig = '';
   const api = async (path, q = {}, body) => {
@@ -119,7 +119,6 @@ export function mountFamily(box, { call, toast, buzz = () => {}, start = null, a
       lastSig = sig;
       data = d; mods = Object.fromEntries((m?.mods || []).map((x) => [x.id, x]));
       paint();
-      if (start) { const s = start; start = null; begin(s); }
     } catch (e) {
       if (quiet) return;
       box.innerHTML = e.old || /404/.test(e.message) ? `<p class="tvx-none">Update the TV to use this. TV › Update the TV.</p>`
@@ -127,16 +126,6 @@ export function mountFamily(box, { call, toast, buzz = () => {}, start = null, a
     }
   }
   const off = (id) => mods[id] && !mods[id].on;
-  // opened at a given place (start): the form, the right kind of message, or the section
-  function begin(s) {
-    if (s.add === 'reminder') return editReminder();
-    if (s.add === 'birthday') return editDay();
-    if (s.mode && (s.mode !== 'ask' || ai)) {
-      mode = s.mode; paint();
-      const t = box.querySelector('#tvfText'); t?.scrollIntoView({ behavior: 'smooth', block: 'center' }); t?.focus();
-    }
-    if (s.to) box.querySelector('#' + s.to)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
   function paint() {
     const rem = data.items.filter((x) => x.kind === 'reminder').sort((a, b) => a.at.localeCompare(b.at));
     const days = data.items.filter((x) => x.kind === 'birthday').map((x) => ({ ...x, in: daysTo(x.date) })).sort((a, b) => a.in - b.in);
@@ -437,8 +426,6 @@ Use "search" only when the person wants to watch or listen to something (YouTube
     if (!it) setTimeout(() => el.querySelector('#fTitle').focus(), 300);
   }
 
-  // the photo picker has to open within the tap itself, so it doesn't wait for the list
-  if (start?.photos) { start = null; addPhotos(); }
   load();
   loadPhotos();
   // while the tab is open: what is showing on the TV now, and new answers

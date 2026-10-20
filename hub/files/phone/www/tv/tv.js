@@ -17,7 +17,8 @@ import { makeRemote } from './remote.js';
 import { mountFamily, mountHealth, mountShop, mountSport, mountTogether, sheet, featureSheet, loadMods } from './family.js';
 
 const PORT = 8799;
-const RELAY = 'https://shivo-tv-relay-test.ishivamparmar.workers.dev';   // tv/relay; finds the TV by this phone's key fingerprint
+const RELAY = 'https://shivo-tv.ishivamparmar.workers.dev';   // tv/relay; finds the TV by this phone's key fingerprint
+const OLD_RELAY = 'shivo-tv-relay-test.ishivamparmar.workers.dev';   // its name until 20 Oct 2026
 const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const svg = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
@@ -63,6 +64,8 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
   const buzz = (k = 'light') => { try { haptic(k); } catch {} };
   let tvs = []; try { tvs = JSON.parse(localStorage.getItem('sl.tv') || '[]'); } catch {}
   const save = () => { try { localStorage.setItem('sl.tv', JSON.stringify(tvs)); } catch {} };
+  // TVs paired before the relay's new name keep its old address: it moves to the new one (TV 1.0.19 connects there)
+  if (tvs.some((t) => t.relay?.includes(OLD_RELAY))) { tvs.forEach((t) => { if (t.relay) t.relay = t.relay.replace(OLD_RELAY, new URL(RELAY).host); }); save(); }
   let cur = tvs[0] || null, apps = [], now = [], shelves = [], inputs = [], hist = [], dev = {}, timer = 0, alive = false, pairing = null;
   const OLD_TAB = { foryou: 'watch', apps: 'watch', features: 'tv', inputs: 'tv', more: 'tv' };
   let tab = 'watch';
@@ -102,7 +105,12 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
       const tryHome = !away || !hasRelay() || Date.now() - lastHome > 30000;
       if (tryHome) { lastHome = Date.now(); r = await get(url(cur.host, path, q), away ? 1500 : Math.min(ms, hasRelay() ? 2500 : ms), post, body).catch(() => null); }
       if (r) { if (away) { away = false; paintWhere(); } }
-      else if (hasRelay()) { r = await get(relayUrl(path, q), ms + 4000, post, body).catch(() => null); if (r && r.status !== 503 && !away) { away = true; paintWhere(); } }
+      else if (hasRelay()) {
+        r = await get(relayUrl(path, q), ms + 4000, post, body).catch(() => null);
+        // a TV that hasn't updated yet is still on the relay's old name (until TV 1.0.19 installs itself)
+        if (!r || r.status === 503) { const o = await get(relayUrl(path, q).replace(new URL(RELAY).host, OLD_RELAY), ms + 4000, post, body).catch(() => null); if (o && o.status !== 503) r = o; }
+        if (r && r.status !== 503 && !away) { away = true; paintWhere(); }
+      }
     }
     if (!r) throw new Error(hasRelay() && !host ? "Can't reach the TV. Check it is on and has internet." : "Can't reach the TV. Check it is on, showing Shivo Labs, and on the same Wi-Fi as this phone.");
     if (r.status === 401) throw Object.assign(new Error('This phone is no longer paired with the TV. Pair it again.'), { unpaired: true });
@@ -509,7 +517,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
       buzz();
       try {
         const r = await call('/update', {}, { post: true });
-        toast(r.ok ? 'The TV is getting the newest version. It installs as soon as nothing is playing.'
+        toast(r.ok ? 'The TV is getting the newest version. It installs by itself while the screensaver is on.'
           : 'This TV needs Shivo Labs TV 1.0.10 for this button; it gets there by itself.');
       } catch (e) { toast(e.message); }
     }));
