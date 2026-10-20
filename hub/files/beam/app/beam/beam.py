@@ -8,6 +8,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import beamfs  # noqa: E402  (your PC in the iPhone's Files app)
+
 PORT = 8765
 HOME = Path(os.environ.get("APPDATA", Path.home())) / "Beam"
 OUTBOX = HOME / "outbox"
@@ -71,7 +74,7 @@ RELAY_URL = "https://shivo-labs-beam-relay.ishivamparmar.workers.dev"
 RELAY = HOME / "relay.json"
 KEYS = HOME / "relay-keys.json"
 _keys, _key_lock = None, threading.Lock()
-RELAY_PATHS = re.compile(r"^/(ping|outbox|pull|next|done|clear|upload|file/[^/]+)$")
+RELAY_PATHS = re.compile(r"^/(ping|outbox|pull|next|done|clear|upload|file/[^/]+|fs/(list|item|file|put|mkdir|move|delete))$")
 
 
 def relay_identity():
@@ -537,6 +540,14 @@ class Handler(BaseHTTPRequestHandler):
         return self._did
 
     def authed(self, path=""):
+        if (path or "").startswith("/fs/"):
+            # the PC's folders (Files app): only a phone holding its own key, never the pairing code or the Shortcut
+            did = device_for_key(self.headers.get("X-Beam-Key", "") or self.param("k"))
+            if not did or (self.via_relay() and not RELAY_PATHS.match(path)):
+                self.reply(401, json.dumps({"error": "Open Beam in Shivo Labs once on the same Wi-Fi as your PC."}), "application/json")
+                return False
+            self._did = did
+            return True
         if self.via_relay():
             # from the relay: only a phone with its key gets in. No pairing code, no "accept this phone" question.
             key = self.headers.get("X-Beam-Key", "") or self.param("k")
@@ -646,6 +657,26 @@ class Handler(BaseHTTPRequestHandler):
                 left -= len(b)
                 yield b
 
+    def send_plain_file(self, p):
+        """A file from the PC's folders (Files app): no send-list bookkeeping."""
+        size = p.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        with open(p, "rb") as f:
+            shutil.copyfileobj(f, self.wfile, CHUNK)
+
+    def fs(self, method, path):
+        def write_body(f):
+            for b in self.body_chunks():
+                f.write(b)
+        try:
+            return beamfs.handle(self, method, path, self.server.cfg, write_body, stage_dir())
+        except CutShort:
+            return self.reply(400, json.dumps({"error": "The upload stopped part-way. Try again."}), "application/json")
+
     def send_file(self, p, delete=False):
         self.send_response(200)
         self.send_header("Content-Type", mimetypes.guess_type(p.name)[0] or "application/octet-stream")
@@ -686,6 +717,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authed(path):
             return
         self.seen()
+        if path.startswith("/fs/"):
+            return self.fs("GET", path)
         if path == "/ping":
             info = {"ok": True, "pc": socket.gethostname(), "lan": lan_ips()}
             if self.via_relay():
@@ -741,6 +774,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authed(path):
             return
         self.seen()
+        if path.startswith("/fs/"):
+            return self.fs("POST", path)
         if path == "/done":  # the phone app saved this file: take it off the PC's send list
             name = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("name", [""])[0]
             p = find_waiting(self.device(), Path(name).name) if name else None

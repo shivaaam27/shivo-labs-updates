@@ -95,6 +95,19 @@ function learn(j) {
   if (j.relay?.id) { const old = rd(RK) || {}; wr(RK, { url: j.relay.url, id: j.relay.id, key: j.key || old.key || '' }); }
 }
 
+// "Your PC" in the Files app (newer builds, ShivoFiles extension): it needs where the PC is and this phone's key.
+// Handed over once per app start, and again when they change; it also makes Files look at the PC's folders again.
+let sharedSig = '';
+function shareWithFiles(pc) {
+  const N = plugin('ShivoNative'), R = rd(RK);
+  if (!N?.beamShare || !R?.key) return;
+  const bases = [...new Set([route.mode === 'lan' ? route.base : '', ...(rd(LK) || []).map(lanBase), lanBase(host), R.url && R.id ? relayBase(R) : ''].filter(Boolean))];
+  const sig = JSON.stringify([bases, R.key, pc]);
+  if (sig === sharedSig) return;
+  sharedSig = sig;
+  N.info().then((i) => i.beamFiles && N.beamShare({ bases, key: R.key, bid: deviceId(), pc: pc || 'Your PC' })).catch(() => { sharedSig = ''; });
+}
+
 // Find the PC now: the home Wi-Fi first (beam.local and its last known addresses, all at once), then the relay.
 // Returns the PC's answer to /ping, or null. A phone that has been accepted before gives the Wi-Fi only a few seconds;
 // a new one waits as long as asked, since the PC's owner may be clicking Accept.
@@ -104,10 +117,10 @@ export function resolve(ms = 8000) {
     const R = rd(RK);
     const lan = [lanBase(host), ...(rd(LK) || []).filter((ip) => ip !== host).map(lanBase)];
     const hit = await firstOf(lan.map((b) => probe(b, R?.key ? Math.min(ms, 3500) : ms).then((j) => (j && !j.denied ? { ...j, _base: b } : j))));
-    if (hit && !hit.denied) { route.mode = 'lan'; route.base = hit._base; route.at = Date.now(); route.denied = 0; learn(hit); return hit; }
+    if (hit && !hit.denied) { route.mode = 'lan'; route.base = hit._base; route.at = Date.now(); route.denied = 0; learn(hit); shareWithFiles(hit.pc); return hit; }
     if (R?.key && R.url && R.id) {
       const j = await probe(relayBase(R), 10000);
-      if (j && !j.denied) { route.mode = 'relay'; route.base = relayBase(R); route.at = Date.now(); route.denied = 0; learn(j); return j; }
+      if (j && !j.denied) { route.mode = 'relay'; route.base = relayBase(R); route.at = Date.now(); route.denied = 0; learn(j); shareWithFiles(j.pc); return j; }
     }
     route.denied = hit?.denied || 0;
     return null;

@@ -61,7 +61,7 @@ def main():
         return
     # which code this engine runs, so the hub can restart it after an update (hub/api/beam.mjs, engineCode)
     try:
-        code = hashlib.sha256(b"".join(f.read_bytes() for f in (Path(beam.__file__), Path(__file__)))).hexdigest()
+        code = hashlib.sha256(b"".join(f.read_bytes() for f in (Path(beam.__file__), Path(beam.beamfs.__file__), Path(__file__)))).hexdigest()
         (beam.HOME / "engine.json").write_text(json.dumps({"pid": os.getpid(), "code": code}))
     except OSError:
         pass

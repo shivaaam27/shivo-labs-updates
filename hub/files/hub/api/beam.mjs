@@ -160,7 +160,8 @@ function prepare() {
 // The code the engine should be running: the same sum beam_host.py writes into engine.json when it starts. When the
 // hub is updated (beam.py or beam_host.py changed), the engine still running the old code is restarted.
 const BEAM_PY = join(here, "..", "..", "beam", "app", "beam", "beam.py");
-const engineCode = () => { try { return createHash("sha256").update(readFileSync(BEAM_PY)).update(readFileSync(HOST_PY)).digest("hex"); } catch { return ""; } };
+const BEAM_FS = join(dirname(BEAM_PY), "beamfs.py");
+const engineCode = () => { try { return createHash("sha256").update(readFileSync(BEAM_PY)).update(readFileSync(BEAM_FS)).update(readFileSync(HOST_PY)).digest("hex"); } catch { return ""; } };
 // every running Beam engine (not one-off "send" or "add" runs from the right-click menu)
 const stopEngines = () => new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
   `Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -match 'beam_host\.py"?\s*$' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
