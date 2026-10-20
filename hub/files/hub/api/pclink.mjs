@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hostname } from "node:os";
 import net from "node:net";
-import { renewPhoneApps } from "./xtools.mjs";
+import { renewPhoneApps, work as xwork } from "./xtools.mjs";
 
 const CFG = join(process.env.USERPROFILE || "", ".fabra-labs-ai", "shelf", "config.json");
 const WIFI = join(process.env.LOCALAPPDATA || "", "Fabra Labs", "wifi.json");   // X Tools' phones set up for Wi-Fi
@@ -35,7 +35,7 @@ export function startPcLink() {
   const seen = {};
   async function phones() {
     const w = readJson(WIFI) || {};
-    return Promise.all(Object.entries(w).map(async ([udid, p]) => ({ udid, name: String(p.name || "iPhone"), nearby: busy ? !!seen[udid] : (seen[udid] = await knock(p.ip)) })));
+    return Promise.all(Object.entries(w).map(async ([udid, p]) => ({ udid, name: String(p.name || "iPhone"), nearby: busy || xwork.installing ? !!seen[udid] : (seen[udid] = await knock(p.ip)) })));
   }
   async function report(force = false, on = true) {
     try {
@@ -50,7 +50,7 @@ export function startPcLink() {
     fetch(`${cfg.url}/w/ask`, { method: "POST", headers: W, body: JSON.stringify({ id: askId, status: text, done, ok }) }).catch(() => {});
 
   async function work() {
-    if (busy) return; busy = true;
+    if (busy || xwork.installing) return; busy = true;
     try {
       const r = await fetch(`${cfg.url}/w/asks?pc=${encodeURIComponent(id)}`, { headers: W });
       if (!r.ok) return;

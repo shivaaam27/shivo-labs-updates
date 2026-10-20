@@ -31,6 +31,11 @@ const BUSY = "X Tools is already in use somewhere else on this PC (another Shivo
 
 let bridge = null, seq = 0, buf = "", stopWanted = false;
 const pending = new Map(), listeners = new Set();
+// an install running for the hub itself (Your PC, waiting installs): nothing may knock on the phone meanwhile
+export const work = { installing: false };
+// set by autoinstall.mjs: wait(udid, bundleId, why) keeps an install for when the phone is near; waiting() lists them
+export const hooks = { wait: null, waiting: null };
+const NOT_NEAR = /isn't on this Wi-Fi right now/i;
 const broadcast = (evt) => { const line = `data: ${JSON.stringify(evt)}\n\n`; for (const res of listeners) res.write(line); };
 
 // ---------- the device, live (idevice.mjs, Apple's device service; no engine needed for the cable)
@@ -112,6 +117,7 @@ function pairStop() { pairing.host?.stop(); pairing.host = null; }
 // For "Your PC" in the phone app (pclink.mjs): renew every X Tools app that is on this phone, over Wi-Fi. Shivo Labs
 // goes last: renewing it closes it on the phone. onStatus gets plain-words progress. Returns the names renewed.
 export async function renewPhoneApps(udid, onStatus = () => {}) {
+  work.installing = true;
   try {
     onStatus("Looking for your iPhone on the Wi-Fi");
     const onPhone = (await call("wifiApps", { udid })) || [];
@@ -127,8 +133,18 @@ export async function renewPhoneApps(udid, onStatus = () => {}) {
       await call("renew", { bundleId: a.bundleId, udid, wifi: true });
     }
     return todo.map((a) => a.name);
-  } finally { if (bridge && !listeners.size && !pending.size) bridge.stdin.end(); }   // let go of the engine again
+  } finally { work.installing = false; letGo(); }
 }
+
+// the engine is let go again when nobody else uses it (the X Tools page, another call)
+function letGo() { if (bridge && !listeners.size && !pending.size) bridge.stdin.end(); }
+// for the hub's own background work (autoinstall.mjs): one engine command, then let go; busy() = leave it for now
+export async function quietCall(cmd, args) {
+  if (cmd === "renew" || cmd === "install") work.installing = true;
+  try { return await call(cmd, args); }
+  finally { if (cmd === "renew" || cmd === "install") work.installing = false; letGo(); }
+}
+export const xtoolsBusy = () => pending.size > 0 || work.installing || !!devJob.proc;
 
 function watchStart() {
   if (dev.watcher) return;
@@ -244,6 +260,7 @@ export async function xtoolsApi(req, res, path, url) {
     return true;
   }
   if (what === "dev" && req.method === "GET") return json(res, 200, { ok: true, data: devState() }), true;
+  if (what === "waiting" && req.method === "GET") return json(res, 200, { ok: true, data: hooks.waiting?.() || { items: [], done: [] } }), true;
   if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
   if (what === "pair/start" || what === "pair/stop") {
     try { what === "pair/start" ? await pairStart() : pairStop(); return json(res, 200, { ok: true }), true; }
@@ -261,7 +278,15 @@ export async function xtoolsApi(req, res, path, url) {
     if (what === "call") {
       const { cmd, args } = await readJson(req);
       if (!COMMANDS.has(cmd)) return json(res, 400, { ok: false, error: "Unknown command" }), true;
-      return json(res, 200, { ok: true, data: await call(cmd, args) }), true;
+      try { return json(res, 200, { ok: true, data: await call(cmd, args) }), true; }
+      catch (e) {
+        // the phone isn't near: the install waits and happens by itself when it is (autoinstall.mjs)
+        if (cmd === "renew" && args?.wifi && args.udid && hooks.wait && NOT_NEAR.test(String(e.message))) {
+          const w = hooks.wait(args.udid, args.bundleId, "asked");
+          return json(res, 200, { ok: true, data: { waiting: true, name: w.name, phone: w.phone, note: `${w.name} will update by itself when ${w.phone} is near this PC.` } }), true;
+        }
+        throw e;
+      }
     }
     if (what === "stop") {  // left the X Tools page: let go of the engine (and its lock) unless it's still working
       if (bridge) { if (pending.size) stopWanted = true; else bridge.stdin.end(); }

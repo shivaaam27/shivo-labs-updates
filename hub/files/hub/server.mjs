@@ -19,6 +19,7 @@ import { tvApi } from "./api/tv.mjs";
 import { insightsApi } from "./api/insights.mjs";
 import { autoCheck } from "./api/update.mjs";
 import { startPcLink } from "./api/pclink.mjs";
+import { startAutoInstall } from "./api/autoinstall.mjs";
 import { idApi, startId, may, isOwner, hasPack } from "./api/id.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -108,5 +109,5 @@ http.createServer(async (req, res) => {
     return send(res, 200, await readFile(file), TYPES[extname(file)] || "application/octet-stream");
   } catch (e) { return send(res, 500, { error: String(e.message || e) }); }
 }).listen(PORT, "127.0.0.1", () => { console.log(`Shivo Labs hub on http://localhost:${PORT}`); if (PORT === 4800 || process.env.HUB_ID_FORCE) startId();
-  if (PORT === 4800) { if (may("files")) { superviseBeam(); startFilesSync(); } if (may("mirror")) superviseMirror(); autoCheck(); if (may("xtools")) startPcLink(); } else if (process.env.HUB_FILES_SYNC) startFilesSync(); else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); })
+  if (PORT === 4800) { if (may("files")) { superviseBeam(); startFilesSync(); } if (may("mirror")) superviseMirror(); autoCheck(); if (may("xtools")) { startPcLink(); startAutoInstall(); } } else if (process.env.HUB_FILES_SYNC) startFilesSync(); else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_AUTOINSTALL) startAutoInstall(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); })
   .on("error", (e) => console.log(e.code === "EADDRINUSE" ? `Port ${PORT} is busy; the hub may already be running.` : e.message));

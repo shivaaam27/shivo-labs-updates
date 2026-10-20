@@ -151,6 +151,7 @@ export async function install() {
       await stamp();
       state.available = null; state.installing = false;
       if (files.some((f) => f.startsWith("ai/app/"))) handAiUpdate().catch(() => {});
+      if (files.some((f) => f.startsWith("tv/home/"))) publishTv().catch(() => {});
       return { ok: true, reload: true };
     }
     // installed: only the files that differ, each checked against the signed list
@@ -257,6 +258,33 @@ function installAi() {
   aiTimer = setTimeout(tick, 1000);
 }
 
+// ---------- The TV app on Shivam's PC (the one with the TV signing key): a new tv\home\version.json on GitHub's main is
+// published to the TVs by itself (tv\home\publish.ps1), so nobody has to remember it (21 Oct: 1.0.19 sat unpublished).
+// Safe at any hour: TVs on 1.0.19+ install only under the screensaver. Only what is on GitHub is published: skipped
+// while tv/home here differs from origin/main. A failed publish is tried again after an hour.
+const TV_KEY = join(process.env.USERPROFILE || "", ".fabra-labs-ai", "android-build", "shivo-tv.keystore");
+const TV_FEED = process.env.HUB_TV_FEED || "https://raw.githubusercontent.com/shivaaam27/shivo-labs-updates/main/tv/latest.json";   // HUB_TV_FEED, HUB_TV_DRYRUN: tests only
+let tvBusy = false;
+export async function publishTv() {
+  if (MODE !== "repo" || tvBusy || !existsSync(TV_KEY)) return null;
+  let want = 0; try { want = Number(JSON.parse(readFileSync(join(ROOT, "tv", "home", "version.json"), "utf8")).code) || 0; } catch {}
+  if (!want) return null;
+  if (state.tvPublish?.code === want && (state.tvPublish.ok || Date.now() - state.tvPublish.at < 60 * 60 * 1000)) return state.tvPublish;
+  let live = 0; try { live = Number((await (await fetch(`${TV_FEED}?t=${Date.now()}`, { signal: AbortSignal.timeout(15000) })).json()).code) || 0; } catch { return null; }
+  if (live >= want) return null;   // (GitHub keeps this file up to 5 minutes: publish.ps1 checks again itself)
+  tvBusy = true;
+  try {
+    await git("fetch", "--quiet", "origin", "main");
+    if (await git("status", "--porcelain", "--", "tv/home") || await git("diff", "--name-only", "origin/main", "--", "tv/home")) return null;
+    const r = await run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(ROOT, "tv", "home", "publish.ps1"), ...(process.env.HUB_TV_DRYRUN ? ["-DryRun"] : [])], ROOT);
+    if (/Another TV publish is running/.test(r.out)) return null;   // someone else is sending it: look again next time
+    const ok = r.ok || /already have code/i.test(r.out);
+    state.tvPublish = { code: want, ok, at: Date.now(),
+      error: ok ? null : (r.out.match(/[^\r\n]*(failed|error|could not|refuse)[^\r\n]*/i)?.[0] || "The TV app didn't publish.").trim() };
+    return state.tvPublish;
+  } finally { tvBusy = false; }
+}
+
 // Every update installs by itself as soon as it is found (open windows refresh quietly, or show "Updating Shivo Labs..."
 // for a moment while the hub restarts). If Shivo Labs AI is busy, it tries again every 30 seconds.
 let retry = null;
@@ -302,5 +330,7 @@ export function autoCheck() {
   setTimeout(() => checkAndApply().catch(() => {}), 30000);
   setInterval(() => checkAndApply().catch(() => {}), 15 * 60 * 1000);
   setInterval(() => handAiUpdate().catch(() => {}), 15 * 60 * 1000);
+  setTimeout(() => publishTv().catch(() => {}), 60000);
+  setInterval(() => publishTv().catch(() => {}), 15 * 60 * 1000);
   listen();
 }

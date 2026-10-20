@@ -183,13 +183,13 @@ export function mountXtools(root, { esc, toast }) {
     screen(`<div class="xt-apps">
       <div class="xt-row-h"><h1 class="xt-h" id="xtAppsH">Your apps</h1><span class="xt-slots" id="slots"></span><button class="tbtn xt-acct" id="acct">${esc(st.appleId || '')}</button></div>
       <label class="bm-drop card" id="xtDrop"><input type="file" id="xtPick" accept=".ipa" hidden><span class="mod-ic">${svg(I.up)}</span><b>Add an app</b><small>Drop an .ipa file here, or click to choose</small></label>
-      <div class="card"><div id="apps"></div></div>
+      <div class="card"><div id="apps"></div><p class="xt-note xt-wait" id="xtWaiting" hidden></p></div>
       <div class="card" id="notOn" hidden><div class="bm-h"><h2 id="notOnH"></h2></div><div id="notOnList"></div></div>
       <div class="card" id="found" hidden><div class="bm-h"><h2>Found on this PC</h2></div><div id="foundList"></div></div>
       <div class="card" id="devCard" hidden><div class="bm-h"><h2>Shivo Labs from the source</h2></div>
         <p class="xt-note" id="devLine"></p>
         <div class="xt-actions"><button class="btn" id="devDetails" hidden>Details</button><button class="btn" id="devHub">Send laptop update</button><button class="btn" id="devOta">Send phone update</button><button class="btn pri" id="devBuild">Build iPhone app</button></div></div></div>`);
-    renderApps(); renderFound(); renderDev();
+    renderApps(); renderFound(); renderDev(); renderWaiting();
     $('#acct').onclick = () => box(`<h2>Apple ID</h2><p>${esc(st.appleId)}</p><div class="xt-actions"><button class="btn" data-close>Close</button><button class="btn" id="signOutBtn">Sign out</button></div>`, (d) => {
       $('#signOutBtn', d).onclick = async () => { await call('signOut').catch(() => {}); st.appleId = null; closeBox(); route(); };
     });
@@ -302,6 +302,18 @@ export function mountXtools(root, { esc, toast }) {
     $('#devOta').onclick = () => box(`<h2>Send the phone update?</h2><p>The phone app's screens, as they are on GitHub now, go to every phone with Shivo Labs. They switch to it the next time the app opens.</p><div class="xt-actions"><button class="btn" data-close>Cancel</button><button class="btn pri" id="otaGo">Send</button></div>`, (d) => { $('#otaGo', d).onclick = () => { closeBox(); go('ota')(); }; });
   }
 
+  // installs that wait for a phone that isn't near, and the last ones done by themselves (hub/api/autoinstall.mjs)
+  async function renderWaiting() {
+    const el = $('#xtWaiting'); if (!el) return;
+    let w = null; try { w = (await (await fetch('/api/xtools/waiting')).json()).data; } catch {}
+    const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    const lines = [];
+    for (const x of w?.items || []) lines.push(`<b>${esc(x.name)}</b> ${x.why === 'renew' ? 'renews' : 'updates'} by itself when ${esc(x.phone)} is near this PC.`);
+    const last = (w?.done || [])[0];
+    if (last && Date.now() - last.at < 3 * 86400000) lines.push(`${esc(last.name)} ${last.why === 'renew' ? 'renewed' : 'updated'} by itself on ${esc(last.phone)}, ${esc(when(last.at))}.`);
+    el.innerHTML = lines.join('<br>'); el.hidden = !lines.length;
+  }
+
   // ---------- install / renew, with progress
   async function install({ path, renew }) {
     if (!st.device) { closeBox(); return openConnect(); }
@@ -310,6 +322,7 @@ export function mountXtools(root, { esc, toast }) {
     try {
       const udid = st.device.udid, wasOn = renew && onDev(renew), wifi = st.device.link === 'wifi';
       const r = renew ? await call('renew', { bundleId: renew.bundleId, udid, wifi }) : await call('install', { path, udid, wifi });
+      if (r?.waiting) { closeBox(); renderWaiting(); return toast(r.note); }   // the phone went away: it happens by itself later
       st.apps = r.apps; await lookAgain(true); renderApps(); renderFound(); done(r.name, wasOn);
     } catch (e) { if (e.message === 'Cancelled.') return closeBox(); alertBox(renew ? "Couldn't renew" : "Couldn't install", e.message); }
   }
