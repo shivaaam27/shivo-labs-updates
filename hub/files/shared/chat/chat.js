@@ -1,6 +1,7 @@
 // Shivo Labs Chat: the chat screen, shared by the laptop hub (and later the phone app).
 // mountChat(root, { toast, haptic, home }) draws everything inside root and returns a function that cleans up.
 // haptic(style) gives a light tap on phones; home(), when given, adds a button back to the app's home screen.
+// getPass(), when given (the hub), returns this PC's shivo-id pass, so it joins its company's own team without a code.
 // It talks to the Shivo Labs Chat server (chat/worker, on Cloudflare): HTTP for changes, a websocket for live events.
 
 import { createDemo } from './demo.js';
@@ -50,7 +51,7 @@ const onlyEmoji = (s) => s && s.length <= 12 && /^(\p{Extended_Pictographic}|\p{
 const mark0 = (cls) => (typeof window.shivoMark === 'function' ? window.shivoMark(cls) : '');
 const dur = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-export function mountChat(root, { toast = () => {}, haptic = () => {}, home = null } = {}) {
+export function mountChat(root, { toast = () => {}, haptic = () => {}, home = null, getPass = null } = {}) {
   const buzz = (k = 'light') => { try { haptic(k); } catch {} };
   const cfg = store.get('shivoChat') || {};
   if (!cfg.server && DEFAULT_SERVER) cfg.server = DEFAULT_SERVER;
@@ -125,7 +126,39 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   };
 
   // ---------- sign-in screen
+  let signKeys = false;
+  const signTop = (line) => `<div class="ch-sign-top"><div class="ch-hero">${mark0('play loop')}</div><div class="word">SHIVO<span>LABS</span></div>
+        <h1 class="ch-h">Team chat.<span>${esc(line)}</span></h1></div>`;
+  // a PC whose Shivo Labs pass has Chat joins its own company's team with the pass (getPass, from the hub); everyone
+  // else (the phone, Shivam's PC) signs in with an invite code
   async function showSignIn(err) {
+    if (!signKeys) { signKeys = true; on(root, 'keydown', (e) => { if (e.key === 'Enter' && e.target.closest('.ch-sign')) $('#chGo')?.click(); }); }
+    const pass = getPass && !cfg.codeOnly ? await getPass().catch(() => null) : null;
+    if (!pass || !alive) return codeSignIn(err);
+    if (!cfg.server) cfg.server = DEFAULT_SERVER;
+    let info;
+    try { info = await api('pass/info', { method: 'POST', body: { pass } }); } catch (e) { return codeSignIn(err || e.message); }
+    if (!alive) return;
+    if (!info.ready || info.blocked) return codeSignIn(info.blocked ? 'You were removed from this chat. Ask the team owner for an invite code.' : err);
+    root.innerHTML = `<div class="ch-sign">
+      ${signTop(info.team || 'Your team')}
+      <div class="ch-card glass-card">
+        ${info.known ? '' : `<div class="ch-kh"><span class="ch-tile">${svg('user')}</span><label for="chName"><b>Your name</b><small>${info.owner ? 'You are the first one in, so you manage the team' : 'How the team sees you'}</small></label></div>
+        <input class="ch-field" id="chName" placeholder="Your name" maxlength="40">`}
+        <p class="ch-err" id="chErr">${esc(err || '')}</p>
+        <button class="btn pri" id="chGo">${info.known ? `Continue as ${esc(info.name)}` : 'Join the chat'}</button>
+        <button class="ch-skip" id="chCodeIn">Use an invite code instead</button></div></div>`;
+    $('#chCodeIn').onclick = () => { cfg.codeOnly = true; codeSignIn(); };
+    $('#chGo').onclick = async () => {
+      $('#chErr').textContent = ''; $('#chGo').disabled = true;
+      try {
+        const r = await api('pass/join', { method: 'POST', body: { pass, name: $('#chName')?.value || '' } });
+        cfg.token = r.token; cfg.demo = false; store.set('shivoChat', cfg);
+        start();
+      } catch (e) { $('#chErr').textContent = e.message; $('#chGo').disabled = false; }
+    };
+  }
+  async function codeSignIn(err) {
     root.innerHTML = `<div class="ch-sign">
       <div class="ch-sign-top"><div class="ch-hero">${mark0('play loop')}</div><div class="word">SHIVO<span>LABS</span></div>
         <h1 class="ch-h">Team chat.<span>Sign in with your invite.</span></h1></div>
@@ -168,7 +201,11 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
         start();
       } catch (e) { $('#chErr').textContent = e.message; $('#chGo').disabled = false; }
     };
-    on(root, 'keydown', (e) => { if (e.key === 'Enter' && e.target.closest('.ch-sign')) $('#chGo')?.click(); });
+    if (getPass) {
+      // back to the pass, for a PC that has one
+      $('#chDemo').insertAdjacentHTML('beforebegin', '<button class="ch-skip" id="chPassIn" hidden>Join with this computer</button>');
+      getPass().then((p) => { if (p && $('#chPassIn')) { $('#chPassIn').hidden = false; $('#chPassIn').onclick = () => { cfg.codeOnly = false; showSignIn(); }; } }).catch(() => {});
+    }
     check();
   }
   function signedOut() {
@@ -176,7 +213,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     cfg.token = ''; store.set('shivoChat', cfg);
     try { ws?.close(); } catch {}
     ws = null; clearTimeout(wsTimer); clearInterval(pingTimer);
-    showSignIn(wasDemo ? '' : 'You were signed out. Sign in again with an invite code.');
+    showSignIn(wasDemo ? '' : getPass ? 'You were signed out.' : 'You were signed out. Sign in again with an invite code.');
   }
 
   // ---------- the main screen

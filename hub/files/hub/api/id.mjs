@@ -177,6 +177,11 @@ export async function idApi(req, res, path) {
     return json(res, 200, { free: FREE, enrolling, needCode: !FREE && !enrolling && (!load()?.device || !load()?.pass), customer: p?.name || load()?.customer || null,
       modules: a ? [...a] : null, expires: p?.exp || null, error: status.error, fetching: status.fetching, owner: isOwner(), api: ID_API }), true;
   }
+  // the Chat screen joins this PC's customer team with the pass (chat/README.md "Teams"); POST, so only the hub's own page
+  if (path === "/api/id/chatpass" && req.method === "POST") {
+    const pass = load()?.pass, p = pass && readPass(pass);
+    return json(res, 200, { pass: !FREE && p && p.device === load().device && p.modules.includes("chat") ? pass : null }), true;
+  }
   if (path === "/api/id/enrol" && req.method === "POST") {
     const { code } = await readJson(req);
     try { return json(res, 200, await enrol(String(code || ""))), true; }

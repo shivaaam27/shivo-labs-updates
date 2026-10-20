@@ -1,14 +1,14 @@
 {
- "version": "1.0.375",
- "build": 375,
- "built": "2026-10-20T20:17:21.635Z",
+ "version": "1.0.377",
+ "build": 377,
+ "built": "2026-10-20T20:53:43.034Z",
  "notes": [
+  "Chat: a private team per shivo-id customer",
+  "Distribution plan: live test of the code-based install recorded",
   "Laptop publish: each pack upload to R2 is tried 3 times (Cloudflare answered 500 once)",
   "Hub feels like an app: no bounce, no dragging out, no highlight by dragging; X Tools can't crash the hub",
   "Permission-based installs: shivo-id (customers, invite codes, devices, signed passes, module packs, download page, one-line install), Owner page, the hub opens and updates only the modules its pass allows, Shivo Labs Setup.exe (Inno Setup) asking for the invite code; Business not offered to customers for now",
-  "Merge remote-tracking branch 'origin/main' into claude/shivolabs-hub-insights-module-ead984",
-  "Insights: the website's apps address is /api/apps/insights (Cloudflare Access guards /api/insights)",
-  "Insights module: the website's visitors on the laptop and the phone"
+  "Merge remote-tracking branch 'origin/main' into claude/shivolabs-hub-insights-module-ead984"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11473,7 +11473,7 @@
   "hub/api/files-crypto.mjs": "133c90ce99a4aa2abd1f4df2e1158b94894d4575fc83347b5a92bad25771dea6",
   "hub/api/files-sync.mjs": "d7d970d0606eb7a2250b442b520cba5fd7613f9e4b703222a8931e6c677c4e2d",
   "hub/api/files.mjs": "8098132dd073327c181318c84bc72002f5c70d4786e39f3d26760a4dd6902197",
-  "hub/api/id.mjs": "782695d852c0fdd0409ba3f5354b5ab39d5bc7f9f92b703186fbf01dee6523f0",
+  "hub/api/id.mjs": "5fb810f5f4c8795bdcb9634466272753e5f316b822f60fef4c9798d519c0fc49",
   "hub/api/idevice.mjs": "6b152d85d3595069868bcf28c6a22101900dcfa1cfe5b0764766c2ff5117152a",
   "hub/api/insights.mjs": "a8357ed4e50842ab9a4abbb657b1cf149802efe47bd746a7c65e29e22afc366d",
   "hub/api/mirror.mjs": "687bfbcc85a5b89249cba4c8d7f57007127d3e580f3bcecd4baa96773d16c404",
@@ -11494,7 +11494,7 @@
   "hub/shivo-labs.ico": "2150b7a9f2c995ac9678ab5f46228c734a3214b45d5cc56ea94b9d48cca34e34",
   "hub/update-key.xml": "f820afc3dbebe9df8147803b7da0a78ddd9a79bca8141d416d8f6bc178e381ab",
   "hub/www/hub.css": "168d09acc1c29ca491d87fa0f4f56a5bf6b99adfbbf2838928c778e2bda4e7ba",
-  "hub/www/hub.js": "a5beefea076b22cae03e9241fdad783b3063078006e46740bbbd652cac2df398",
+  "hub/www/hub.js": "21d9e08e36ee18ca957e15d0c352ff959cf1256ca2d0395b04bd6e46b3ccdff3",
   "hub/www/index.html": "a84213630e630e5678e4318105eec5397a04f0ddda4a4dc03e51984c8b000bd9",
   "hub/www/mirror-float.html": "04f5ef54a84a5dffda8104e1ced92ed7b0715ce322556f5e4ecb097bd1267c2c",
   "hub/www/modules/ai.js": "6234299bcad6c1bf1011dbc58c0428174d35ee8d015b50e07822140d1fe53a77",
@@ -11535,7 +11535,7 @@
   "shared/biz/till.js": "1538f577e789ccd8e86247dd9407f00cd6d00d109c0fe8f733d0f33f8acf1eb7",
   "shared/biz/ui.js": "ab9d0e3570ee448c6e128c25a8e44a02e400f672065c2272889c921fbb65aa3c",
   "shared/chat/chat.css": "b4e52286b9d1bf68989d501e757322be649a838e29896f8c67141821ce339cbc",
-  "shared/chat/chat.js": "f1aac015a9a9730dec66d2bb5a7445184a18738f0346e8bdd3c3fc515667f6d2",
+  "shared/chat/chat.js": "44bc8929c7a7ecc9d41802ce791b6d1262b8942fb38f721b4314167a26fd3318",
   "shared/chat/demo.js": "6bec00d380d5b9ac3be6485e9fec6a8131139fbf2ea5108c11dde1f25b3f4dd0",
   "shared/fabra-loader.css": "f392a4ccf93938b7de7682b2e604bc6fd87e6b72b80ab45faff29bf460e9fa91",
   "shared/fabra-loader.js": "a83a80e56e113929c85f8e25fa47d899fe0a58096b5c6b1fb1c7807478d7a8b6",

@@ -12,7 +12,9 @@ import { mountInsights } from './modules/insights.js';
 import { quietStart, quietReload } from './modules/quiet.js';
 import { mountOwner } from './modules/owner.js';
 const QUIET = quietStart();   // this load follows a quiet update: no splash, no entrance animations
-const PAGES = { owner: mountOwner, business: mountBusiness, chat: mountChat, mirror: mountMirror, files: mountFiles, xtools: mountXtools, tv: mountTv, insights: mountInsights };  // module id -> its screen (modules/<id>.js)
+// Chat joins this PC's customer team with its shivo-id pass (null on Shivam's PC: the invite code screen as before)
+const chatPass = () => fetch('/api/id/chatpass', { method: 'POST', headers: { 'x-hub': '1' } }).then((r) => r.json()).then((j) => j.pass).catch(() => null);
+const PAGES = { owner: mountOwner, business: mountBusiness, chat: (el, o) => mountChat(el, { ...o, getPass: chatPass }), mirror: mountMirror, files: mountFiles, xtools: mountXtools, tv: mountTv, insights: mountInsights };  // module id -> its screen (modules/<id>.js)
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
