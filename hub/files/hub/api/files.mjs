@@ -2,12 +2,13 @@
 // (files/worker) and does all the encryption here (files-crypto.mjs, files/FORMAT.md). The account, this PC's device
 // token and the master key live in %APPDATA%\Shivo Labs\Files\cloud.json (HUB_FILES_DIR for tests); they never go
 // into the repo or to the server (the master key never leaves this PC except to a phone joining on the home Wi-Fi).
-import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { Readable } from "node:stream";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createECDH } from "node:crypto";
 import * as C from "./files-crypto.mjs";
+import { passWith } from "./id.mjs";
 
 export const FILES_API = process.env.HUB_FILES_API || "https://shivo-labs-files.ishivamparmar.workers.dev";
 const DIR = process.env.HUB_FILES_DIR || join(process.env.APPDATA || homedir(), "Shivo Labs", "Files");
@@ -170,6 +171,11 @@ const createKey = () => { try { return readFileSync(CREATE_KEY_FILE, "utf8").tri
 // Shivo Labs gave them, plus the account's recovery code when the account already has files (a second or new PC)
 async function setup(name, code, recovery) {
   if (load()) return load();
+  // a customer's PC with Cloud in its Shivo Labs pass: no setup code needed
+  if (!code && !createKey() && passWith("files")) {
+    const s = await passSetup(name, recovery); if (s) return s;
+    const e = new CloudError(409, "Waiting for another computer of your company to allow this one."); e.waiting = true; throw e;
+  }
   let master = randomBytes(32);
   if (recovery) { try { master = C.fromRecoveryCode(recovery); } catch (e) { throw new CloudError(400, e.message); } }
   let r;
@@ -189,6 +195,97 @@ async function setup(name, code, recovery) {
   save(st);
   return load();
 }
+// ---------- joining with the Shivo Labs pass (HOSTING-PLAN.md): a customer's PC whose pass has Cloud joins its
+// company's account by itself, no setup code. The company's first PC makes the account's master key; a later PC asks
+// for it, and another PC of the company allows it (the hub asks "Allow ... to open your Cloud files?"), which seals
+// the key so only the new PC can open it. The server never sees it. The recovery code works instead, as before.
+const PENDING = join(DIR, "pending.json");   // a PC waiting for the key: its token and its own one-time key pair
+const CHECK = "shivo-check";                 // sealed with the master key on the server (kcheck): a key can be checked
+const readPending = () => { try { return JSON.parse(readFileSync(PENDING, "utf8")); } catch { return null; } };
+function writePending(p) {
+  mkdirSync(DIR, { recursive: true });
+  if (!p) return rmSync(PENDING, { force: true });
+  writeFileSync(PENDING + ".tmp", JSON.stringify(p)); renameSync(PENDING + ".tmp", PENDING);
+}
+const keyOk = (master, kcheck) => { if (!kcheck) return true; try { return C.decName(master, kcheck) === CHECK; } catch { return false; } };
+const authed = (st, path, body, method = body ? "POST" : "GET") => fetch(st.api + path, { method, headers: { authorization: "Bearer " + st.token, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+async function passSetup(name, recovery) {
+  const pass = passWith("files"); if (!pass) return null;
+  const r = await fetch(FILES_API + "/v1/pass/enrol", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pass, name: name || hostname() }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new CloudError(r.status, j.error || "Couldn't set up Shivo Labs Cloud");
+  const st = { api: FILES_API, account: j.account, device: j.device, token: j.token, created: Date.now() };
+  if (recovery) {
+    let master; try { master = C.fromRecoveryCode(recovery); } catch (e) { throw new CloudError(400, e.message); }
+    const top = await (await authed(st, "/v1/items?parent=")).json().catch(() => ({ items: [] }));
+    let ok = keyOk(master, j.kcheck);
+    try { for (const it of (top.items || []).slice(0, 3)) C.decName(master, it.name); } catch { ok = false; }
+    if (!ok) throw new CloudError(400, "That recovery code doesn't belong to this account.");
+    save({ ...st, master: C.b64u(master) }); writePending(null); await ensureCheck();
+    return load();
+  }
+  if (j.makeKey) {
+    const master = randomBytes(32);
+    if ((await authed(st, "/v1/kcheck", { check: C.encName(master, CHECK) })).ok) { save({ ...st, master: C.b64u(master) }); writePending(null); return load(); }
+    // (another PC of the company was a moment faster: this one gets its key like any later PC)
+  }
+  const ecdh = createECDH("prime256v1"); ecdh.generateKeys();
+  const k = await authed(st, "/v1/keyreq", { pub: C.b64u(ecdh.getPublicKey(null, "uncompressed")) });
+  if (!k.ok) throw new CloudError(k.status, (await k.json().catch(() => ({}))).error || "Couldn't ask for the key");
+  writePending({ ...st, name: j.name, priv: C.b64u(ecdh.getPrivateKey()), kcheck: (await (await authed(st, "/v1/me")).json().catch(() => ({}))).kcheck || j.kcheck || "", asked: Date.now() });
+  return null;
+}
+// the waiting PC: has another PC sent the key?
+async function checkPending() {
+  const p = readPending(); if (!p || load()) return;
+  const r = await authed(p, "/v1/keyreq").catch(() => null); if (!r) return;
+  if (r.status === 401) return writePending({ ...p, refused: true });   // refused: that PC was taken out of the account
+  const j = await r.json().catch(() => ({}));
+  if (j.state === "refused") return writePending({ ...p, refused: true });
+  if (j.state !== "ready") return;
+  const ecdh = createECDH("prime256v1"); ecdh.setPrivateKey(C.unb64u(p.priv));
+  let got; try { got = C.joinOpen(ecdh, j); } catch { return; }
+  const master = C.unb64u(got.master || "");
+  if (master.length !== 32 || !keyOk(master, p.kcheck)) return;
+  save({ api: p.api, account: p.account, device: p.device, token: p.token, master: got.master, created: p.created });
+  writePending(null);
+}
+// a PC that has the key leaves the check word on the server once (accounts made before 21 Oct have none)
+let checked = false;
+async function ensureCheck() {
+  const s = load(); if (!s || checked) return;
+  const me = await apiJson("/v1/me").catch(() => null); if (!me) return;
+  checked = true;
+  if (!me.kcheck) await apiJson("/v1/kcheck", { method: "POST", body: { check: C.encName(s.masterKey, CHECK) } }).catch(() => {});
+}
+// the PCs that have the key: who is asking for it (shown as a question in the hub window)
+let asking = { at: 0, list: [] };
+async function keyRequests() {
+  if (!load()) return [];
+  if (Date.now() - asking.at > 8000) asking = { at: Date.now(), list: (await apiJson("/v1/keyreqs").catch(() => ({ requests: [] }))).requests || [] };
+  return asking.list;
+}
+async function answerKey(id, ok) {
+  const s = load(); if (!s) throw new CloudError(409, "Shivo Labs Cloud isn't set up on this PC");
+  asking.at = 0;
+  const k = (await apiJson("/v1/keyreqs")).requests.find((x) => x.id === id);
+  if (!k) throw new CloudError(404, "That request is gone");
+  if (!ok) return apiJson("/v1/keyreqs/" + id, { method: "DELETE" });
+  const box = C.joinBox(k.pub, { master: s.master });
+  return apiJson("/v1/keyreqs/" + id, { method: "POST", body: { pub: box.pub, box: box.box } });
+}
+// started with the sync loop: join by itself when the pass has Cloud, then wait for the key
+export function passLoop() {
+  const tick = async () => {
+    try {
+      if (load()) return ensureCheck();
+      if (readPending()) return checkPending();
+      if (passWith("files")) await passSetup(hostname());
+    } catch {}
+  };
+  setTimeout(tick, 3000); setInterval(tick, 15000);
+}
+
 // ---------- Shivo Labs' customer list (the Worker checks the create key)
 async function admin(path, method = "GET", body) {
   const r = await fetch(FILES_API + "/v1/admin/" + path, { method, headers: { "x-create-key": createKey(), ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -214,7 +311,12 @@ export async function filesApi(req, res, path, url) {
   try {
     if (req.method === "GET" && what === "status") {
       const s = load();
-      if (!s) return json(res, 200, { ready: false, operator: !!createKey() }), true;
+      if (!s) {
+        await checkPending().catch(() => {});
+        if (load()) return json(res, 200, { ready: false, justJoined: true }), true;   // (the page asks again)
+        const p = readPending();
+        return json(res, 200, { ready: false, operator: !!createKey(), pass: !!passWith("files"), waiting: !!p && !p.refused, refused: !!p?.refused, company: p?.name || "" }), true;
+      }
       const me = await apiJson("/v1/me").catch((e) => ({ error: e.message }));
       const { syncState, syncPairs } = await import("./files-sync.mjs");
       return json(res, 200, { ready: true, operator: !!createKey(), ...me, sync: { ...syncState, pairs: syncPairs() } }), true;
@@ -240,12 +342,15 @@ export async function filesApi(req, res, path, url) {
     if (req.method === "GET" && what === "admin/accounts") return json(res, 200, await admin("accounts")), true;
     if (req.method === "GET" && what === "admin/devices") return json(res, 200, await admin(`accounts/${url.searchParams.get("id")}/devices`)), true;
     if (req.method === "GET" && what === "recovery") { const s = load(); return json(res, 200, { code: s ? C.recoveryCode(s.masterKey) : "" }), true; }
+    // another PC of the company asks for the account's key (the hub window shows the question)
+    if (req.method === "GET" && what === "asks") return json(res, 200, (await keyRequests()).map((k) => ({ id: k.id, name: k.name }))), true;
     if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
+    if (what === "answer") { const b = await readBody(req); await answerKey(String(b.id || ""), !!b.ok); return json(res, 200, { ok: true }), true; }
 
     if (what === "setup") {
       const b = await readBody(req);
       try { return json(res, 200, { ok: !!(await setup(b.name, String(b.code || "").trim(), String(b.recovery || "").trim())) }), true; }
-      catch (e) { return json(res, e.status || 500, { error: e.message, recovery: !!e.recovery }), true; }
+      catch (e) { return json(res, e.status || 500, { error: e.message, recovery: !!e.recovery, waiting: !!e.waiting }), true; }
     }
     if (what === "sync") { (await import("./files-sync.mjs")).syncNow(); return json(res, 200, { ok: true }), true; }
     if (what === "upload") {   // body = the file; ?parent=&name=

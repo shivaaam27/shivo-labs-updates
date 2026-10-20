@@ -62,6 +62,28 @@ export function mountFiles(root, ctx) {
   async function side() {
     st = await (await fetch('/api/files/status')).json().catch(() => null);
     const el = $('#flSide');
+    if (st?.justJoined) return side();
+    // a customer's PC with Cloud in its Shivo Labs pass: it joins by itself; a later PC waits for the account's key
+    if (!st?.ready && st?.pass) {
+      const again = () => setTimeout(() => root.isConnected && side().then(() => st?.ready && show()), 5000);
+      el.innerHTML = `<div class="bm-h"><h2>Storage</h2></div>
+        <p class="bm-note">${st.refused ? `Another computer of ${esc(st.company || 'your company')} said no to this one. Ask them to allow it, or use the recovery code.`
+          : st.waiting ? `Almost ready. On another computer of ${esc(st.company || 'your company')}, open Shivo Labs and allow this one. Or use the recovery code.`
+          : 'Setting up Shivo Labs Cloud for this computer…'}</p>
+        ${st.waiting || st.refused ? `<input class="field" id="flRecIn" placeholder="Recovery code" autocomplete="off" spellcheck="false">
+        <button class="btn" id="flSetup">Use the recovery code</button>` : '<button class="btn" id="flSetup">Set up now</button>'}<p class="bm-note" id="flSetupMsg"></p>`;
+      $('#flSetup').onclick = async () => {
+        $('#flSetup').disabled = true;
+        const r = await post('/api/files/setup', { name: '', recovery: $('#flRecIn')?.value.trim() || '' }); const j = await r.json().catch(() => ({}));
+        $('#flSetup').disabled = false;
+        if (r.ok) { toast('Shivo Labs Cloud is ready'); side(); show(); return; }
+        if (j.waiting) return side();
+        $('#flSetupMsg').textContent = j.error || "Couldn't set up";
+      };
+      $('#flList').innerHTML = ''; $('#flDrop').hidden = true;
+      if (!st.refused) again();
+      return;
+    }
     if (!st?.ready) {
       el.innerHTML = `<div class="bm-h"><h2>Storage</h2></div>
         <p class="bm-note">Keep your files in Shivo Labs Cloud: on your phone with this PC off, from anywhere. Encrypted on your devices before they leave them.</p>

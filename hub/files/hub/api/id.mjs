@@ -52,6 +52,12 @@ export function allowed() {
   return new Set(p.modules);
 }
 export const may = (id) => { const a = allowed(); return !a || a.has(id); };
+// this PC's pass when it has that module (for its server: Chat, Cloud); null on the repo or without it
+export function passWith(mod) {
+  if (FREE) return null;
+  const pass = load()?.pass, p = pass && readPass(pass);
+  return p && p.device === load().device && p.modules.includes(mod) && Date.now() < p.exp ? pass : null;
+}
 export const isOwner = () => existsSync(ADMIN_FILE);
 
 // the owner's PC holds the key that signs passes (made by id/setup.mjs, also in shivo-id): it signs itself a pass that

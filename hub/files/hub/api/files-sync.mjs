@@ -219,6 +219,7 @@ function rewatch() {
   }
 }
 export function startFilesSync() {
+  F.passLoop();   // a customer PC joins its company's Cloud with its pass, and gets the key
   const loop = () => { if (F.load()) tick(); };
   setTimeout(() => { rewatch(); loop(); }, 5000);
   setInterval(loop, 20000);

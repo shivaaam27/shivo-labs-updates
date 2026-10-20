@@ -12,6 +12,7 @@
 // Family (messages, reminders, dates, calls, photos, each with its own settings) and TV (health, inputs, the TV's own
 // settings and features). Settings and lists open as sheets from the bottom.
 import { deviceName } from '../engine/beam.js';
+import * as live from '../engine/live.js';
 import * as atv from './atvremote.js';
 import { makeRemote } from './remote.js';
 import { mountFamily, mountHealth, mountShop, mountSport, mountTogether, sheet, featureSheet, loadMods } from './family.js';
@@ -651,10 +652,53 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
     try { const r = await call(path, q, { post: true }); if (r.ok === false) throw new Error("The TV couldn't do that"); if (msg) toast(msg); return r; }
     catch (e) { toast(e.message); }
   }
+  // ---- the live card on the Lock Screen and in the Dynamic Island while something plays on the TV ----
+  // (kits/app-native/live-activity/extension/ShivoTVCard.swift). Its buttons go to the TV by themselves, with the
+  // address, key and relay given here; the text is refreshed from here whenever the app asks the TV what plays.
+  // Starts when something plays, stays while it is paused, goes when nothing has played for two looks.
+  let card = false, cardWas = '', cardGone = 0, cardTimer = 0;
+  const cardPic = { id: '', b64: '' };
+  async function tinyPic(path) {   // a picture small enough for the card (Apple allows a card 4 KB in all)
+    try {
+      const r = await send(path, {}, { ms: 5000 }); if (!r.ok) return '';
+      const bmp = await createImageBitmap(await r.blob());
+      for (const [px, q] of [[84, 0.6], [64, 0.5], [48, 0.45]]) {
+        const c = document.createElement('canvas'); c.width = c.height = px;
+        const side = Math.min(bmp.width, bmp.height);
+        c.getContext('2d').drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, px, px);
+        const b64 = c.toDataURL('image/jpeg', q).split(',')[1];
+        if (b64.length * 0.75 <= 1800) return b64;
+      }
+    } catch {}
+    return '';
+  }
+  async function tvCard(list) {
+    if (!cur?.key) return;
+    const p = (list || []).find((x) => x.playing) || (card ? (list || [])[0] : null);
+    if (!p) {
+      if (card && ++cardGone >= 2) { card = false; cardWas = ''; cardGone = 0; live.done('tv', {}, 0); }
+      return;
+    }
+    cardGone = 0;
+    const id = p.art || `icon/${p.pkg}`;
+    if (cardPic.id !== id) { cardPic.id = id; cardPic.b64 = await tinyPic(`/${id.split('?')[0]}`); }
+    const fields = {
+      title: p.title, subtitle: `${label(p.pkg) || 'Playing'} on ${cur.name || 'the TV'}`, icon: 'tv.fill', tag: 'TV',
+      playing: !!p.playing, muted: !!dev.muted, thumb: cardPic.b64,
+      tv: JSON.stringify({ h: cur.host || '', k: cur.key, r: cur.relay || (cur.kh ? `${RELAY}/k/${cur.kh}` : '') }),
+    };
+    const was = JSON.stringify(fields);
+    if (card && was === cardWas) return;   // nothing new: the card isn't touched
+    cardWas = was; card = true;
+    live.show('tv', { reuse: true, ...fields });   // reuse: a card still up from before the app was closed
+  }
+  const cardPoll = () => { if (card && cur && !document.hidden) call('/now', {}, { ms: 4000 }).then(tvCard).catch(() => {}); };
+
   let lastNowKey = '', lastHist = 0;
   async function pollNow() {
     try {
       const n = await call('/now', {}, { ms: 4000 });
+      tvCard(n);
       // the watch history only changes when what plays changes: asked for then, or every half minute
       const nowKey = JSON.stringify(n.map((p) => p.title));
       const h = nowKey !== lastNowKey || Date.now() - lastHist > 30000 ? await call('/history', {}, { ms: 4000 }).catch(() => hist) : hist;
@@ -687,9 +731,10 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
       now = await call('/now');
       offline = '';
       paint();
+      tvCard(now);
       if (!cur.relay) learnRelay();
     } catch (e) {
-      if (e.unpaired) { tvs = tvs.filter((t) => t.host !== cur.host); save(); dropCache(cur.host); cur = null; offline = ''; return paintPair(e.message); }
+      if (e.unpaired) { if (card) { card = false; live.done('tv', {}, 0); } tvs = tvs.filter((t) => t.host !== cur.host); save(); dropCache(cur.host); cur = null; offline = ''; return paintPair(e.message); }
       if (old || apps.length) { offline = e.message; now = []; paint(); return; }   // the screen stays; only a banner says it is not connected
       root.innerHTML = `<div class="tvp"><div class="tvp-art off"><span class="tvp-tv">${IC.tv}</span></div>
         <h2 class="tvp-h">Can't reach ${esc(cur.name || 'the TV')}</h2><p class="tvp-p">${esc(e.message)}</p>
@@ -701,7 +746,8 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
 
   return {
     // the screen is shown: fresh look, then what is playing every few seconds
-    start() { if (!wide() && tab !== 'remote') { tab = 'remote'; } alive = true; refresh(!apps.length); clearInterval(timer); timer = setInterval(() => { if (!alive || !cur || document.hidden) return; if (offline) { if (Date.now() - lastTry > 10000) refresh(true); } else if (apps.length && (!away || ++slow % 2 === 0)) pollNow(); }, 5000); },
-    stop() { alive = false; clearInterval(timer); famTab?.stop(); stopFind?.(); stopFind = null; scanning = false; rmt.stop(); },
+    start() { clearInterval(cardTimer); if (!wide() && tab !== 'remote') { tab = 'remote'; } alive = true; refresh(!apps.length); clearInterval(timer); timer = setInterval(() => { if (!alive || !cur || document.hidden) return; if (offline) { if (Date.now() - lastTry > 10000) refresh(true); } else if (apps.length && (!away || ++slow % 2 === 0)) pollNow(); }, 5000); },
+    // elsewhere in the app the TV card still follows what plays, less often
+    stop() { alive = false; clearInterval(timer); clearInterval(cardTimer); cardTimer = setInterval(cardPoll, 15000); famTab?.stop(); stopFind?.(); stopFind = null; scanning = false; rmt.stop(); },
   };
 }
