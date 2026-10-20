@@ -124,3 +124,20 @@ export function joinOpen(phoneEcdh, res) {
   const key = Buffer.from(hkdfSync("sha256", secret, Buffer.from("shivo-files-join"), Buffer.from("v1"), 32));
   return JSON.parse(open(key, unb64u(res.box), "shivo-join").toString("utf8"));
 }
+
+// ---------- share links (files/FORMAT.md, "Sharing"): the file's name sealed with its own key, so the share page
+// (which gets the file key from the link, after the #) can show it
+export const shareName = (fileKey, name) => "s1." + b64u(seal(fileKey, Buffer.from(String(name), "utf8"), "shivo-share-name"));
+
+// ---------- request-files links: a P-256 key pair per request; uploaders seal each file's name and key to its public
+// key (r1. = ephemeral public key (65) || nonce || ciphertext || tag); the owner opens them with the private key
+export function requestPair() {
+  const e = createECDH("prime256v1"); e.generateKeys();
+  return { pub: e.getPublicKey(null, "uncompressed"), priv: e.getPrivateKey() };
+}
+export function openRequestBox(priv, v, aad) {
+  if (!String(v).startsWith("r1.")) throw new Error("not a request box");
+  const raw = unb64u(String(v).slice(3)), e = createECDH("prime256v1"); e.setPrivateKey(priv);
+  const key = Buffer.from(hkdfSync("sha256", e.computeSecret(raw.subarray(0, 65)), Buffer.from("shivo-request"), Buffer.from("v1"), 32));
+  return open(key, raw.subarray(65), aad);
+}

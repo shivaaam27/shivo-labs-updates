@@ -1,14 +1,14 @@
 {
- "version": "1.0.357",
- "build": 357,
- "built": "2026-10-20T16:44:57.144Z",
+ "version": "1.0.358",
+ "build": 358,
+ "built": "2026-10-20T16:56:30.899Z",
  "notes": [
+  "Shivo Cloud phase 3: share links and request-files links",
   "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b",
   "Phone TV › Features: each feature's card has its main action (Add a reminder, Add a date, Send a message, Say something, Add photos, Video call the TV, Tidy up, Get apps, Live matches, Play a corner video, Start the screensaver) and opens the form or the right place; fake TV lists every feature",
   "Shivo Cloud: one location on the iPhone, the Beam folder synced, PC uploads show on the phone",
   "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b",
-  "TV 1.0.17: smoothness work; handover notes on what is still slow (Apps grid: the top picture)",
-  "TV home smoothness (not yet on the TV): the picture at the top is plain images with one fixed shade (no canvas); the sidebar pills fade instead of resizing; no card lean; the rows are one layer of their own; the corner logo's light runs only while the remote rests; the title's rise can always be handed to the compositor (the last one is stopped first; no bouncing dots); the web view is made after the first frame; heavy reads wait until the page shows. Tests: smooth.mjs and trace.mjs (real TV), paint.mjs (laptop, headless Chrome)"
+  "TV 1.0.17: smoothness work; handover notes on what is still slow (Apps grid: the top picture)"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11470,9 +11470,9 @@
   "hub/api/beam.mjs": "6fda8ad87c3778960e473abe37012431c9aa884632ed5c36ccfddbe834033884",
   "hub/api/beamrelay.mjs": "7c0d6576f5c691332472afb3de16543a7754c2a2f08d0efcf5f8d8a7f99e56de",
   "hub/api/business.mjs": "5ccdc7ff105194767706cc375c8dc0ba7684ccc32a800fe577f67fd6663f3bc8",
-  "hub/api/files-crypto.mjs": "fa20821f81618e52126bb6e857f6d579add9cd8b95493edbb620feee6b6d14e2",
-  "hub/api/files-sync.mjs": "cf39e8bccd73961d5d7e0676372b9891df979b46f5d467122df0457e00f56097",
-  "hub/api/files.mjs": "bd9a09f324fd6f4d7bce5567b13d4800c6a4eec5e1e59873959baba137d26b3d",
+  "hub/api/files-crypto.mjs": "133c90ce99a4aa2abd1f4df2e1158b94894d4575fc83347b5a92bad25771dea6",
+  "hub/api/files-sync.mjs": "3b18d8983154313084b8fb95cbfdba159eb937ed0be8d7f250149027fa62f265",
+  "hub/api/files.mjs": "9885b69642f52014b4e868ea140de346c0402560f286a8909c39ee318d4782b6",
   "hub/api/idevice.mjs": "6b152d85d3595069868bcf28c6a22101900dcfa1cfe5b0764766c2ff5117152a",
   "hub/api/mirror.mjs": "687bfbcc85a5b89249cba4c8d7f57007127d3e580f3bcecd4baa96773d16c404",
   "hub/api/pairhost.mjs": "93ea78f9a3c9a0d63ddca91ab3acb141d8107cfa99ac886be380d2fa4d9d7692",
@@ -11496,7 +11496,7 @@
   "hub/www/modules/ai.js": "6234299bcad6c1bf1011dbc58c0428174d35ee8d015b50e07822140d1fe53a77",
   "hub/www/modules/beam.js": "19e44a113fd5b4309ca842342599c290b743025e893be4da36661c01b016914e",
   "hub/www/modules/business.js": "e74a30c42facefd418fc3a6fd12630e36c75607aae30ebfbbac347a23387a6d4",
-  "hub/www/modules/files.js": "3006194df8322c7e627c47dcad6407b1f5970ba8f6ff69553dc6f842882f2085",
+  "hub/www/modules/files.js": "160ce3f3276c5dcf710bd48d25fec76ded1f84fd53410bce0d868d69651838e0",
   "hub/www/modules/mirror-player.js": "1d6faed94d7dd992a76bab69e17a716feda019ad8ad8ae09d7c2b600bc19f911",
   "hub/www/modules/mirror.js": "a9104345f27832f592b5afc690d2cd013a4f5d9a6c0c727600d593a16015415d",
   "hub/www/modules/quiet.js": "242dd7b138aa98516e17052278e47326849185a4da6c57b0f3a9eeaf46c8ef90",

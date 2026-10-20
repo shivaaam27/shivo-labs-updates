@@ -92,6 +92,65 @@ export async function download(id) {
   return { item: readable(it), stream: Readable.fromWeb(r.body).pipe(C.decryptStream(fileKey)) };
 }
 
+// ---------- share links and request-files links (files/FORMAT.md, "Sharing"). The key travels in the link after the
+// #: the file's key for a share, the request's public key for a request. The server keeps neither in readable form.
+const until = (days) => (Number(days) > 0 ? Date.now() + Number(days) * 86400000 : 0);
+async function makeShare(id, days, password) {
+  const s = load(), it = await apiJson("/v1/item/" + id);
+  if (it.kind !== "file") throw new CloudError(400, "Only files can be shared");
+  const fileKey = C.unwrapKey(s.masterKey, it.key);
+  const j = await apiJson("/v1/shares", { method: "POST", body: { item: id, name: C.shareName(fileKey, readable(it).name), expires: until(days), password: password || undefined } });
+  return { id: j.id, link: `${s.api}/s/${j.id}#${C.b64u(fileKey)}` };
+}
+async function shares() {
+  const s = load(), out = [];
+  for (const x of (await apiJson("/v1/shares")).shares) {
+    let name = "(removed)", link = "";
+    try { name = readable(await apiJson("/v1/item/" + x.item)).name; } catch {}
+    try { link = `${s.api}/s/${x.id}#${C.b64u(C.unwrapKey(s.masterKey, x.key))}`; } catch {}
+    out.push({ id: x.id, item: x.item, name, size: x.size, link, expires: x.expires, created: x.created, downloads: x.downloads, password: !!x.password });
+  }
+  return out;
+}
+async function makeRequest(folder, title, days) {
+  const s = load();
+  title = String(title || "").trim().slice(0, 80) || "Send files";
+  if (!folder) folder = (await apiJson("/v1/folders", { method: "POST", body: { parent: "", name: C.encName(s.masterKey, await freeName("", cleanName(title))) } })).id;
+  const k = C.requestPair();
+  const j = await apiJson("/v1/requests", { method: "POST", body: { folder, title, pub: C.b64u(k.pub), priv: C.wrapKey(s.masterKey, k.priv), expires: until(days) } });
+  return { id: j.id, folder, link: `${s.api}/r/${j.id}#${C.b64u(k.pub)}` };
+}
+async function requests() {
+  const s = load(), out = [];
+  for (const x of (await apiJson("/v1/requests")).requests) {
+    let folder = "(removed)";
+    try { folder = readable(await apiJson("/v1/item/" + x.folder)).name; } catch {}
+    out.push({ id: x.id, title: x.title, folderId: x.folder, folder, link: `${s.api}/r/${x.id}#${x.pub}`, expires: x.expires, created: x.created, count: x.count });
+  }
+  return out;
+}
+// files sent through a request link arrive with their name and key sealed to the request's key: open them and seal
+// them again with the master key, so every device of the account sees them (run by the sync loop and the Files page)
+export async function claimRequests() {
+  const s = load(); if (!s) return 0;
+  let n = 0;
+  for (const it of (await apiJson("/v1/unclaimed")).items) {
+    let name, fileKey;
+    try {
+      const priv = C.unwrapKey(s.masterKey, it.priv);
+      name = cleanName(C.openRequestBox(priv, it.name, "shivo-req-name").toString("utf8"));
+      fileKey = C.openRequestBox(priv, it.key, "shivo-req-key");
+      if (fileKey.length !== 32) throw new Error("bad key");
+    } catch {   // sealed wrongly (not by our page): to the Trash, so it doesn't come back every round
+      await apiJson("/v1/item/" + it.id, { method: "DELETE" }).catch(() => {});
+      continue;
+    }
+    await apiJson("/v1/item/" + it.id, { method: "PATCH", body: { name: C.encName(s.masterKey, await freeName(it.parent, name)), key: C.wrapKey(s.masterKey, fileKey) } });
+    n++;
+  }
+  return n;
+}
+
 // ---------- setting up, and phones joining
 async function setup(name) {
   if (load()) return load();
@@ -142,6 +201,8 @@ export async function filesApi(req, res, path, url) {
     }
     if (req.method === "GET" && what === "trash") return json(res, 200, { items: (await apiJson("/v1/trash")).items.map(readable) }), true;
     if (req.method === "GET" && what === "devices") return json(res, 200, await apiJson("/v1/devices")), true;
+    if (req.method === "GET" && what === "shares") return json(res, 200, { shares: await shares() }), true;
+    if (req.method === "GET" && what === "requests") { await claimRequests().catch(() => {}); return json(res, 200, { requests: await requests() }), true; }
     if (req.method === "GET" && what === "recovery") { const s = load(); return json(res, 200, { code: s ? C.recoveryCode(s.masterKey) : "" }), true; }
     if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
 
@@ -168,6 +229,10 @@ export async function filesApi(req, res, path, url) {
     if (what === "move") return json(res, 200, readable(await apiJson("/v1/item/" + b.id, { method: "PATCH", body: { parent: b.parent || "" } }))), true;
     if (what === "delete") return json(res, 200, await apiJson("/v1/item/" + b.id, { method: "DELETE" })), true;
     if (what === "restore") return json(res, 200, readable(await apiJson(`/v1/item/${b.id}/restore`, { method: "POST" }))), true;
+    if (what === "share") return json(res, 200, await makeShare(b.id, b.days, b.password)), true;
+    if (what === "share-remove") return json(res, 200, await apiJson("/v1/shares/" + b.id, { method: "DELETE" })), true;
+    if (what === "request") return json(res, 200, await makeRequest(b.folder || "", b.title, b.days)), true;
+    if (what === "request-remove") return json(res, 200, await apiJson("/v1/requests/" + b.id, { method: "DELETE" })), true;
     if (what === "device-remove") return json(res, 200, await apiJson("/v1/devices/" + b.id, { method: "DELETE" })), true;
     if (what === "join") {   // from Beam's engine on this PC only (it checked the phone's Beam key, on the home Wi-Fi)
       if (!/^[A-Za-z0-9_-]{80,100}$/.test(b.pub || "")) return json(res, 400, { error: "Bad key" }), true;

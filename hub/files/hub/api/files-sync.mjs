@@ -113,6 +113,7 @@ async function downloadTo(id, path) {
 // ---------- one round: down first (so a phone's change is never mistaken for a local deletion), then up
 async function round() {
   const s = F.load(); if (!s) return;
+  await F.claimRequests().catch(() => {});   // files sent through request links, so they come down like any other
   const all = pairs();
   for (const pair of all) { mkdirSync(pair.local, { recursive: true }); await ensureRoot(pair); }
   const byRoot = new Map(all.map((p) => [P(p.name).root, p]));
