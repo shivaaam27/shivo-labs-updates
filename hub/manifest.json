@@ -1,14 +1,14 @@
 {
- "version": "1.0.400",
- "build": 400,
- "built": "2026-10-20T22:53:00.279Z",
+ "version": "1.0.402",
+ "build": 402,
+ "built": "2026-10-20T23:42:11.191Z",
  "notes": [
+  "Docs: old TV relay shivo-tv-relay-test deleted",
+  "Phone TV: no fallback to the old relay name (shivo-tv-relay-test is deleted; the TV runs 1.0.19+ on shivo-tv; saved addresses are still moved)",
   "Phones need an invite code too: phone/www/engine/id.js (own key, pass, renewal), the code screen, only the pass's modules; shivo-id: Camera and Phone modules, the owner customer gets everything plus Business, Insights and Oracle TM",
   "Android emulator test: its own adb server (port 5039), apart from the TV work's",
   "Native iPhone updates install by themselves: the hub keeps installs that wait for a phone and does them when it is near",
-  "publishTv: no error kept when the TVs already have the version; another publish running is not a failure",
-  "TV versions publish themselves: the hub on Shivam's PC (the one with the TV signing key) runs tv/home/publish.ps1 when main has a newer tv/home/version.json than the TVs' feed (at start, after a pull, every 15 minutes; only what is on GitHub's main; a failed publish retried after an hour); publish.ps1 takes a lock so two publishes never run at once",
-  "Setup window fits its content on any PC: the window grows to what the page needs (bigger text, display scaling, Windows 10), up to the screen, and the page scales down past that"
+  "publishTv: no error kept when the TVs already have the version; another publish running is not a failure"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11521,7 +11521,7 @@
   "phone/www/tv/family.js": "1b03a70f95155e19cac6d1f6afbbc749f0ec7862f77f5e541c70a7f0efeedc1b",
   "phone/www/tv/remote.js": "9c7efd9dc2d16f6c80cf1de7b942ca1131296a3d4f534a10afa24d32a191c3d7",
   "phone/www/tv/tv.css": "c9407a80a0902d6cbda95681c696c39401657caf1df70c9a0fdc422181063b33",
-  "phone/www/tv/tv.js": "c6043290b6ca4f3eaeb83e1ae4b3b939a1c06352cf6a060337fad6a8e966e96f",
+  "phone/www/tv/tv.js": "01afc49afa1ddab36187afabd7769e87b8250372e3b819786c59fbe042d3b7ce",
   "shared/biz/api.js": "94aa1e1928d943c798ff50b3fc3e57f0fab972bcd4311a6f2ed84eeb489bb06a",
   "shared/biz/biz.css": "83ebb32e517aa24f0d9d80b165f4124388c0e91d848f08aa38136420a8f322ef",
   "shared/biz/buy.js": "e767b559bf6fcdc384f25d47ab7d5044feeeb5df2f209a41428888ae5b618942",

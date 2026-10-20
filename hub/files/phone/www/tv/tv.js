@@ -19,7 +19,7 @@ import { mountFamily, mountHealth, mountShop, mountSport, mountTogether, sheet, 
 
 const PORT = 8799;
 const RELAY = 'https://shivo-tv.ishivamparmar.workers.dev';   // tv/relay; finds the TV by this phone's key fingerprint
-const OLD_RELAY = 'shivo-tv-relay-test.ishivamparmar.workers.dev';   // its name until 20 Oct 2026
+const OLD_RELAY = 'shivo-tv-relay-test.ishivamparmar.workers.dev';   // its name until 20 Oct 2026 (deleted 21 Oct; saved addresses are moved)
 const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const svg = (d) => `<svg viewBox="0 0 24 24">${d}</svg>`;
@@ -108,8 +108,6 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
       if (r) { if (away) { away = false; paintWhere(); } }
       else if (hasRelay()) {
         r = await get(relayUrl(path, q), ms + 4000, post, body).catch(() => null);
-        // a TV that hasn't updated yet is still on the relay's old name (until TV 1.0.19 installs itself)
-        if (!r || r.status === 503) { const o = await get(relayUrl(path, q).replace(new URL(RELAY).host, OLD_RELAY), ms + 4000, post, body).catch(() => null); if (o && o.status !== 503) r = o; }
         if (r && r.status !== 503 && !away) { away = true; paintWhere(); }
       }
     }
