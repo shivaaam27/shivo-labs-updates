@@ -3,7 +3,7 @@
 The iPhone talks to it over whatever network both devices share (home Wi-Fi,
 the iPhone's Personal Hotspot, ...). Nothing leaves that network.
 """
-import hashlib, itertools, json, mimetypes, mmap, os, re, secrets, shutil, socket, subprocess, sys, threading, time, urllib.parse, webbrowser
+import hashlib, itertools, json, urllib.request, urllib.error, mimetypes, mmap, os, re, secrets, shutil, socket, subprocess, sys, threading, time, urllib.parse, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -81,6 +81,7 @@ def save_config(cfg):
 #                    through the relay it must show that key, and nothing else (the pairing code and "accept this
 #                    phone" don't apply there). Removing a phone on the PC deletes its key.
 RELAY_URL = "https://shivo-labs-beam-relay.ishivamparmar.workers.dev"
+HUB_URL = os.environ.get("SHIVO_HUB", "http://127.0.0.1:4800")   # the hub on this PC (Shivo Cloud joins go through it)
 RELAY = HOME / "relay.json"
 KEYS = HOME / "relay-keys.json"
 _keys, _key_lock = None, threading.Lock()
@@ -728,6 +729,28 @@ class Handler(BaseHTTPRequestHandler):
                 transfer_pulse()
                 yield b
 
+    def files_join(self):
+        """A phone joining Shivo Cloud (hub/api/files.mjs): only on the home Wi-Fi (never through the relay, where
+        Cloudflare could swap the keys) and only a phone holding its Beam key. The phone's public key goes to the hub,
+        which answers with the details sealed for that phone alone (files/FORMAT.md, "Joining a phone")."""
+        if self.via_relay():
+            return self.reply(403, json.dumps({"error": "Connect on the same Wi-Fi as your PC."}), "application/json")
+        did = device_for_key(self.headers.get("X-Beam-Key", "") or self.param("k"))
+        if not did:
+            return self.reply(401, json.dumps({"error": "Open Beam once on the same Wi-Fi as your PC first."}), "application/json")
+        try:
+            body = json.loads(b"".join(self.body_chunks())[:4096] or b"{}")
+            req = urllib.request.Request(HUB_URL + "/api/files/join", method="POST",
+                                         data=json.dumps({"pub": body.get("pub", ""), "name": str(body.get("name") or "iPhone")[:60],
+                                                          "kind": str(body.get("kind") or "iphone")[:12]}).encode(),
+                                         headers={"content-type": "application/json", "x-hub": "1"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return self.reply(200, r.read(), "application/json")
+        except urllib.error.HTTPError as e:
+            return self.reply(e.code, e.read() or b"{}", "application/json")
+        except (OSError, ValueError) as e:
+            return self.reply(503, json.dumps({"error": "Shivo Labs on the PC didn't answer (" + str(e)[:80] + ")"}), "application/json")
+
     def drain(self):
         """After refusing an upload: read and drop the rest of its body before the connection closes. Closing with
         unread data makes Windows reset the connection, and the answer (401/403) is lost on the way: through the relay
@@ -854,6 +877,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.route()
+        if path == "/files/join":
+            return self.files_join()
         if path == "/revoke":   # the hub, when you remove a phone on the PC: its key stops working
             if self.client_address[0] != "127.0.0.1" or not self.via_relay():
                 return self.reply(403, "Not allowed")

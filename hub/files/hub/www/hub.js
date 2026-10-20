@@ -1,6 +1,7 @@
 // Shivo Labs hub: splash, first-run welcome, then the home of module cards (like the phone app).
 // A module with a page ("page": true in modules.json) opens inside the hub; the others start their own window.
 import { mountBeam } from './modules/beam.js';
+import { mountFiles } from './modules/files.js';
 import { mountXtools } from './modules/xtools.js';
 import { mountChat } from '/shared/chat/chat.js';
 import { makeAiPage, aiSettings, aiCommand } from './modules/ai.js';
@@ -10,7 +11,7 @@ import { mountBusiness } from './modules/business.js';
 import { mountTv } from './modules/tv.js';
 import { quietStart, quietReload } from './modules/quiet.js';
 const QUIET = quietStart();   // this load follows a quiet update: no splash, no entrance animations
-const PAGES = { business: mountBusiness, chat: mountChat, mirror: mountMirror, beam: mountBeam, xtools: mountXtools, tv: mountTv };  // module id -> its screen (modules/<id>.js)
+const PAGES = { business: mountBusiness, chat: mountChat, mirror: mountMirror, beam: mountBeam, files: mountFiles, xtools: mountXtools, tv: mountTv };  // module id -> its screen (modules/<id>.js)
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

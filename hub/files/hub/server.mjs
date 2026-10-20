@@ -9,6 +9,7 @@ import { join, dirname, extname, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { beamApi, startBeam, superviseBeam } from "./api/beam.mjs";
+import { filesApi } from "./api/files.mjs";
 import { xtoolsApi } from "./api/xtools.mjs";
 import { settingsApi } from "./api/settings.mjs";
 import { mirrorApi, superviseMirror } from "./api/mirror.mjs";
@@ -62,6 +63,7 @@ http.createServer(async (req, res) => {
   if (req.method !== "GET" && req.headers["x-hub"] !== "1") return send(res, 403, { error: "forbidden" });
   try {
     if (await beamApi(req, res, url.pathname, url)) return;
+    if (await filesApi(req, res, url.pathname, url)) return;
     if (await xtoolsApi(req, res, url.pathname, url)) return;
     if (await settingsApi(req, res, url.pathname)) return;
     if (await mirrorApi(req, res, url.pathname)) return;

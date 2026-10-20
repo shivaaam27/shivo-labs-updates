@@ -119,6 +119,16 @@ export let filesState = '';
 let filesNote = null;
 export const onFilesNote = (fn) => { filesNote = fn; };
 
+// Joining Shivo Cloud (engine/cloud.js) happens only straight over the home Wi-Fi, never through the relay
+export async function lanForJoin() {
+  const j = await resolve(8000);
+  if (!j) throw denial() || cantReach();
+  if (viaRelay()) throw new Error('Connect on the same Wi-Fi as your PC.');
+  const R = rd(RK);
+  if (!R?.key) throw new Error('Open Beam once on the same Wi-Fi as your PC first.');
+  return { base: route.base, key: R.key, bid: deviceId(), name: deviceName() };
+}
+
 // Find the PC now: the home Wi-Fi first (beam.local and its last known addresses, all at once), then the relay.
 // Returns the PC's answer to /ping, or null. A phone that has been accepted before gives the Wi-Fi only a few seconds;
 // a new one waits as long as asked, since the PC's owner may be clicking Accept.

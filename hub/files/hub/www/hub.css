@@ -400,3 +400,22 @@ html.calm #splash{display:none}
 .tvw .field{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);font:15px var(--body);color:var(--text);margin:6px 0}
 .tvw .btn.sm{padding:12px;font-size:14px}
 .tvw button{cursor:pointer}
+
+/* Files (Shivo Cloud) */
+.fl-head{flex-wrap:wrap}
+.fl-crumbs{display:flex;align-items:center;gap:2px;flex:1;min-width:0;font:600 16px/1 var(--display);overflow:hidden}
+.fl-crumbs span{color:var(--muted);margin:0 2px}
+.fl-crumbs b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fl-drop{display:flex;align-items:center;gap:12px;padding:14px 16px;margin:8px 0 6px;border:1.5px dashed var(--line);border-radius:14px;cursor:pointer;transition:border-color .2s,background .2s}
+.fl-drop:hover,.fl-drop.drag{border-color:var(--sage);background:var(--sage-soft)}
+.fl-drop svg{width:20px;height:20px;stroke:var(--sage);fill:none;stroke-width:2}
+.fl-drop b{font:500 15px var(--display)}.fl-drop small{color:var(--muted);font-size:12.5px;margin-left:auto}
+.fl-drop.busy svg{animation:breathe 1.2s infinite}
+.fl-row{position:relative}
+.fl-open{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:12px;flex:1;min-width:0;cursor:pointer}
+.fl-row .ext svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
+.fl-row .bm-devmenu{position:absolute;right:44px;top:6px;z-index:3;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-ctl);padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.12)}
+.fl-bar{height:6px;border-radius:3px;background:var(--hover);overflow:hidden;margin-top:4px}
+.fl-bar i{display:block;height:100%;background:var(--sage)}
+.fl-code{display:block;margin-top:8px;font:600 13px/1.6 ui-monospace,monospace;word-break:break-all;user-select:all}
+.bm-hint svg{width:13px;height:13px;vertical-align:-2px;margin-right:4px;fill:none;stroke:currentColor;stroke-width:2}

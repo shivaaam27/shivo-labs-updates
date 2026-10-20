@@ -8,9 +8,15 @@
     "full": true,
     "embed": "http://localhost:4823/",
     "port": 4823,
-    "dir": ["%USERPROFILE%\\Documents\\Shivo Labs AI\\fabra-labs-ai", "%ROOT%\\ai\\app"],
+    "dir": [
+      "%USERPROFILE%\\Documents\\Shivo Labs AI\\fabra-labs-ai",
+      "%ROOT%\\ai\\app"
+    ],
     "check": "server.mjs",
-    "server": ["%NODE%", "launcher.mjs"]
+    "server": [
+      "%NODE%",
+      "launcher.mjs"
+    ]
   },
   {
     "id": "business",
@@ -42,6 +48,13 @@
     "engine": "beam",
     "port": 8765,
     "icon": "<path d=\"M4 12h11M11 7l5 5-5 5\"/><path d=\"M20 5v14\"/>"
+  },
+  {
+    "id": "files",
+    "name": "Files",
+    "sub": "Shivo Cloud, with the PC off too",
+    "page": true,
+    "icon": "<path d=\"M7 18a4.5 4.5 0 0 1-.8-8.93A6 6 0 0 1 17.6 8.5 4 4 0 0 1 17 18z\"/><path d=\"M12 11v5m0-5-2 2m2-2 2 2\"/>"
   },
   {
     "id": "xtools",
