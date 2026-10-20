@@ -6,7 +6,7 @@
 import { createDemo } from './demo.js';
 
 // Filled in after the server is deployed, so people only type an invite code. Can be changed on the sign-in screen.
-export const DEFAULT_SERVER = '';
+export const DEFAULT_SERVER = 'https://shivo-labs-chat.ishivamparmar.workers.dev';
 
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const EMOJI_TABS = {

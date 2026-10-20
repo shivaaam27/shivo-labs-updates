@@ -1,14 +1,14 @@
 {
- "version": "1.0.367",
- "build": 367,
- "built": "2026-10-20T18:24:24.547Z",
+ "version": "1.0.368",
+ "build": 368,
+ "built": "2026-10-20T19:14:24.574Z",
  "notes": [
+  "Chat online: server live on Cloudflare with file storage (R2), address built into the laptop and phone apps, 2 GB file space per team",
   "TV 1.0.19: updates install only under the screensaver (never on the home screen; Android 12+ without a box, Android 11 under a dark cover); relay renamed to shivo-tv (phone falls back to the old name and moves saved addresses); tidy-up: old Features styles, unused code and timing logs; profiles decisions recorded",
   "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b",
   "TV 1.0.18: new pop-up look, no big picture on the Apps page",
   "Shivo Labs Cloud: Beam and Files are one module, on the laptop and the phone",
-  "TV pop-ups in the new Shivo look (Look.java: Inter, dark glass, an icon tile per kind, OK and Back as key caps, a line that runs down until the card goes; score pill; phone code card); clearer words (Message · Mum, Today: Mum's birthday, Turns 60, Missed video call at 20:41); not yet seen on the TV",
-  "Merge remote-tracking branch 'origin/main' into claude/tv-module-bloatware-828b8b"
+  "TV pop-ups in the new Shivo look (Look.java: Inter, dark glass, an icon tile per kind, OK and Back as key caps, a line that runs down until the card goes; score pill; phone code card); clearer words (Message · Mum, Today: Mum's birthday, Turns 60, Missed video call at 20:41); not yet seen on the TV"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11527,7 +11527,7 @@
   "shared/biz/till.js": "1538f577e789ccd8e86247dd9407f00cd6d00d109c0fe8f733d0f33f8acf1eb7",
   "shared/biz/ui.js": "ab9d0e3570ee448c6e128c25a8e44a02e400f672065c2272889c921fbb65aa3c",
   "shared/chat/chat.css": "b4e52286b9d1bf68989d501e757322be649a838e29896f8c67141821ce339cbc",
-  "shared/chat/chat.js": "216c93a01689e68926455a87ece09cec84bc2dad217c855214718fceb8fcc4e0",
+  "shared/chat/chat.js": "f1aac015a9a9730dec66d2bb5a7445184a18738f0346e8bdd3c3fc515667f6d2",
   "shared/chat/demo.js": "6bec00d380d5b9ac3be6485e9fec6a8131139fbf2ea5108c11dde1f25b3f4dd0",
   "shared/fabra-loader.css": "f392a4ccf93938b7de7682b2e604bc6fd87e6b72b80ab45faff29bf460e9fa91",
   "shared/fabra-loader.js": "a83a80e56e113929c85f8e25fa47d899fe0a58096b5c6b1fb1c7807478d7a8b6",
