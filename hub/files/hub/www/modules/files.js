@@ -57,6 +57,10 @@ export function mountFiles(root, { esc, toast }) {
     el.innerHTML = `<div class="bm-h"><h2>Shivo Cloud</h2><small class="bm-hint">${svg('lock')}Encrypted</small></div>
       <div class="fl-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
       <p class="bm-note">${size(st.used || 0)} of ${size(st.quota || 0)} used</p>
+      <div class="bm-h" style="margin-top:14px"><h2>Synced with this PC</h2><button class="tbtn" id="flSyncNow">Sync now</button></div>
+      ${(st.sync?.pairs || []).map((p) => `<div class="file"><span class="ext">${svg('folder')}</span>
+        <div class="meta"><div class="n">${esc(p.name)}</div><div class="s">${esc(p.local)}</div></div></div>`).join('')}
+      <p class="bm-note">${st.sync?.error ? 'Sync problem: ' + esc(st.sync.error) : st.sync?.busy ? esc(st.sync.busy) + '…' : st.sync?.last ? 'Synced ' + ago(st.sync.last) : 'Not synced yet'}. Add folders on the Beam page.</p>
       <div class="bm-h" style="margin-top:14px"><h2>Devices</h2></div>
       ${devs.map((d) => `<div class="file"><span class="ext">${d.admin ? 'PC' : (d.kind || 'DEV').slice(0, 4).toUpperCase()}</span>
         <div class="meta"><div class="n">${esc(d.name)}</div><div class="s">${d.last_seen ? 'Seen ' + ago(d.last_seen) : 'Added ' + ago(d.created)}</div></div>
@@ -65,6 +69,7 @@ export function mountFiles(root, { esc, toast }) {
       <details class="bm-more"><summary>${svg('lock')}Recovery code</summary>
         <p class="bm-note">Keep this somewhere safe. Without it, files can't be read if this PC and your phones are lost.</p>
         <button class="tbtn" id="flShowCode">Show</button><code class="fl-code" id="flCode"></code></details>`;
+    $('#flSyncNow').onclick = async () => { await post('/api/files/sync'); toast('Syncing'); setTimeout(() => { side(); show(); }, 4000); };
     root.querySelectorAll('[data-unlink]').forEach((b) => (b.onclick = async () => {
       if (!confirm('Remove this device? It loses access to Shivo Cloud.')) return;
       await post('/api/files/device-remove', { id: b.dataset.unlink }); toast('Removed'); side();

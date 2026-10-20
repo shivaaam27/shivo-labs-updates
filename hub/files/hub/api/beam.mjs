@@ -265,7 +265,7 @@ async function saveFolders(list) {
 // Windows' own folder picker, in front of the hub window
 const pickFolder = () => new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-Command",
   "Add-Type -AssemblyName System.Windows.Forms; $o = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true };" +
-  "$d = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ Description = 'Choose a folder to see on your phone'; ShowNewFolderButton = $false };" +
+  "$d = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ Description = 'Choose a folder to keep in Shivo Cloud'; ShowNewFolderButton = $false };" +
   "if ($d.ShowDialog($o) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }"],
   { windowsHide: true, timeout: 300000 }, (e, out) => ok(e ? "" : String(out || "").trim())));
 // a whole drive or Windows' own folders: too much to put on a phone

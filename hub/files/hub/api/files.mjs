@@ -16,7 +16,7 @@ const STATE = join(DIR, "cloud.json");
 const CREATE_KEY_FILE = process.env.HUB_FILES_CREATE_KEY || join(homedir(), ".fabra-labs-ai", "files", "create.key");
 
 let state = null;
-function load() {
+export function load() {
   if (state) return state;
   try { const s = JSON.parse(readFileSync(STATE, "utf8")); s.masterKey = C.unb64u(s.master); return (state = s); } catch { return null; }
 }
@@ -37,15 +37,15 @@ async function api(path, { method = "GET", body, raw, headers = {} } = {}) {
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new CloudError(r.status, j.error || `Shivo Cloud answered ${r.status}`); }
   return r;
 }
-const apiJson = async (path, opts) => (await api(path, opts)).json();
+export const apiJson = async (path, opts) => (await api(path, opts)).json();
 
 // the names on the server are encrypted: these are the readable ones
-function readable(it) {
+export function readable(it) {
   const s = load(); let name;
   try { name = C.decName(s.masterKey, it.name); } catch { name = "(can't read this name)"; }
   return { id: it.id, parent: it.parent, kind: it.kind, name, size: it.size, mtime: it.mtime, version: it.version, deleted: it.deleted };
 }
-async function list(parent = "") {
+export async function list(parent = "") {
   const j = await apiJson("/v1/items?parent=" + encodeURIComponent(parent));
   return j.items.map(readable).sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) : a.kind === "folder" ? -1 : 1));
 }
@@ -124,7 +124,8 @@ export async function filesApi(req, res, path, url) {
       const s = load();
       if (!s) return json(res, 200, { ready: false }), true;
       const me = await apiJson("/v1/me").catch((e) => ({ error: e.message }));
-      return json(res, 200, { ready: true, ...me }), true;
+      const { syncState, syncPairs } = await import("./files-sync.mjs");
+      return json(res, 200, { ready: true, ...me, sync: { ...syncState, pairs: syncPairs() } }), true;
     }
     if (req.method === "GET" && what === "list") return json(res, 200, { items: await list(url.searchParams.get("parent") || "") }), true;
     if (req.method === "GET" && what === "path") {   // the folders above one, for the breadcrumb
@@ -145,9 +146,12 @@ export async function filesApi(req, res, path, url) {
     if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
 
     if (what === "setup") return json(res, 200, { ok: !!(await setup((await readBody(req)).name)) }), true;
+    if (what === "sync") { (await import("./files-sync.mjs")).syncNow(); return json(res, 200, { ok: true }), true; }
     if (what === "upload") {   // body = the file; ?parent=&name=
       const parent = url.searchParams.get("parent") || "", size = Number(req.headers["content-length"]);
       if (!Number.isFinite(size)) return json(res, 411, { error: "Size missing" }), true;
+      const replaces = url.searchParams.get("replaces");   // a new version of an existing file
+      if (replaces) { const it = readable(await apiJson("/v1/item/" + replaces)); return json(res, 200, await upload(it.parent, it.name, size, req, replaces)), true; }
       const name = await freeName(parent, cleanName(url.searchParams.get("name")));
       return json(res, 200, await upload(parent, name, size, req)), true;
     }

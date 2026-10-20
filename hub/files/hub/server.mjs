@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { beamApi, startBeam, superviseBeam } from "./api/beam.mjs";
 import { filesApi } from "./api/files.mjs";
+import { startFilesSync } from "./api/files-sync.mjs";
 import { xtoolsApi } from "./api/xtools.mjs";
 import { settingsApi } from "./api/settings.mjs";
 import { mirrorApi, superviseMirror } from "./api/mirror.mjs";
@@ -95,5 +96,5 @@ http.createServer(async (req, res) => {
     if (!(await stat(file).catch(() => null))?.isFile()) return send(res, 404, "Not found", "text/plain");
     return send(res, 200, await readFile(file), TYPES[extname(file)] || "application/octet-stream");
   } catch (e) { return send(res, 500, { error: String(e.message || e) }); }
-}).listen(PORT, "127.0.0.1", () => { console.log(`Shivo Labs hub on http://localhost:${PORT}`); if (PORT === 4800) { superviseBeam(); superviseMirror(); autoCheck(); startPcLink(); } else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); })
+}).listen(PORT, "127.0.0.1", () => { console.log(`Shivo Labs hub on http://localhost:${PORT}`); if (PORT === 4800) { superviseBeam(); superviseMirror(); autoCheck(); startPcLink(); startFilesSync(); } else if (process.env.HUB_FILES_SYNC) startFilesSync(); else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); })
   .on("error", (e) => console.log(e.code === "EADDRINUSE" ? `Port ${PORT} is busy; the hub may already be running.` : e.message));

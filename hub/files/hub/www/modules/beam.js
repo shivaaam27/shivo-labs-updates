@@ -66,8 +66,8 @@ export function mountBeam(root, { esc, toast, openModule }) {
           <p class="bm-note" id="bmNote"></p>
         </div>
         <div class="card bm-card">
-          <div class="bm-h"><h2>Folders on your phone</h2><button class="tbtn" id="bmAddFolder">${svg('folder')}Add folder</button></div>
-          <p class="bm-note">Shown in the Files app on your phone. Files download only when opened.</p>
+          <div class="bm-h"><h2>Folders in Shivo Cloud</h2><button class="tbtn" id="bmAddFolder">${svg('folder')}Add folder</button></div>
+          <p class="bm-note">Kept in sync with Shivo Cloud, so they open on your phone with this PC off.</p>
           <div id="bmFolders"></div>
         </div>
         <div class="card bm-card">
@@ -214,14 +214,14 @@ export function mountBeam(root, { esc, toast, openModule }) {
     $('#bmFolders').innerHTML = row('Beam', f.beam, false) + f.list.map((x) => row(x.name, x.path, true, x.missing)).join('');
     root.querySelectorAll('[data-unshare]').forEach((b) => (b.onclick = async () => {
       const r = await post('/api/beam/folders', JSON.stringify({ remove: b.dataset.unshare }));
-      if (r.ok) { toast('Removed from your phone'); loadFolders(); }
+      if (r.ok) { toast('No longer synced. The copy in Shivo Cloud stays.'); loadFolders(); }
     }));
   }
   const loadFolders = () => fetch('/api/beam/folders').then((r) => r.json()).then(paintFolders).catch(() => {});
   $('#bmAddFolder').onclick = async () => {
     const r = await post('/api/beam/folders', JSON.stringify({ add: true }));
     const j = await r.json().catch(() => ({}));
-    if (j.ok) { toast('Added. It shows on your phone the next time Files opens it.'); loadFolders(); }
+    if (j.ok) { toast('Added. It syncs to Shivo Cloud in a moment.'); loadFolders(); }
     else if (j.error) toast(j.error);
   };
   loadFolders();

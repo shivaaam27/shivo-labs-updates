@@ -110,8 +110,8 @@ function shareWithFiles(pc) {
   const sig = JSON.stringify([bases, R.key, pc]);
   if (sig === sharedSig) return;
   sharedSig = sig;
-  N.info().then((i) => i.beamFiles && N.beamShare({ bases, key: R.key, bid: deviceId(), pc: pc || 'Your PC' }))
-    .then((r) => { filesState = r ? (r.files ? 'ok' : (r.error || 'not added')) : ''; if (r && !r.files) filesNote?.(filesState); })
+  N.info().then((i) => i.beamFiles && N.beamShare({ bases, key: R.key, bid: deviceId(), pc: pc || 'Your PC', location: false }))
+    .then((r) => { filesState = r?.error || ''; if (r?.error) filesNote?.(r.error); })
     .catch((e) => { sharedSig = ''; filesState = String(e?.message || e); filesNote?.(filesState); });
 }
 // whether "Your PC" is in the Files app ('ok', or why not); the app shows a reason when it fails
