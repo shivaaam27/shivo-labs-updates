@@ -1,14 +1,14 @@
 {
- "version": "1.0.392",
- "build": 392,
- "built": "2026-10-20T22:31:23.173Z",
+ "version": "1.0.395",
+ "build": 395,
+ "built": "2026-10-20T22:35:11.376Z",
  "notes": [
+  "Setup window fits its content on any PC: the window grows to what the page needs (bigger text, display scaling, Windows 10), up to the screen, and the page scales down past that",
+  "TV handover: why 1.0.19 wasn't published; 1.0.20 live",
+  "TV 1.0.20: Update the TV tells the phone whether the TV already has the newest version (or which version is downloading or ready); phone shows that instead of always saying it is getting the newest",
   "TV live card: Lock Screen and Dynamic Island card with the TV's buttons while something plays (iPhone), notification + home screen widget (Android)",
   "TV handover: 1.0.19 was committed but never published, so the TV stayed on 1.0.18; published 21 Oct (code 20)",
-  "Cloud joins with the Shivo Labs pass: one account per customer, no setup code",
-  "Docs: the Android app updates itself",
-  "Android app updates itself: ShivoUpdate (download with resume, SHA-256 and signing-key check, Android's installer), checked on opening (asked once a day per version), after allowing installs, and in Settings > Check for updates",
-  "Docs: fix backslashes in the Android build paths"
+  "Cloud joins with the Shivo Labs pass: one account per customer, no setup code"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11520,7 +11520,7 @@
   "phone/www/tv/family.js": "1b03a70f95155e19cac6d1f6afbbc749f0ec7862f77f5e541c70a7f0efeedc1b",
   "phone/www/tv/remote.js": "9c7efd9dc2d16f6c80cf1de7b942ca1131296a3d4f534a10afa24d32a191c3d7",
   "phone/www/tv/tv.css": "c9407a80a0902d6cbda95681c696c39401657caf1df70c9a0fdc422181063b33",
-  "phone/www/tv/tv.js": "87c21cb8da5a63e88485420204cffd0f0d1e7926566ecd4058c3e5d08733e29d",
+  "phone/www/tv/tv.js": "c6043290b6ca4f3eaeb83e1ae4b3b939a1c06352cf6a060337fad6a8e966e96f",
   "shared/biz/api.js": "94aa1e1928d943c798ff50b3fc3e57f0fab972bcd4311a6f2ed84eeb489bb06a",
   "shared/biz/biz.css": "83ebb32e517aa24f0d9d80b165f4124388c0e91d848f08aa38136420a8f322ef",
   "shared/biz/buy.js": "e767b559bf6fcdc384f25d47ab7d5044feeeb5df2f209a41428888ae5b618942",

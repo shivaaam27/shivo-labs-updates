@@ -517,9 +517,13 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
     root.querySelectorAll('[data-tvupdate]').forEach((b) => (b.onclick = async () => {
       buzz();
       try {
-        const r = await call('/update', {}, { post: true });
-        toast(r.ok ? 'The TV is getting the newest version. It installs by itself while the screensaver is on.'
-          : 'This TV needs Shivo Labs TV 1.0.10 for this button; it gets there by itself.');
+        toast('Checking the TV…');
+        const r = await call('/update', {}, { post: true, ms: 9000 });
+        // TV 1.0.20+ says whether it already has the newest version; older TVs only say ok
+        toast(!r.ok ? 'This TV needs Shivo Labs TV 1.0.10 for this button; it gets there by itself.'
+          : r.newest === true ? `The TV has the newest version (${r.version}).`
+          : r.newest === false ? `Version ${r.newVersion} is ${r.ready ? 'ready' : 'downloading'}. It installs by itself while the screensaver is on.`
+          : 'The TV is getting the newest version. It installs by itself while the screensaver is on.');
       } catch (e) { toast(e.message); }
     }));
     root.querySelectorAll('[data-sheet]').forEach((b) => (b.onclick = () => { buzz(); ({ shop: shopSheet, corner: cornerSheet, inputs: inputsSheet })[b.dataset.sheet]?.(); }));
