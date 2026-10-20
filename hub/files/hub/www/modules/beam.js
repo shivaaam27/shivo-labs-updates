@@ -65,6 +65,11 @@ export function mountBeam(root, { esc, toast, openModule }) {
           <ol class="bm-steps" id="bmSteps"></ol>
           <p class="bm-note" id="bmNote"></p>
         </div>
+        <div class="card bm-card">
+          <div class="bm-h"><h2>Folders on your phone</h2><button class="tbtn" id="bmAddFolder">${svg('folder')}Add folder</button></div>
+          <p class="bm-note">Shown in the Files app on your phone. Files download only when opened.</p>
+          <div id="bmFolders"></div>
+        </div>
       </div>
     </div>`;
   const $ = (s) => root.querySelector(s);
@@ -161,7 +166,7 @@ export function mountBeam(root, { esc, toast, openModule }) {
     if (url) { const q = qrcode(0, 'M'); q.addData(url); q.make(); $('#bmQr').innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }); }
     else $('#bmQr').innerHTML = '<p class="emptyt">Start Beam once to make the link.</p>';
     $('#bmSteps').innerHTML = steps.map((s) => `<li>${s}</li>`).join('');
-    $('#bmNote').innerHTML = `iPhone and PC need the same network: home Wi-Fi or the iPhone's Personal Hotspot. No internet needed.${pairMode === 'web' ? ' <button class="tbtn" id="bmIp">Link won\'t open? Use the IP address</button>' : ''}${st.trusted ? ` ${st.trusted} iPhone${st.trusted > 1 ? 's' : ''} trusted.` : ''}`;
+    $('#bmNote').innerHTML = `Set up on the same Wi-Fi as this PC. After that it also works away from home.${pairMode === 'web' ? ' <button class="tbtn" id="bmIp">Link won\'t open? Use the IP address</button>' : ''}${st.trusted ? ` ${st.trusted} iPhone${st.trusted > 1 ? 's' : ''} trusted.` : ''}`;
     $('#bmIp')?.addEventListener('click', () => { pairMode = 'web-ip'; paintPair(); });
   }
   $('#bmSeg').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; pairMode = b.dataset.m; root.querySelectorAll('#bmSeg button').forEach((x) => x.classList.toggle('on', x === b)); st && paintPair(); };
@@ -195,6 +200,26 @@ export function mountBeam(root, { esc, toast, openModule }) {
     if (r.ok) { $('#bmText').value = ''; toast(`Text ready for ${label(ids)}`); load(); } else toast("Couldn't add the text");
   };
   $('#bmFolder').onclick = () => post('/api/beam/reveal');
+
+  // ---------- folders on the phone (Files app): Beam always, plus the ones added here
+  function paintFolders(f) {
+    const row = (name, path, removable, missing) => `<div class="file"><span class="ext">${svg('folder')}</span>
+      <div class="meta"><div class="n">${esc(name)}</div><div class="s">${missing ? 'Not found on this PC' : esc(path)}</div></div>
+      ${removable ? `<button class="ibtn" data-unshare="${esc(path)}" aria-label="Remove">${svg('x')}</button>` : ''}</div>`;
+    $('#bmFolders').innerHTML = row('Beam', f.beam, false) + f.list.map((x) => row(x.name, x.path, true, x.missing)).join('');
+    root.querySelectorAll('[data-unshare]').forEach((b) => (b.onclick = async () => {
+      const r = await post('/api/beam/folders', JSON.stringify({ remove: b.dataset.unshare }));
+      if (r.ok) { toast('Removed from your phone'); loadFolders(); }
+    }));
+  }
+  const loadFolders = () => fetch('/api/beam/folders').then((r) => r.json()).then(paintFolders).catch(() => {});
+  $('#bmAddFolder').onclick = async () => {
+    const r = await post('/api/beam/folders', JSON.stringify({ add: true }));
+    const j = await r.json().catch(() => ({}));
+    if (j.ok) { toast('Added. It shows on your phone the next time Files opens it.'); loadFolders(); }
+    else if (j.error) toast(j.error);
+  };
+  loadFolders();
   // which browser opens links shared from the phone (Safari > Share > Beam / Send to PC)
   fetch('/api/beam/browsers').then((r) => r.json()).then(({ chosen, list }) => {
     const sel = $('#bmBrowser');

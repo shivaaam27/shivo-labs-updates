@@ -254,6 +254,31 @@ function clipboardPaths() {
     (e, out) => ok(e ? [] : String(out).split("\n").map((l) => l.trim()).filter(Boolean))));
 }
 
+// ---------- folders on the phone: phone-folders.json, a list [{name, path}] (beam/app/beam/beamfs.py reads it on
+// every request, so a change shows on the phone at once). The Beam folder is always shared and isn't in it.
+const FOLDERS = join(HOME, "phone-folders.json");
+const readFolders = async () => { const v = await readJsonFile(FOLDERS); return Array.isArray(v) ? v : []; };
+async function saveFolders(list) {
+  await mkdir(HOME, { recursive: true });
+  await writeFile(FOLDERS + ".tmp", JSON.stringify(list)); await rename(FOLDERS + ".tmp", FOLDERS);
+}
+// Windows' own folder picker, in front of the hub window
+const pickFolder = () => new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-Command",
+  "Add-Type -AssemblyName System.Windows.Forms; $o = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true };" +
+  "$d = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ Description = 'Choose a folder to see on your phone'; ShowNewFolderButton = $false };" +
+  "if ($d.ShowDialog($o) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }"],
+  { windowsHide: true, timeout: 300000 }, (e, out) => ok(e ? "" : String(out || "").trim())));
+// a whole drive or Windows' own folders: too much to put on a phone
+function folderRefused(p) {
+  const n = p.replace(/[\\/]+$/, "").toLowerCase();
+  if (/^[a-z]:$/.test(n)) return "Choose a folder, not a whole drive.";
+  const sys = [process.env.WINDIR, process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.ProgramData, process.env.APPDATA, process.env.LOCALAPPDATA, homedir()]
+    .filter(Boolean).map((s) => s.replace(/[\\/]+$/, "").toLowerCase());
+  if (sys.includes(n)) return "That folder holds Windows or app files. Choose one of your own folders.";
+  if (sys.slice(0, 6).some((s) => n.startsWith(s + "\\"))) return "That folder holds Windows or app files. Choose one of your own folders.";
+  return "";
+}
+
 // ---------- "Accept files from an iPhone?" (asked by the engine, answered in the hub window)
 const asks = new Map();  // id -> { ip, at, done(ok) }
 let lastLook = 0, askSeq = 0;
@@ -302,6 +327,29 @@ export async function beamApi(req, res, path, url) {
       waiting: await files(OUTBOX), received: await files(INBOX, 8), devices: await deviceList(),
       relay: { connected: relayState.connected, since: relayState.since, error: relayState.error },
     }), true;
+  }
+  // ---------- folders on the phone (the iPhone's Files app): the Beam folder always, plus the ones added here
+  if (req.method === "GET" && what === "folders") {
+    const list = await readFolders();
+    return json(res, 200, { beam: INBOX, list: list.map((f) => ({ ...f, missing: !existsSync(f.path) })) }), true;
+  }
+  if (req.method === "POST" && what === "folders") {
+    let body = ""; for await (const c of req) body += c;
+    const { add, remove } = JSON.parse(body || "{}");
+    const list = await readFolders();
+    if (remove) {
+      const next = list.filter((f) => f.path.toLowerCase() !== String(remove).toLowerCase());
+      await saveFolders(next); return json(res, 200, { ok: true, list: next }), true;
+    }
+    if (add) {
+      const path = await pickFolder();
+      if (!path) return json(res, 200, { ok: false, cancelled: true }), true;
+      const why = folderRefused(path);
+      if (why) return json(res, 400, { error: why }), true;
+      if (!list.some((f) => f.path.toLowerCase() === path.toLowerCase())) list.push({ name: basename(path) || path, path });
+      await saveFolders(list); return json(res, 200, { ok: true, list }), true;
+    }
+    return json(res, 400, { error: "Nothing to do" }), true;
   }
   if (req.method === "GET" && what === "asks") {  // the hub page checks for questions every couple of seconds
     lastLook = Date.now();

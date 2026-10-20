@@ -214,12 +214,18 @@ export async function sendReady() {
 export async function sendNative(list, onStep, opts = {}) {
   const N = plugin('ShivoNative');
   await ping(75000);   // the PC is there (and a new phone is accepted) before the files are handed over
+  // away from home a file goes through the relay, which takes up to 100 MB: bigger ones wait for the home Wi-Fi
+  // (iOS's upload service would otherwise try each one three times, over mobile data)
+  const BIG = 100 * 1024 * 1024;
+  const skipped = viaRelay() ? list.filter((f) => f.size > BIG).map((f) => `${f.name}: over 100 MB, send it on your home Wi-Fi`) : [];
+  if (skipped.length) list = list.filter((f) => !(f.size > BIG));
+  if (!list.length) return { sent: 0, failed: skipped };
   const before = (await N.beamSendStatus().catch(() => ({}))).id;   // (the last send's result isn't this one's)
   return new Promise((resolve, reject) => {
     let h1, h2, over = false, look = 0;
     const finish = (s) => {
       if (over) return; over = true; h1?.remove?.(); h2?.remove?.(); clearInterval(look);
-      resolve({ sent: (s.sent || []).length, failed: s.failed || [] });
+      resolve({ sent: (s.sent || []).length, failed: [...skipped, ...(s.failed || [])] });
     };
     // it may end while the app is asleep (the message to the page is then missed): look every few seconds
     look = setInterval(() => N.beamSendStatus().then((s) => { if (s.id && s.id !== before && !s.active) finish(s); }).catch(() => {}), 3000);

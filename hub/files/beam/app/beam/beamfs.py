@@ -1,9 +1,10 @@
 """Your PC in the iPhone's Files app: the PC folders a phone may browse, open and save into (beam.py passes /fs/ here).
 
 Only phones holding their own key (given when the PC accepted them) get in, on the home Wi-Fi or through the relay;
-the pairing code, the Shortcut and the browser page can't use it. Shared folders: Downloads, Desktop and Documents
-(config.json "shared": {"Name": "C:\\\\path"} replaces the list). Nothing outside them can be reached: every path is
-resolved and checked to stay inside its folder (no "..", no links pointing out). Deleting moves to the Recycle Bin.
+the pairing code, the Shortcut and the browser page can't use it. Shared: the Beam folder (Downloads, Beam; always)
+plus the folders added on the PC (hub, Beam, Folders on your phone; kept in phone-folders.json next to config.json).
+Nothing outside them can be reached: every path is resolved and checked to stay inside its folder (no "..", no
+links pointing out). Deleting moves to the Recycle Bin.
 
 Items are named "<Shared folder>/<path inside it>" with forward slashes; "" is the top (the list of shared folders).
   GET  /fs/list?p=<folder id>                  -> {"items": [{id, name, dir, size, mtime}]}
@@ -22,39 +23,31 @@ HIDDEN = {"desktop.ini", "thumbs.db", ".ds_store"}
 BAD_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
-def _known_folder(guid, fallback):
-    """Windows' real place for a standard folder (it may have been moved, e.g. into OneDrive)."""
-    if os.name == "nt":
-        try:
-            import ctypes, uuid
-            from ctypes import wintypes
-
-            class GUID(ctypes.Structure):
-                _fields_ = [("d1", wintypes.DWORD), ("d2", wintypes.WORD), ("d3", wintypes.WORD), ("d4", ctypes.c_ubyte * 8)]
-            u = uuid.UUID(guid)
-            g = GUID(u.fields[0], u.fields[1], u.fields[2], (ctypes.c_ubyte * 8)(*u.bytes[8:]))
-            p = ctypes.c_wchar_p()
-            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(p)) == 0:
-                out = p.value
-                ctypes.windll.ole32.CoTaskMemFree(p)
-                if out:
-                    return Path(out)
-        except Exception:
-            pass
-    return Path.home() / fallback
+# the same places as beam.py
+HOME = Path(os.environ.get("APPDATA", Path.home())) / "Beam"
+INBOX = Path.home() / "Downloads" / "Beam"
+FOLDERS = HOME / "phone-folders.json"
 
 
-def shared(cfg):
-    """{name: folder} the phone may see."""
-    given = cfg.get("shared")
-    if isinstance(given, dict) and given:
-        return {str(k): Path(v) for k, v in given.items() if Path(v).is_dir()}
-    out = {
-        "Downloads": _known_folder("374DE290-123F-4565-9164-39C4925E467B", "Downloads"),
-        "Desktop": _known_folder("B4BFCC3A-DB2C-424C-B029-7FE99A87C641", "Desktop"),
-        "Documents": _known_folder("FDD39AD0-238F-46AF-ADB4-6C85480369C7", "Documents"),
-    }
-    return {k: v for k, v in out.items() if v.is_dir()}
+def shared(cfg=None):
+    """{name: folder} the phone may see: the Beam folder, then the ones added on the PC (read each time, so a change
+    on the PC shows at once)."""
+    INBOX.mkdir(parents=True, exist_ok=True)
+    out = {"Beam": INBOX}
+    try:
+        extra = json.loads(FOLDERS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        extra = []
+    for f in extra if isinstance(extra, list) else []:
+        p = Path(str(f.get("path", "")))
+        if not p.is_dir():
+            continue
+        name, n = str(f.get("name") or p.name or "Folder")[:60], 2
+        base = name
+        while name in out:
+            name, n = f"{base} ({n})", n + 1
+        out[name] = p
+    return out
 
 
 class FsError(Exception):
@@ -78,7 +71,11 @@ def resolve(cfg, item_id):
         raise FsError(400, "Bad name")
     p = base.joinpath(*parts)
     real = Path(os.path.realpath(p))
-    if os.path.commonpath([str(real).lower(), str(base).lower()]) != str(base).lower():
+    try:
+        inside = os.path.commonpath([str(real).lower(), str(base).lower()]) == str(base).lower()
+    except ValueError:   # a link to another drive
+        inside = False
+    if not inside:
         raise FsError(403, "Outside the shared folders")
     return p, root, "/".join(parts)
 
