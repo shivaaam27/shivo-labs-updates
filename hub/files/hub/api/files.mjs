@@ -83,13 +83,26 @@ export async function upload(parent, name, size, plainStream, replaces) {
     throw e;
   }
 }
-// an item's plain bytes, as a stream
-export async function download(id) {
+// an item's plain bytes, as a stream (an older version when one is given)
+export async function download(id, version) {
   const s = load(), it = await apiJson("/v1/item/" + id);
   if (it.kind !== "file") throw new CloudError(400, "Not a file");
+  if (version && Number(version) !== it.version) {
+    const v = (await apiJson(`/v1/item/${id}/versions`)).versions.find((x) => x.version === Number(version));
+    if (!v) throw new CloudError(404, "That version is no longer kept");
+    const r = await api(`/v1/item/${id}/versions/${v.version}/file`), item = readable(it);
+    const dot = item.name.lastIndexOf("."), name = dot > 0 ? `${item.name.slice(0, dot)} (version ${v.version})${item.name.slice(dot)}` : `${item.name} (version ${v.version})`;
+    return { item: { ...item, size: v.size, name }, stream: Readable.fromWeb(r.body).pipe(C.decryptStream(C.unwrapKey(s.masterKey, v.key))) };
+  }
   const fileKey = C.unwrapKey(s.masterKey, it.key);
   const r = await api("/v1/file/" + id);
   return { item: readable(it), stream: Readable.fromWeb(r.body).pipe(C.decryptStream(fileKey)) };
+}
+// a file's versions, newest first (the current one first)
+async function versions(id) {
+  const j = await apiJson(`/v1/item/${id}/versions`);
+  const row = (v, current) => ({ version: v.version, size: v.size, at: v.created, current });
+  return [row(j.current, true), ...j.versions.map((v) => row(v, false))];
 }
 
 // ---------- share links and request-files links (files/FORMAT.md, "Sharing"). The key travels in the link after the
@@ -152,16 +165,36 @@ export async function claimRequests() {
 }
 
 // ---------- setting up, and phones joining
-async function setup(name) {
+const createKey = () => { try { return readFileSync(CREATE_KEY_FILE, "utf8").trim(); } catch { return ""; } };
+// Shivo Labs' own PCs (they hold the create key) make an account directly; a customer's PC uses the one-time setup code
+// Shivo Labs gave them, plus the account's recovery code when the account already has files (a second or new PC)
+async function setup(name, code, recovery) {
   if (load()) return load();
-  let createKey = "";
-  try { createKey = readFileSync(CREATE_KEY_FILE, "utf8").trim(); } catch {}
-  if (!createKey) throw new CloudError(403, "Shivo Cloud isn't available on this PC yet.");
-  const r = await fetch(FILES_API + "/v1/account", { method: "POST", headers: { "x-create-key": createKey, "content-type": "application/json" }, body: JSON.stringify({ name }) });
+  let master = randomBytes(32);
+  if (recovery) { try { master = C.fromRecoveryCode(recovery); } catch (e) { throw new CloudError(400, e.message); } }
+  let r;
+  if (code) r = await fetch(FILES_API + "/v1/enrol", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, name, recovery: !!recovery }) });
+  else if (createKey()) r = await fetch(FILES_API + "/v1/account", { method: "POST", headers: { "x-create-key": createKey(), "content-type": "application/json" }, body: JSON.stringify({ name }) });
+  else throw new CloudError(400, "Enter the setup code from Shivo Labs.");
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new CloudError(r.status, j.error || "Couldn't set up Shivo Cloud");
-  save({ api: FILES_API, account: j.account, device: j.device, token: j.token, master: C.b64u(randomBytes(32)), created: Date.now() });
+  if (!r.ok) { const e = new CloudError(r.status, j.error || "Couldn't set up Shivo Cloud"); e.recovery = j.recovery; throw e; }
+  const st = { api: FILES_API, account: j.account, device: j.device, token: j.token, master: C.b64u(master), created: Date.now() };
+  if (recovery) {   // the recovery code must open this account's names
+    const top = await (await fetch(FILES_API + "/v1/items?parent=", { headers: { authorization: "Bearer " + j.token } })).json().catch(() => ({ items: [] }));
+    try { for (const it of (top.items || []).slice(0, 3)) C.decName(master, it.name); } catch {
+      await fetch(FILES_API + "/v1/enrol/undo", { method: "POST", headers: { authorization: "Bearer " + j.token, "content-type": "application/json" }, body: JSON.stringify({ code }) }).catch(() => {});
+      throw new CloudError(400, "That recovery code doesn't belong to this account.");
+    }
+  }
+  save(st);
   return load();
+}
+// ---------- Shivo Labs' customer list (the Worker checks the create key)
+async function admin(path, method = "GET", body) {
+  const r = await fetch(FILES_API + "/v1/admin/" + path, { method, headers: { "x-create-key": createKey(), ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new CloudError(r.status, j.error || `Shivo Cloud answered ${r.status}`);
+  return j;
 }
 // a phone joining on the home Wi-Fi (Beam's engine passes its request on): a device token of its own, and the master
 // key, sealed with a key only that phone can work out (files/FORMAT.md, "Joining a phone")
@@ -181,10 +214,10 @@ export async function filesApi(req, res, path, url) {
   try {
     if (req.method === "GET" && what === "status") {
       const s = load();
-      if (!s) return json(res, 200, { ready: false }), true;
+      if (!s) return json(res, 200, { ready: false, operator: !!createKey() }), true;
       const me = await apiJson("/v1/me").catch((e) => ({ error: e.message }));
       const { syncState, syncPairs } = await import("./files-sync.mjs");
-      return json(res, 200, { ready: true, ...me, sync: { ...syncState, pairs: syncPairs() } }), true;
+      return json(res, 200, { ready: true, operator: !!createKey(), ...me, sync: { ...syncState, pairs: syncPairs() } }), true;
     }
     if (req.method === "GET" && what === "list") return json(res, 200, { items: await list(url.searchParams.get("parent") || "") }), true;
     if (req.method === "GET" && what === "path") {   // the folders above one, for the breadcrumb
@@ -193,7 +226,7 @@ export async function filesApi(req, res, path, url) {
       return json(res, 200, { path: out }), true;
     }
     if (req.method === "GET" && what === "download") {
-      const { item, stream } = await download(url.searchParams.get("id") || "");
+      const { item, stream } = await download(url.searchParams.get("id") || "", url.searchParams.get("version"));
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": String(item.size), "cache-control": "no-store",
         "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(item.name)}` });
       stream.on("error", () => res.destroy()); stream.pipe(res);
@@ -201,12 +234,19 @@ export async function filesApi(req, res, path, url) {
     }
     if (req.method === "GET" && what === "trash") return json(res, 200, { items: (await apiJson("/v1/trash")).items.map(readable) }), true;
     if (req.method === "GET" && what === "devices") return json(res, 200, await apiJson("/v1/devices")), true;
+    if (req.method === "GET" && what === "versions") return json(res, 200, { versions: await versions(url.searchParams.get("id") || "") }), true;
     if (req.method === "GET" && what === "shares") return json(res, 200, { shares: await shares() }), true;
     if (req.method === "GET" && what === "requests") { await claimRequests().catch(() => {}); return json(res, 200, { requests: await requests() }), true; }
+    if (req.method === "GET" && what === "admin/accounts") return json(res, 200, await admin("accounts")), true;
+    if (req.method === "GET" && what === "admin/devices") return json(res, 200, await admin(`accounts/${url.searchParams.get("id")}/devices`)), true;
     if (req.method === "GET" && what === "recovery") { const s = load(); return json(res, 200, { code: s ? C.recoveryCode(s.masterKey) : "" }), true; }
     if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
 
-    if (what === "setup") return json(res, 200, { ok: !!(await setup((await readBody(req)).name)) }), true;
+    if (what === "setup") {
+      const b = await readBody(req);
+      try { return json(res, 200, { ok: !!(await setup(b.name, String(b.code || "").trim(), String(b.recovery || "").trim())) }), true; }
+      catch (e) { return json(res, e.status || 500, { error: e.message, recovery: !!e.recovery }), true; }
+    }
     if (what === "sync") { (await import("./files-sync.mjs")).syncNow(); return json(res, 200, { ok: true }), true; }
     if (what === "upload") {   // body = the file; ?parent=&name=
       const parent = url.searchParams.get("parent") || "", size = Number(req.headers["content-length"]);
@@ -229,6 +269,11 @@ export async function filesApi(req, res, path, url) {
     if (what === "move") return json(res, 200, readable(await apiJson("/v1/item/" + b.id, { method: "PATCH", body: { parent: b.parent || "" } }))), true;
     if (what === "delete") return json(res, 200, await apiJson("/v1/item/" + b.id, { method: "DELETE" })), true;
     if (what === "restore") return json(res, 200, readable(await apiJson(`/v1/item/${b.id}/restore`, { method: "POST" }))), true;
+    if (what === "version-restore") return json(res, 200, readable(await apiJson(`/v1/item/${b.id}/versions/${Number(b.version)}/restore`, { method: "POST" }))), true;
+    if (what === "admin/new") return json(res, 200, await admin("accounts", "POST", { name: b.name, plan: b.plan, paidUntil: b.paidUntil })), true;
+    if (what === "admin/edit") { const { id, ...rest } = b; return json(res, 200, await admin("accounts/" + id, "PATCH", rest)), true; }
+    if (what === "admin/code") return json(res, 200, await admin(`accounts/${b.id}/code`, "POST", {})), true;
+    if (what === "admin/takedown") return json(res, 200, await admin("takedown", "POST", { link: b.link })), true;
     if (what === "share") return json(res, 200, await makeShare(b.id, b.days, b.password)), true;
     if (what === "share-remove") return json(res, 200, await apiJson("/v1/shares/" + b.id, { method: "DELETE" })), true;
     if (what === "request") return json(res, 200, await makeRequest(b.folder || "", b.title, b.days)), true;

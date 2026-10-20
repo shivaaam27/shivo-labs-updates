@@ -9,6 +9,7 @@ const ICON = {
   back: '<path d="M15 6l-6 6 6 6"/>',
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  people: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.2a3 3 0 0 1 0 5.6M17.5 14.2A5.5 5.5 0 0 1 20.5 19"/>',
   inbox: '<path d="M4 13l2.5-7h11L20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM4 13h5l1 2h4l1-2h5"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24">${ICON[k]}</svg>`;
@@ -32,7 +33,8 @@ export function mountFiles(root, { esc, toast }) {
           <div class="bm-h fl-head"><nav class="fl-crumbs" id="flCrumbs"></nav>
             <button class="tbtn" id="flNew">${svg('plus')}New folder</button>
             <button class="tbtn" id="flAsk">${svg('inbox')}Request files</button>
-            <button class="tbtn" id="flTrash">${svg('trash')}Trash</button></div>
+            <button class="tbtn" id="flTrash">${svg('trash')}Trash</button>
+            <button class="tbtn" id="flCust" hidden>${svg('people')}Customers</button></div>
           <label class="fl-drop" id="flDrop"><input type="file" id="flPick" multiple hidden>
             <span>${svg('up')}</span><b id="flDropT">Drop files here</b><small>or click to choose</small></label>
           <div id="flList"></div>
@@ -41,7 +43,8 @@ export function mountFiles(root, { esc, toast }) {
       <div class="bm-col">
         <div class="card bm-card" id="flSide"></div>
       </div>
-    </div>`;
+    </div>
+    <div class="xt-veil" id="flVeil" hidden><div class="xt-dialog card" id="flDialog"></div></div>`;
   const $ = (s) => root.querySelector(s);
 
   // ---------- the right-hand card: setup, space, devices, recovery
@@ -51,20 +54,30 @@ export function mountFiles(root, { esc, toast }) {
     if (!st?.ready) {
       el.innerHTML = `<div class="bm-h"><h2>Shivo Cloud</h2></div>
         <p class="bm-note">Your files, available with this PC off and from anywhere. Encrypted on your devices before they leave them.</p>
-        <button class="btn" id="flSetup">Set up</button>`;
+        ${st?.operator ? '' : `<input class="field" id="flCodeIn" placeholder="Setup code (XXXX-XXXX)" autocomplete="off" spellcheck="false">
+        <input class="field" id="flRecIn" placeholder="Recovery code" autocomplete="off" spellcheck="false" hidden>`}
+        <button class="btn" id="flSetup">Set up</button><p class="bm-note" id="flSetupMsg"></p>`;
       $('#flSetup').onclick = async () => {
-        const r = await post('/api/files/setup', { name: 'PC' }); const j = await r.json().catch(() => ({}));
-        if (r.ok) { toast('Shivo Cloud is ready'); side(); show(); } else toast(j.error || "Couldn't set up");
+        const code = $('#flCodeIn')?.value.trim(), recovery = $('#flRecIn')?.value.trim();
+        if (!st?.operator && !code) return ($('#flSetupMsg').textContent = 'Enter the setup code from Shivo Labs.');
+        $('#flSetup').disabled = true;
+        const r = await post('/api/files/setup', { name: 'PC', code, recovery }); const j = await r.json().catch(() => ({}));
+        $('#flSetup').disabled = false;
+        if (r.ok) { toast('Shivo Cloud is ready'); side(); show(); return; }
+        if (j.recovery) $('#flRecIn').hidden = false;
+        $('#flSetupMsg').textContent = j.error || "Couldn't set up";
       };
       $('#flList').innerHTML = ''; $('#flDrop').hidden = true;
       return;
     }
     $('#flDrop').hidden = trash;
+    $('#flCust').hidden = !st.operator;
     const pct = st.quota ? Math.min(100, (st.used / st.quota) * 100) : 0;
     const devs = (await (await fetch('/api/files/devices')).json().catch(() => ({}))).devices || [];
     el.innerHTML = `<div class="bm-h"><h2>Shivo Cloud</h2><small class="bm-hint">${svg('lock')}Encrypted</small></div>
       <div class="fl-bar"><i style="width:${pct.toFixed(1)}%"></i></div>
-      <p class="bm-note">${size(st.used || 0)} of ${size(st.quota || 0)} used</p>
+      <p class="bm-note">${size(st.used || 0)} of ${size(st.quota || 0)} used${st.planName && st.plan !== 'own' ? ' · ' + esc(st.planName) : ''}</p>
+      ${st.readOnly ? '<p class="bm-note fl-warn">Read-only: files can be opened and downloaded, not added. Contact Shivo Labs to continue.</p>' : ''}
       <div class="bm-h" style="margin-top:14px"><h2>Synced with this PC</h2><button class="tbtn" id="flSyncNow">Sync now</button></div>
       ${(st.sync?.pairs || []).map((p) => `<div class="file"><span class="ext">${svg('folder')}</span>
         <div class="meta"><div class="n">${esc(p.name)}</div><div class="s">${esc(p.local)}</div></div></div>`).join('')}
@@ -136,7 +149,7 @@ export function mountFiles(root, { esc, toast }) {
           <div class="meta"><div class="n">${esc(f.name)}</div><div class="s">${f.kind === 'folder' ? 'Folder' : size(f.size)} · ${ago(trash ? f.deleted : f.mtime)}</div></div></button>
         ${trash ? `<button class="tbtn" data-restore="${esc(f.id)}">Restore</button>`
           : `<button class="ibtn" data-more="${esc(f.id)}" aria-label="More">${svg('dots')}</button>
-             ${menuFor === f.id ? `<div class="bm-devmenu">${f.kind === 'file' ? `<button class="tbtn" data-share="${esc(f.id)}">Copy link</button><button class="tbtn" data-sharepw="${esc(f.id)}">Link with password</button>` : ''}<button class="tbtn" data-ren="${esc(f.id)}">Rename</button><button class="tbtn" data-del="${esc(f.id)}">Delete</button></div>` : ''}`}
+             ${menuFor === f.id ? `<div class="bm-devmenu">${f.kind === 'file' ? `<button class="tbtn" data-share="${esc(f.id)}">Copy link</button><button class="tbtn" data-sharepw="${esc(f.id)}">Link with password</button><button class="tbtn" data-vers="${esc(f.id)}">Versions</button>` : ''}<button class="tbtn" data-ren="${esc(f.id)}">Rename</button><button class="tbtn" data-del="${esc(f.id)}">Delete</button></div>` : ''}`}
       </div>`).join('')
       : `<p class="emptyt">${trash ? 'The Trash is empty. Deleted files stay here for 30 days.' : 'Nothing here yet. Drop files above.'}</p>`;
     root.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => {
@@ -155,9 +168,86 @@ export function mountFiles(root, { esc, toast }) {
       const pw = prompt('Password for this link'); menuFor = ''; show();
       if (pw) share(b.dataset.sharepw, pw);
     }));
+    root.querySelectorAll('[data-vers]').forEach((b) => (b.onclick = () => { menuFor = ''; show(); versions(items.find((x) => x.id === b.dataset.vers)); }));
     root.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { menuFor = ''; await post('/api/files/delete', { id: b.dataset.del }); toast('Moved to the Trash'); show(); side(); }));
     root.querySelectorAll('[data-restore]').forEach((b) => (b.onclick = async () => { await post('/api/files/restore', { id: b.dataset.restore }); toast('Restored'); show(); }));
   }
+  // ---------- a file's earlier versions: download one, or make it the current one again
+  const veil = $('#flVeil'), dlg = $('#flDialog');
+  const closeDialog = () => { veil.hidden = true; dlg.innerHTML = ''; dlg.classList.remove('wide'); };
+  veil.onclick = (e) => { if (e.target === veil) closeDialog(); };
+  async function versions(it) {
+    veil.hidden = false;
+    dlg.innerHTML = `<h2>${esc(it.name)}</h2><p>Loading versions…</p>`;
+    const r = await fetch('/api/files/versions?id=' + encodeURIComponent(it.id)), j = await r.json().catch(() => ({}));
+    const list = j.versions || [];
+    dlg.innerHTML = `<h2>${esc(it.name)}</h2><p>${r.ok ? 'The last 10 versions are kept.' : esc(j.error || "Couldn't load the versions")}</p>
+      ${list.map((v) => `<div class="file"><span class="ext">${esc(ext(it.name))}</span>
+        <div class="meta"><div class="n">${v.current ? 'Current version' : 'Version ' + v.version}</div><div class="s">${size(v.size)} · ${new Date(v.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</div></div>
+        <button class="tbtn" data-get="${v.current ? '' : v.version}">Download</button>
+        ${v.current ? '' : `<button class="tbtn" data-back="${v.version}">Restore</button>`}</div>`).join('')}
+      <div class="xt-actions"><button class="btn xt-btn" id="flClose">Done</button></div>`;
+    $('#flClose').onclick = closeDialog;
+    dlg.querySelectorAll('[data-get]').forEach((b) => (b.onclick = () => { location.href = '/api/files/download?id=' + encodeURIComponent(it.id) + (b.dataset.get ? '&version=' + b.dataset.get : ''); }));
+    dlg.querySelectorAll('[data-back]').forEach((b) => (b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Restoring…';
+      const rr = await post('/api/files/version-restore', { id: it.id, version: Number(b.dataset.back) });
+      if (!rr.ok) { toast((await rr.json().catch(() => ({}))).error || "Couldn't restore"); b.disabled = false; b.textContent = 'Restore'; return; }
+      toast('Restored'); versions(it); show(); side();
+    }));
+  }
+  // ---------- Shivo Labs' customers (only on PCs that hold the create key)
+  const day = (t) => (t ? new Date(t).toLocaleDateString([], { dateStyle: 'medium' }) : '');
+  const dateIn = (t) => (t ? new Date(t).toISOString().slice(0, 10) : '');
+  const state = (a) => a.paused ? 'Paused' : a.readOnly ? 'Read-only (not paid)' : a.codePending && !a.devices ? 'Waiting for setup' : 'Active';
+  async function customers() {
+    veil.hidden = false; dlg.classList.add('wide');
+    dlg.innerHTML = '<h2>Customers</h2><p>Loading…</p>';
+    const r = await fetch('/api/files/admin/accounts'), j = await r.json().catch(() => ({}));
+    if (!r.ok) { dlg.innerHTML = `<h2>Customers</h2><p>${esc(j.error || "Couldn't load")}</p><div class="xt-actions"><button class="btn xt-btn" id="flClose">Done</button></div>`; $('#flClose').onclick = closeDialog; return; }
+    const plans = j.plans || {};
+    dlg.innerHTML = `<div class="bm-h"><h2>Customers</h2><button class="tbtn" id="flAdd">${svg('plus')}New customer</button></div>
+      ${(j.accounts || []).map((a) => `<div class="file">
+        <span class="ext">${esc((a.name || 'SL').slice(0, 2).toUpperCase())}</span>
+        <div class="meta"><div class="n">${esc(a.name || 'Shivo Labs')}</div>
+          <div class="s">${esc(a.planName)} · ${size(a.used)} of ${size(a.quota)} · ${a.devices || 0} device${a.devices === 1 ? '' : 's'}${a.lastSeen ? ' · seen ' + ago(a.lastSeen) : ''}</div>
+          <div class="s">${state(a)}${a.paidUntil ? ' · paid until ' + day(a.paidUntil) : ''}</div></div>
+        <button class="tbtn" data-edit="${esc(a.id)}">Edit</button></div>`).join('') || '<p class="emptyt">No customers yet.</p>'}
+      <details class="bm-more"><summary>${svg('link')}Turn off a reported link</summary>
+        <div class="fl-inline"><input class="field" id="flTake" placeholder="Paste the share link"><button class="tbtn" id="flTakeGo">Turn off</button></div></details>
+      <div class="xt-actions"><button class="btn xt-btn" id="flClose">Done</button></div>`;
+    $('#flClose').onclick = closeDialog;
+    $('#flTakeGo').onclick = async () => {
+      const rr = await post('/api/files/admin/takedown', { link: $('#flTake').value }), jj = await rr.json().catch(() => ({}));
+      toast(!rr.ok ? jj.error || "Couldn't turn it off" : jj.found ? 'Link turned off' : 'No working link with that address');
+    };
+    $('#flAdd').onclick = () => editCustomer(null, plans);
+    dlg.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => editCustomer(j.accounts.find((a) => a.id === b.dataset.edit), plans)));
+  }
+  function editCustomer(a, plans) {
+    dlg.innerHTML = `<h2>${a ? esc(a.name || 'Shivo Labs') : 'New customer'}</h2>
+      <label class="fl-lbl">Name<input class="field" id="cuName" value="${esc(a?.name || '')}" placeholder="Customer or company"></label>
+      <label class="fl-lbl">Package<select class="field" id="cuPlan">${Object.entries(plans).map(([k, v]) => `<option value="${k}"${(a ? a.plan : 'starter') === k ? ' selected' : ''}>${esc(v.name)} · ${size(v.quota)}</option>`).join('')}</select></label>
+      <label class="fl-lbl">Paid until<input class="field" type="date" id="cuPaid" value="${dateIn(a?.paidUntil)}"></label>
+      <p class="bm-note">Empty: no end date. 14 days after the date, the account becomes read-only until it is renewed.</p>
+      ${a ? `<label class="fl-check"><input type="checkbox" id="cuPause"${a.paused ? ' checked' : ''}> Paused (read-only)</label>` : ''}
+      <div id="cuCode"></div>
+      <div class="xt-actions">${a ? '<button class="tbtn" id="cuNewCode">New setup code</button>' : ''}<button class="tbtn" id="cuBack">Back</button><button class="btn xt-btn" id="cuSave">${a ? 'Save' : 'Create'}</button></div>`;
+    const showCode = (c) => { $('#cuCode').innerHTML = `<p class="bm-note">Setup code for the customer's PC (Files › Set up). Valid for 7 days.</p><code class="fl-code fl-big">${esc(c)}</code>`; };
+    $('#cuBack').onclick = customers;
+    if (a) $('#cuNewCode').onclick = async () => { const rr = await post('/api/files/admin/code', { id: a.id }), jj = await rr.json(); if (rr.ok) showCode(jj.code); else toast(jj.error); };
+    $('#cuSave').onclick = async () => {
+      const paid = $('#cuPaid').value ? new Date($('#cuPaid').value + 'T23:59:59').getTime() : 0;
+      const body = { name: $('#cuName').value.trim(), plan: $('#cuPlan').value, paidUntil: paid };
+      if (!a && !body.name) return toast('Enter a name');
+      const rr = a ? await post('/api/files/admin/edit', { id: a.id, ...body, paused: $('#cuPause').checked }) : await post('/api/files/admin/new', body);
+      const jj = await rr.json().catch(() => ({}));
+      if (!rr.ok) return toast(jj.error || "Couldn't save");
+      if (a) { toast('Saved'); customers(); side(); return; }
+      toast('Customer added'); showCode(jj.code); $('#cuSave').hidden = true; $('#cuBack').textContent = 'Done';
+    };
+  }
+  $('#flCust').onclick = customers;
   async function open(id, name) {
     folder = id || '';
     if (!folder) path = [];
@@ -203,6 +293,6 @@ export function mountFiles(root, { esc, toast }) {
   $('#flTrash').onclick = () => { trash = !trash; menuFor = ''; show(); };
 
   side().then(show);
-  const timer = setInterval(() => { if (!busy && !menuFor && document.visibilityState === 'visible') show(); }, 15000);
+  const timer = setInterval(() => { if (!busy && !menuFor && veil.hidden && document.visibilityState === 'visible') show(); }, 15000);
   return () => clearInterval(timer);
 }

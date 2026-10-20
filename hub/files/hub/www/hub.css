@@ -397,7 +397,7 @@ html.calm #splash{display:none}
 .tvw .seg{display:flex;gap:4px;background:var(--soft);padding:3px;border-radius:10px}
 .tvw .seg button{white-space:nowrap;padding:6px 12px;border-radius:8px;font:600 13px var(--body);color:var(--muted);background:none;border:0;cursor:pointer}
 .tvw .seg button.on{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line)}
-.tvw .field{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);font:15px var(--body);color:var(--text);margin:6px 0}
+
 .tvw .btn.sm{padding:12px;font-size:14px}
 .tvw button{cursor:pointer}
 
@@ -419,3 +419,13 @@ html.calm #splash{display:none}
 .fl-bar i{display:block;height:100%;background:var(--sage)}
 .fl-code{display:block;margin-top:8px;font:600 13px/1.6 ui-monospace,monospace;word-break:break-all;user-select:all}
 .bm-hint svg{width:13px;height:13px;vertical-align:-2px;margin-right:4px;fill:none;stroke:currentColor;stroke-width:2}
+/* one text field for every module */
+.field{display:block;width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--panel);font:15px var(--body);color:var(--text);margin:6px 0}
+.field:focus{outline:none;border-color:var(--sage)}
+select.field{appearance:none;cursor:pointer}
+.fl-lbl{display:block;font:600 13px var(--body);color:var(--muted);margin:12px 0 0}
+.fl-check{display:flex;align-items:center;gap:8px;margin:12px 0 0;font-size:14px}
+.fl-inline{display:flex;gap:8px;align-items:center}.fl-inline .field{flex:1}
+.fl-big{font-size:22px;letter-spacing:.12em;padding:12px 0}
+.fl-warn{color:var(--err)}
+.xt-dialog .file .ext svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
