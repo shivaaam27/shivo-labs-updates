@@ -29,12 +29,7 @@ html[data-theme=dark] .tvp-link{color:var(--glow)}
 .tvp-foot{margin:26px auto 0;max-width:320px;color:var(--muted);font-size:12.5px;line-height:1.45}
 
 /* ---- paired: layout ---- */
-.tvx{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;max-width:1180px;margin:0 auto}
-.tvx-side,.tvx-main{display:flex;flex-direction:column;gap:14px;min-width:0}
-@media (min-width:760px){
-  .tvx{display:grid;grid-template-columns:minmax(300px,360px) 1fr;gap:22px;align-items:start}
-  .tvx-side{position:sticky;top:0}
-}
+
 .tvx-wait{display:flex;flex-direction:column;align-items:center;gap:14px;padding-top:18vh;color:var(--muted)}
 .tvx-wait .tvx-tv-ic{animation:breathe 1.6s ease-in-out infinite}
 
@@ -76,24 +71,12 @@ html[data-theme=dark] .tvx-tv-ic{color:var(--glow)}
 
 /* volume and quick buttons */
 .tvx-ctl{border-radius:var(--r-card);background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);padding:16px;display:flex;flex-direction:column;gap:16px}
-.tvx-vol{display:flex;align-items:center;gap:12px}
-.tvx-vol-m{flex:1;min-width:0}
-.tvx-vol-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;color:var(--muted)}
-.tvx-vol-top svg{width:20px;height:20px}
-.tvx-vol-top b{font:600 15px/1 var(--body);color:var(--text);font-variant-numeric:tabular-nums}
 .tvx-track{height:6px;border-radius:3px;background:color-mix(in srgb,var(--text) 10%,transparent);overflow:hidden}
 .tvx-track i{display:block;height:100%;border-radius:inherit;background:var(--sage);transition:width .3s var(--ease)}
 html[data-theme=dark] .tvx-track i{background:var(--glow)}
-.tvx-quick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.tvx-q{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 4px 10px;border-radius:16px;background:color-mix(in srgb,var(--text) 5%,transparent);
-  font:600 13px/1 var(--body);color:var(--text);transition:transform .2s var(--spring),background .2s}
-.tvx-q:active{transform:scale(.94);background:color-mix(in srgb,var(--text) 10%,transparent)}
-.tvx-q svg{width:22px;height:22px}
-.tvx-later{display:flex;align-items:center;gap:10px;margin:2px 4px;color:var(--muted);font-size:12.5px;line-height:1.4}
-.tvx-later svg{width:20px;height:20px;flex:none}
 
 /* tabs and content */
-.tvx-seg{align-self:flex-start;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.tvx-seg{align-self:flex-start;justify-self:start;max-width:100%;overflow-x:auto;scrollbar-width:none}
 .tvx-seg::-webkit-scrollbar{display:none}
 .tvx-seg button{flex:none;padding:9px 13px;font-size:14px;white-space:nowrap}
 @media (min-width:760px){.tvx-seg{position:sticky;top:0;z-index:2}}
@@ -154,27 +137,6 @@ html[data-theme=dark] .tvp-tvrow > svg:first-child{color:var(--glow)}
 .tvp-looking svg{width:18px;height:18px;animation:breathe 1.6s ease-in-out infinite}
 .tvp-or{color:var(--muted);font-size:13px;margin:4px 0 8px}
 
-/* the full remote */
-.tvx-rsetup{display:grid;grid-template-columns:auto 1fr;gap:12px 14px;align-items:center}
-.tvx-rsetup b{display:block;font:600 15px/1.3 var(--body)}
-.tvx-rsetup small{display:block;color:var(--muted);font-size:13px;line-height:1.4;margin-top:2px}
-.tvx-rsetup .btn{grid-column:1/-1}
-.tvx-rpair{text-align:center;gap:10px}
-.tvx-rpair b{font:600 16px/1.3 var(--body)}
-.tvx-rpair small{color:var(--muted);font-size:13px;margin-top:-6px}
-.tvx-rcode{letter-spacing:.3em;text-transform:uppercase}
-.tvx-pad{position:relative;width:min(100%,250px);aspect-ratio:1;margin:4px auto 2px;border-radius:50%;
-  background:radial-gradient(circle at 50% 50%,color-mix(in srgb,var(--text) 4%,transparent) 0 34%,color-mix(in srgb,var(--text) 7%,transparent) 35%)}
-.tvx-pk{position:absolute;width:33%;height:33%;display:grid;place-items:center;color:var(--text);border-radius:50%;transition:transform .15s var(--spring),background .15s}
-.tvx-pk svg{width:26px;height:26px;stroke-width:2}
-.tvx-pk:active{background:color-mix(in srgb,var(--text) 10%,transparent);transform:scale(.9)}
-.tvx-pk.up{left:33.5%;top:0}.tvx-pk.down{left:33.5%;bottom:0}.tvx-pk.left{left:0;top:33.5%}.tvx-pk.right{right:0;top:33.5%}
-.tvx-ok{position:absolute;left:31%;top:31%;width:38%;height:38%;border-radius:50%;background:var(--text);color:var(--bg);font:700 16px/1 var(--body);letter-spacing:.06em;
-  box-shadow:0 8px 20px -8px rgba(0,0,0,.45);transition:transform .15s var(--spring)}
-.tvx-ok:active{transform:scale(.92)}
-.tvx-rrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.tvx-type{display:flex;gap:8px;align-items:center}
-.tvx-type .field{margin:0;flex:1}
 
 /* nothing found on the Wi-Fi: what to check */
 .tvp-help{text-align:left;padding:14px 16px;border-radius:16px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line)}
@@ -205,28 +167,6 @@ html[data-theme=dark] .tvp-tvrow > svg:first-child{color:var(--glow)}
 .tvx-h + .tvx-inputs{margin-bottom:18px}
 
 /* the air mouse (Pointer): a full-screen sheet with a touch pad */
-.tvx-pointer{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;flex-direction:column;gap:14px;padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 16px)}
-.tvx-pt-top{display:flex;align-items:center;justify-content:space-between}
-.tvx-pt-top b{font:600 20px/1.2 var(--display,var(--body))}
-.tvx-pt-x{width:40px;height:40px;border-radius:50%;background:var(--panel);box-shadow:0 0 0 1px var(--line);display:grid;place-items:center}
-.tvx-pt-x svg{width:20px;height:20px}
-.tvx-pt-pad{flex:1;border-radius:28px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px;touch-action:none;user-select:none;-webkit-user-select:none}
-.tvx-pt-pad span svg{width:44px;height:44px;opacity:.5}
-.tvx-pt-pad p{margin:0;font-size:15px}
-.tvx-pt-pad small{color:var(--muted);font-size:13px}
-.tvx-pt-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.tvx-pt-pad{min-height:180px}
-.tvx-pt-keys{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center}
-.tvx-pt-dpad{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px);gap:4px}
-.tvx-pt-dpad button{border-radius:14px;background:var(--panel);box-shadow:0 0 0 1px var(--line);display:grid;place-items:center;font:600 14px/1 var(--body);color:var(--text)}
-.tvx-pt-dpad button svg{width:22px;height:22px}
-.tvx-pt-dpad [data-k2="up"]{grid-column:2}.tvx-pt-dpad [data-k2="left"]{grid-column:1;grid-row:2}.tvx-pt-dpad .ok{grid-column:2;grid-row:2;border-radius:50%;background:var(--text);color:var(--bg)}
-.tvx-pt-dpad [data-k2="right"]{grid-column:3;grid-row:2}.tvx-pt-dpad [data-k2="down"]{grid-column:2;grid-row:3}
-.tvx-pt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.tvx-pt-grid .tvx-q{padding:8px 2px 7px;gap:4px;font-size:11.5px}
-.tvx-pt-grid .tvx-q svg{width:18px;height:18px}
-.tvx-pt-type{display:flex;gap:8px}.tvx-pt-type .btn{flex:none;width:auto}.tvx-pt-type input{flex:1 1 0;width:auto;min-width:0;padding:10px 14px;border-radius:14px;border:0;background:var(--panel);box-shadow:0 0 0 1px var(--line);color:var(--text);font:inherit}
-.tvx-fine{color:var(--muted);font-size:12.5px;text-align:center}
 
 /* ---- Family and Features (family.js) ---- */
 .tvf-ask{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:var(--r-card);background:var(--sage-soft);margin-bottom:14px}
@@ -372,3 +312,114 @@ html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 
 .tvx-corner{gap:10px}.tvx-corner small{color:var(--muted);font-size:13px;line-height:1.4}.tvx-corner .field{width:100%}
 .tvx-corner-b{display:flex;flex-wrap:wrap;gap:8px}.tvx-corner-b .btn{width:auto;margin:0}
+
+/* ---- the remote (remote.js): one card, like a real remote ---- */
+.tvr{border-radius:28px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px;
+  --pad:min(76vw,272px)}
+.tvr-head{display:flex;align-items:center;gap:10px}
+.tvr-mode{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px;border-radius:12px;background:var(--soft)}
+.tvr-mode button{padding:8px 6px;border-radius:9px;font:600 13.5px var(--body);color:var(--muted);transition:background .2s,color .2s}
+.tvr-mode button.on{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.06)}
+.tvr-mode button:disabled{opacity:.45}
+.tvr-mini{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--soft);color:var(--text)}
+.tvr-mini svg{width:20px;height:20px}
+.tvr-setup{display:flex;align-items:center;gap:10px;padding:9px 10px 9px 12px;border-radius:14px;background:var(--soft);font-size:13px;line-height:1.35;color:var(--muted)}
+.tvr-setup span{flex:1}.tvr-setup .btn{width:auto;margin:0;flex:none}
+.tvr-setup.hi{background:var(--sage-soft);color:var(--text)}
+.tvr-setup.pair{flex-direction:column;align-items:stretch;text-align:center;gap:8px;color:var(--text)}
+.tvr-setup.pair b{font:600 15px var(--body)}.tvr-setup.pair small{color:var(--muted)}
+.tvr-pairrow{display:flex;gap:8px}.tvr-pairrow .field{flex:1;min-width:0;margin:0;text-align:center;letter-spacing:.25em;font-weight:600;text-transform:uppercase}
+.tvr-pairrow .btn{width:auto;margin:0}
+.tvr-link{font:600 13px var(--body);color:var(--muted);padding:2px}
+.tvr-stage{display:grid;place-items:center}
+/* the round pad: four arrow arcs and OK, like a TV remote's ring */
+.tvr-dpad{position:relative;width:var(--pad);aspect-ratio:1;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%,transparent 33%,color-mix(in srgb,var(--text) 6%,transparent) 33.5%);box-shadow:inset 0 0 0 1px var(--line)}
+.tvr-dk{position:absolute;width:34%;height:34%;display:grid;place-items:center;color:var(--text);border-radius:50%;transition:transform .14s var(--spring),background .14s;touch-action:manipulation}
+.tvr-dk svg{width:28px;height:28px;stroke-width:2.1}
+.tvr-dk:active{background:color-mix(in srgb,var(--text) 12%,transparent);transform:scale(.9)}
+.tvr-dk.up{left:33%;top:0}.tvr-dk.down{left:33%;bottom:0}.tvr-dk.left{left:0;top:33%}.tvr-dk.right{right:0;top:33%}
+.tvr-okk{position:absolute;left:32%;top:32%;width:36%;height:36%;border-radius:50%;background:var(--text);color:var(--bg);font:700 17px/1 var(--body);letter-spacing:.06em;
+  box-shadow:0 6px 16px rgba(0,0,0,.18);transition:transform .14s var(--spring);touch-action:manipulation}
+.tvr-okk:active{transform:scale(.92)}
+/* the touchpad, the same size as the pad */
+.tvr-pad{position:relative;width:100%;height:var(--pad);border-radius:22px;background:color-mix(in srgb,var(--text) 5%,transparent);box-shadow:inset 0 0 0 1px var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:16px;touch-action:none;user-select:none;-webkit-user-select:none;transition:background .15s}
+.tvr-pad.touch{background:color-mix(in srgb,var(--sage) 12%,transparent)}
+.tvr-pad-ic svg{width:34px;height:34px;opacity:.45}
+.tvr-pad p{margin:0;font:600 14.5px var(--body)}.tvr-pad small{color:var(--muted);font-size:12.5px}
+.tvr-chip{position:absolute;right:10px;bottom:10px;display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:99px;background:var(--panel);
+  box-shadow:0 0 0 1px var(--line);font:600 12.5px var(--body);color:var(--text)}
+.tvr-chip svg{width:16px;height:16px}.tvr-chip.on{background:var(--sage);color:#fff;box-shadow:none}
+/* the buttons under it */
+.tvr-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tvr-b{display:flex;flex-direction:column;align-items:center;gap:6px;padding:11px 4px 9px;border-radius:16px;background:color-mix(in srgb,var(--text) 5%,transparent);
+  font:600 12.5px/1 var(--body);color:var(--text);transition:transform .15s var(--spring),background .15s;touch-action:manipulation}
+.tvr-b svg{width:22px;height:22px}
+.tvr-b:active{transform:scale(.94);background:color-mix(in srgb,var(--text) 11%,transparent)}
+.tvr-b.on{background:var(--text);color:var(--bg)}
+.tvr-vol{display:flex;align-items:center;gap:10px}
+.tvr-volm{flex:1;min-width:0}
+.tvr-volt{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:var(--muted)}
+.tvr-volt svg{width:19px;height:19px}.tvr-volt b{font:600 14.5px/1 var(--body);color:var(--text);font-variant-numeric:tabular-nums}
+.tvr-round{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;flex:none;color:var(--text);background:color-mix(in srgb,var(--text) 7%,transparent);
+  transition:transform .15s var(--spring),background .15s;touch-action:manipulation}
+.tvr-round svg{width:21px;height:21px}.tvr-round:active{transform:scale(.88)}
+.tvr-round.on{background:var(--err);color:#fff}
+.tvr-type{display:flex;gap:8px;align-items:center}
+.tvr-type .field{flex:1;min-width:0;margin:0}.tvr-type .btn{width:auto;margin:0;flex:none}
+.tvr-type .tvr-round{width:42px;height:42px}
+
+/* ---- page layout: header, tabs, the remote and the content ---- */
+.tvx{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"tv" "seg" "note" "side" "main";gap:14px;padding-bottom:20px;max-width:1240px;margin:0 auto}
+.tvx > .tvx-tv{grid-area:tv}.tvx > .tvx-seg{grid-area:seg}.tvx > .tvx-offline{grid-area:note}.tvx > .tvx-side{grid-area:side}.tvx > .tvx-main{grid-area:main}
+.tvx-side,.tvx-main{display:flex;flex-direction:column;gap:14px;min-width:0}
+@media (max-width:759px){
+  /* a phone: the Remote tab shows now playing, the remote and TV health; the other tabs show their content */
+  .tvx:not(.tab-remote) > .tvx-side{display:none}
+  .tvx.tab-remote > .tvx-main{display:none}
+  .tvx-seg{position:sticky;top:0;z-index:3}
+}
+@media (min-width:760px){
+  .tvx{grid-template-columns:minmax(310px,360px) minmax(0,1fr);grid-template-areas:"tv seg" "note note" "side main";gap:14px 22px;align-items:start}
+  .tvx-seg [data-tab="remote"]{display:none}
+  .tvx-seg{align-self:center}
+  /* the remote fits the screen without scrolling: the pad shrinks with the height */
+  .tvx-side{position:sticky;top:0;max-height:calc(100dvh - 120px);overflow:auto;scrollbar-width:none}
+  .tvx-side::-webkit-scrollbar{display:none}
+  .tvx-side .tvr{padding:12px 14px 14px;gap:11px}
+  /* short windows: now playing becomes a thin title strip so the round pad stays a good size */
+  .tvx-side.tight .tvx-now-art{aspect-ratio:auto;height:58px}
+  .tvx-side.tight .tvx-now-art img{opacity:.35}
+  .tvx-side.tight .tvx-now-t{bottom:9px}.tvx-side.tight .tvx-now-t span{display:none}
+  .tvx-side.tight .tvx-now .tvx-track{margin-top:6px}
+  .tvx-side.tight .tvx-now-b{padding:6px 12px 8px}
+  .tvx-side .tvr-b{padding:9px 4px 8px}
+}
+
+
+/* now playing above the remote: a slim strip, so the remote is in reach (all sizes) */
+.tvx-side .tvx-now-art{aspect-ratio:2.8/1}
+.tvx-side .tvx-now-t{bottom:10px}
+.tvx-side .tvx-now-t b{-webkit-line-clamp:1;font-size:15px}
+.tvx-side .tvx-now-b{padding:8px 12px 10px;gap:18px}
+.tvx-side .tvx-now .tvx-track{margin:8px 14px 0}
+.tvx-side .tvx-now-b .tvx-btn{width:42px;height:42px}.tvx-side .tvx-now-b .tvx-btn.big{width:50px;height:50px}
+.tvx-side .tvx-now.empty{padding:12px 14px}
+
+/* header: one compact line */
+.tvx > .tvx-tv{padding:0 2px;gap:10px;align-self:center}
+.tvx > .tvx-tv .tvx-tv-ic{width:38px;height:38px;border-radius:12px}
+.tvx > .tvx-tv .tvx-tv-ic svg{width:20px;height:20px}
+.tvx > .tvx-tv > div{flex:1}
+.tvx > .tvx-tv b{font-size:17px}
+.tvx > .tvx-tv small{font-size:12.5px;margin-top:1px}
+.tvx-setup{flex:none;padding:7px 12px;border-radius:99px;background:var(--soft);color:var(--text);font:600 12.5px var(--body)}
+@media (min-width:760px){ .tvx > .tvx-seg{justify-self:end} }
+
+/* OK as a joystick (remote.js): it follows the thumb, the arrow it points to lights up */
+.tvr-okk{touch-action:none;cursor:grab}
+.tvr-okk.held{transition:none;cursor:grabbing;box-shadow:0 10px 24px rgba(0,0,0,.28)}
+.tvr-dpad[data-go="up"] .tvr-dk.up,.tvr-dpad[data-go="down"] .tvr-dk.down,.tvr-dpad[data-go="left"] .tvr-dk.left,.tvr-dpad[data-go="right"] .tvr-dk.right{
+  background:color-mix(in srgb,var(--sage) 18%,transparent);color:var(--sage)}
+html[data-theme=dark] .tvr-dpad[data-go] .tvr-dk{color:var(--text)}

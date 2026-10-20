@@ -25,23 +25,26 @@ export function mountTv(root, ctx) {
   if (!document.querySelector('link[data-phonetv]')) {
     const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/phone/tv/tv.css'; l.dataset.phonetv = ''; document.head.appendChild(l);
   }
-  root.innerHTML = `<div class="tvw"><div class="seg tvw-seg"><button data-w="your" class="on">Your TV</button><button data-w="setup">Set up a TV</button></div><div id="tvwBody" class="tvw-body"></div></div>`;
+  root.innerHTML = `<div class="tvw"><div id="tvwBody" class="tvw-body"></div></div>`;
   let leaveInner = null, which = null;
   const show = async (w) => {
     if (which === w) return;
     which = w;
-    root.querySelectorAll('[data-w]').forEach((b) => b.classList.toggle('on', b.dataset.w === w));
     leaveInner?.(); leaveInner = null;
     const body = root.querySelector('#tvwBody'); body.innerHTML = '';
-    if (w === 'setup') { leaveInner = mountSetup(body, ctx); return; }
+    if (w === 'setup') {
+      body.innerHTML = `<button class="tvw-back" id="tvwBack">${svg(I.left)}Your TV</button><div id="tvwSetup"></div>`;
+      body.querySelector('#tvwBack').onclick = () => show('your');
+      leaveInner = mountSetup(body.querySelector('#tvwSetup'), ctx);
+      return;
+    }
     try {
       const m = await import('/phone/tv/tv.js');
       if (which !== 'your') return;
-      const api = m.mountTv(body, { toast: ctx.toast, haptic: () => {} });
+      const api = m.mountTv(body, { toast: ctx.toast, haptic: () => {}, setup: () => show('setup') });
       api.start(); leaveInner = () => api.stop();
     } catch (e) { body.innerHTML = `<p class="tv-none">The TV screen couldn't load (${ctx.esc(e.message)}).</p>`; }
   };
-  root.querySelectorAll('[data-w]').forEach((b) => (b.onclick = () => show(b.dataset.w)));
   show('your');
   return () => { leaveInner?.(); };
 }

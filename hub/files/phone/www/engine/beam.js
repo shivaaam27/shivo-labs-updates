@@ -105,8 +105,14 @@ function shareWithFiles(pc) {
   const sig = JSON.stringify([bases, R.key, pc]);
   if (sig === sharedSig) return;
   sharedSig = sig;
-  N.info().then((i) => i.beamFiles && N.beamShare({ bases, key: R.key, bid: deviceId(), pc: pc || 'Your PC' })).catch(() => { sharedSig = ''; });
+  N.info().then((i) => i.beamFiles && N.beamShare({ bases, key: R.key, bid: deviceId(), pc: pc || 'Your PC' }))
+    .then((r) => { filesState = r ? (r.files ? 'ok' : (r.error || 'not added')) : ''; if (r && !r.files) filesNote?.(filesState); })
+    .catch((e) => { sharedSig = ''; filesState = String(e?.message || e); filesNote?.(filesState); });
 }
+// whether "Your PC" is in the Files app ('ok', or why not); the app shows a reason when it fails
+export let filesState = '';
+let filesNote = null;
+export const onFilesNote = (fn) => { filesNote = fn; };
 
 // Find the PC now: the home Wi-Fi first (beam.local and its last known addresses, all at once), then the relay.
 // Returns the PC's answer to /ping, or null. A phone that has been accepted before gives the Wi-Fi only a few seconds;

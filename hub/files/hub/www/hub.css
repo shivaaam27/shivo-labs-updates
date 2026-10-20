@@ -392,7 +392,8 @@ html.calm #splash{display:none}
 .tv-frozen .tv-search,.tv-frozen #tvQ{opacity:1}
 /* TV page: "Your TV" is the phone app's TV screen (phone/www/tv/tv.css); the few phone basics it uses */
 .tvw{display:flex;flex-direction:column;gap:16px}
-.tvw-seg{align-self:flex-start}
+.tvw-back{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;padding:6px 12px 6px 8px;border-radius:99px;border:0;background:var(--soft);color:var(--text);font:600 13px var(--body)}
+.tvw-back svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}
 .tvw .seg{display:flex;gap:4px;background:var(--soft);padding:3px;border-radius:10px}
 .tvw .seg button{white-space:nowrap;padding:6px 12px;border-radius:8px;font:600 13px var(--body);color:var(--muted);background:none;border:0;cursor:pointer}
 .tvw .seg button.on{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line)}

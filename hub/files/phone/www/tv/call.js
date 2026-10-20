@@ -36,7 +36,7 @@ export async function callTv({ call, tvName = 'the TV', toast = () => {} }) {
   const el = document.createElement('div'); el.className = 'tvc';
   el.innerHTML = `<div class="tvc-big"><video id="tvcRoom" autoplay playsinline></video><p class="tvc-msg" id="tvcMsg">Calling ${esc(tvName)}…</p>
       <div class="tvc-top"><b>${esc(tvName)}</b><small id="tvcState">Ringing</small></div><div class="tvc-me"><video id="tvcMe" autoplay playsinline muted></video></div></div>
-    <div class="tvc-bar"><button id="tvcMute">Mute</button><button id="tvcSmall">Small on the TV</button><button class="end" id="tvcEnd">End</button></div>`;
+    <div class="tvc-bar"><button id="tvcMute">Mute</button><button id="tvcSmall">Minimise on TV</button><button class="end" id="tvcEnd">End</button></div>`;
   document.body.appendChild(el);
   const $ = (id) => el.querySelector('#' + id), say = (t) => { $('tvcMsg').textContent = t; $('tvcMsg').hidden = !t; };
   let open = true, stream = null, small = false;
@@ -50,11 +50,11 @@ export async function callTv({ call, tvName = 'the TV', toast = () => {} }) {
   };
   $('tvcEnd').onclick = () => finish();
   $('tvcMute').onclick = () => { const a = stream?.getAudioTracks()[0]; if (!a) return; a.enabled = !a.enabled; $('tvcMute').classList.toggle('on', !a.enabled); $('tvcMute').textContent = a.enabled ? 'Mute' : 'Muted'; };
-  $('tvcSmall').onclick = async () => { small = !small; $('tvcSmall').textContent = small ? 'Big on the TV' : 'Small on the TV'; try { await call('/call/size', { a: small ? 'small' : 'big' }, { post: true }); } catch {} };
+  $('tvcSmall').onclick = async () => { small = !small; $('tvcSmall').textContent = small ? 'Full screen on TV' : 'Minimise on TV'; try { await call('/call/size', { a: small ? 'small' : 'big' }, { post: true }); } catch {} };
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: { echoCancellation: true, noiseSuppression: true } });
     $('tvcMe').srcObject = stream;
-  } catch (e) { await finish(e.name === 'NotAllowedError' ? 'Shivo Labs needs the camera and microphone: allow them in Settings' : "This phone's camera could not start"); return; }
+  } catch (e) { await finish(e.name === 'NotAllowedError' ? 'Camera access is off. Allow it in Settings.' : 'Camera unavailable'); return; }
   const r = await call('/call/ring', {}, { post: true, body: JSON.stringify({}) }).catch((e) => ({ ok: false, error: e.message }));
   if (!r.ok) { await finish(r.error || 'The TV could not ring'); return; }
   // an offer to each side that says it is ready (the TV, and the camera phone if there is one)
@@ -74,11 +74,11 @@ export async function callTv({ call, tvName = 'the TV', toast = () => {} }) {
     try {
       const msgs = await call('/call/recv', { a: 'caller' }, { ms: 5000 });
       for (const m of msgs || []) {
-        if (m.kind === 'ready') { answered = true; $('tvcState').textContent = 'Connecting…'; offerTo(m.from).catch(() => {}); if (m.from === 'tv' && !$('tvcRoom').srcObject) say('On the TV. Waiting for the camera phone…'); }
+        if (m.kind === 'ready') { answered = true; $('tvcState').textContent = 'Connecting…'; offerTo(m.from).catch(() => {}); if (m.from === 'tv' && !$('tvcRoom').srcObject) say('Connected. No camera phone at home.'); }
         else if (m.kind === 'answer' && pcs[m.from]) await pcs[m.from].setRemoteDescription({ type: 'answer', sdp: m.sdp });
-        else if (m.kind === 'bye') { await finish(m.why === 'declined' ? 'Not now, they said' : m.why === 'missed' ? 'Nobody answered' : 'The call ended'); return; }
+        else if (m.kind === 'bye') { await finish(m.why === 'declined' ? 'Declined' : m.why === 'missed' ? 'No answer' : 'Call ended'); return; }
       }
-      if (!answered) { const st = await call('/call/state', {}, { ms: 4000 }); if (st.state === 'idle') { await finish('Nobody answered'); return; } if (Date.now() - t0 > 70000) { await finish('Nobody answered'); return; } }
+      if (!answered) { const st = await call('/call/state', {}, { ms: 4000 }); if (st.state === 'idle') { await finish('No answer'); return; } if (Date.now() - t0 > 70000) { await finish('No answer'); return; } }
     } catch {}
     await nap(answered ? 900 : 700);
   }
@@ -88,7 +88,7 @@ export async function callTv({ call, tvName = 'the TV', toast = () => {} }) {
 export async function beCamera({ call, tvName = 'the TV', toast = () => {} }) {
   css();
   const el = document.createElement('div'); el.className = 'tvc';
-  el.innerHTML = `<div class="tvc-big"><video id="tvcCaller" autoplay playsinline></video><p class="tvc-msg" id="tvcMsg">Camera for ${esc(tvName)}. Leave this phone facing the room, with this screen open. Calls show here when the TV answers.</p>
+  el.innerHTML = `<div class="tvc-big"><video id="tvcCaller" autoplay playsinline></video><p class="tvc-msg" id="tvcMsg">Camera for ${esc(tvName)}. Keep this screen open.</p>
       <div class="tvc-top"><b>TV camera</b><small id="tvcState">Waiting for a call</small></div><div class="tvc-me"><video id="tvcMe" autoplay playsinline muted></video></div></div>
     <div class="tvc-bar"><button id="tvcMute">Mute</button><button id="tvcFlip">Other camera</button><button class="end" id="tvcEnd">Stop</button></div>`;
   document.body.appendChild(el);
@@ -100,11 +100,11 @@ export async function beCamera({ call, tvName = 'the TV', toast = () => {} }) {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: { echoCancellation: true, noiseSuppression: true } });
     $('tvcMe').srcObject = stream;
   };
-  const hang = () => { pc?.close(); pc = null; $('tvcCaller').srcObject = null; callId = ''; $('tvcState').textContent = 'Waiting for a call'; say(`Camera for ${tvName}. Calls show here when the TV answers.`); };
+  const hang = () => { pc?.close(); pc = null; $('tvcCaller').srcObject = null; callId = ''; $('tvcState').textContent = 'Waiting'; say(`Camera for ${tvName}. Keep this screen open.`); };
   $('tvcEnd').onclick = () => { open = false; hang(); stream?.getTracks().forEach((t) => t.stop()); wake?.release?.(); el.remove(); };
   $('tvcMute').onclick = () => { const a = stream?.getAudioTracks()[0]; if (!a) return; a.enabled = !a.enabled; $('tvcMute').classList.toggle('on', !a.enabled); $('tvcMute').textContent = a.enabled ? 'Mute' : 'Muted'; };
   $('tvcFlip').onclick = async () => { facing = facing === 'user' ? 'environment' : 'user'; try { await startCam(); if (pc) pc.getSenders().forEach((s) => { const t = stream.getTracks().find((x) => x.kind === s.track?.kind); if (t) s.replaceTrack(t); }); } catch {} };
-  try { await startCam(); } catch (e) { toast(e.name === 'NotAllowedError' ? 'Shivo Labs needs the camera and microphone: allow them in Settings' : "This phone's camera could not start"); el.remove(); return; }
+  try { await startCam(); } catch (e) { toast(e.name === 'NotAllowedError' ? 'Camera access is off. Allow it in Settings.' : 'Camera unavailable'); el.remove(); return; }
   while (open) {
     try {
       const msgs = await call('/call/recv', { a: 'cam' }, { ms: 5000 });   // also tells the TV this camera is here
