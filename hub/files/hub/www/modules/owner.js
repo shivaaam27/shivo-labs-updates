@@ -1,7 +1,8 @@
 // The Owner page (only on the PC that holds the owner key, hub/api/id.mjs): every customer, which modules they have,
 // their PCs, phones and TVs, and invite codes. Changes reach their devices at the next pass (within a few hours, or
 // at once when the device restarts).
-const NAMES = { ai: 'Shivo Labs AI', business: 'Business', chat: 'Chat', mirror: 'Mirror', files: 'Shivo Labs Cloud', xtools: 'X Tools', tv: 'TV' };
+const NAMES = { ai: 'Shivo Labs AI', business: 'Business', chat: 'Chat', mirror: 'Mirror', files: 'Shivo Labs Cloud', xtools: 'X Tools', tv: 'TV',
+  camera: 'Camera', phone: 'Phone', insights: 'Insights', oracle: 'Oracle TM' };
 const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Error ${r.status}`); return j; });
 const day = (t) => (t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const ago = (t) => { if (!t) return 'never'; const m = (Date.now() - t) / 60000; return m < 2 ? 'just now' : m < 90 ? `${Math.round(m)} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : day(t); };
@@ -47,7 +48,7 @@ export function mountOwner(root, { esc, toast }) {
   function customer(c) {
     const live = c.devices.filter((d) => !d.removed);
     return `<section class="card set-card own-c${c.paused ? ' paused' : ''}" data-c="${c.id}">
-      <button class="own-head" data-act="toggle"><span><b>${esc(c.name)}</b><small>${c.modules.map((m) => esc(NAMES[m] || m)).join(' · ') || 'No modules'}${c.paused ? ' · paused' : ''}</small></span>
+      <button class="own-head" data-act="toggle"><span><b>${esc(c.name)}</b><small>${c.owner ? 'Owner: every module, and ' + st.ownerOnly.map((m) => esc(NAMES[m] || m)).join(', ') : c.modules.map((m) => esc(NAMES[m] || m)).join(' · ') || 'No modules'}${c.paused ? ' · paused' : ''}</small></span>
         <span class="own-count">${live.length} device${live.length === 1 ? '' : 's'}</span></button>
       ${open.has(c.id) ? `<div class="own-body">
         <form class="own-mods"><div class="own-chips">${chips(c.modules, 'm')}</div>

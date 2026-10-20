@@ -1,14 +1,14 @@
 {
- "version": "1.0.398",
- "build": 398,
- "built": "2026-10-20T22:48:29.106Z",
+ "version": "1.0.400",
+ "build": 400,
+ "built": "2026-10-20T22:53:00.279Z",
  "notes": [
+  "Phones need an invite code too: phone/www/engine/id.js (own key, pass, renewal), the code screen, only the pass's modules; shivo-id: Camera and Phone modules, the owner customer gets everything plus Business, Insights and Oracle TM",
+  "Android emulator test: its own adb server (port 5039), apart from the TV work's",
   "Native iPhone updates install by themselves: the hub keeps installs that wait for a phone and does them when it is near",
   "publishTv: no error kept when the TVs already have the version; another publish running is not a failure",
   "TV versions publish themselves: the hub on Shivam's PC (the one with the TV signing key) runs tv/home/publish.ps1 when main has a newer tv/home/version.json than the TVs' feed (at start, after a pull, every 15 minutes; only what is on GitHub's main; a failed publish retried after an hour); publish.ps1 takes a lock so two publishes never run at once",
-  "Setup window fits its content on any PC: the window grows to what the page needs (bigger text, display scaling, Windows 10), up to the screen, and the page scales down past that",
-  "TV handover: why 1.0.19 wasn't published; 1.0.20 live",
-  "TV 1.0.20: Update the TV tells the phone whether the TV already has the newest version (or which version is downloading or ready); phone shows that instead of always saying it is getting the newest"
+  "Setup window fits its content on any PC: the window grows to what the page needs (bigger text, display scaling, Windows 10), up to the screen, and the page scales down past that"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11506,7 +11506,7 @@
   "hub/www/modules/insights.js": "5aff94062da3f18af4778e6d9234227f49296c1ee2471e06fc73ddcdbb75fd0c",
   "hub/www/modules/mirror-player.js": "1d6faed94d7dd992a76bab69e17a716feda019ad8ad8ae09d7c2b600bc19f911",
   "hub/www/modules/mirror.js": "a9104345f27832f592b5afc690d2cd013a4f5d9a6c0c727600d593a16015415d",
-  "hub/www/modules/owner.js": "8a2efeb70586950c6c4c642ce931e667ecc3ecc525bb0794e342cdeb5db81d1a",
+  "hub/www/modules/owner.js": "5b2f658acb482cb4af6ef494030de568a84c2e9449f092cd52ec2d37c590f0d6",
   "hub/www/modules/quiet.js": "242dd7b138aa98516e17052278e47326849185a4da6c57b0f3a9eeaf46c8ef90",
   "hub/www/modules/settings.js": "427b919df84922d410a617adb875351b710ba641adbd3ee81d3caa1696f82b50",
   "hub/www/modules/tv.js": "83dde1ead72bf1e447197cd405e818c58f3e682dd9c9d67c2249c40356de5ef0",
