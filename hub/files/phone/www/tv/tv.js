@@ -12,6 +12,7 @@
 // Family (messages, reminders, dates, calls, photos, each with its own settings) and TV (health, inputs, the TV's own
 // settings and features). Settings and lists open as sheets from the bottom.
 import { deviceName } from '../engine/beam.js';
+import * as pass from '../engine/id.js';
 import * as live from '../engine/live.js';
 import * as atv from './atvremote.js';
 import { makeRemote } from './remote.js';
@@ -238,6 +239,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
         <button class="tvp-link" id="tvBack">Get a new code</button>`
       : `
         <div class="tvp-found" id="tvFound">${foundHtml()}</div>
+        <div id="tvMine"></div>
         <section class="tvp-far">
           <b>Use a code from the TV</b>
           <small>Works on Wi-Fi or mobile data. On the TV: Shivo Labs › Settings › Connect a phone.</small>
@@ -256,7 +258,31 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
       <p class="tvp-foot">Pair once on the TV's Wi-Fi (the code on the TV screen means only someone in the room can pair). After that it works from anywhere.</p>
     </div>`;
     wireFound();
-    if (!pairing) checkNet();
+    if (!pairing) { checkNet(); mineTvs(); }
+    // the TVs that joined this phone's Shivo Labs (UNIFY-PLAN.md, 23 Oct 2026): no code, from any network; the TV
+    // checks this phone's signature against shivo-id (Remote.java /pair/pass)
+    async function mineTvs() {
+      const box = root.querySelector('#tvMine');
+      if (!box || !pass.passFor('tv')) return;
+      const mine = (await pass.companyDevices().catch(() => [])).filter((d) => d.kind === 'tv' && d.tv?.id);
+      if (!mine.length || !box.isConnected) return;
+      box.innerHTML = `<section class="tvp-far"><b>Your TVs</b><small>They joined your Shivo Labs, so no code is needed. Works on Wi-Fi or mobile data.</small>
+        ${mine.map((t) => `<button class="btn pri tvp-btn" data-mine="${esc(t.id)}">Connect ${esc(t.name)}</button>`).join('')}</section>`;
+      box.querySelectorAll('[data-mine]').forEach((b) => (b.onclick = async () => {
+        const t = mine.find((x) => x.id === b.dataset.mine);
+        b.disabled = true; b.textContent = 'Connecting…';
+        try {
+          const s = await pass.signFor('tv.' + t.id);
+          const r = await fetch(`${t.tv.url}/p/${t.tv.id}/pair/pass?${new URLSearchParams({ a: s.device, b: s.ts, c: s.sig })}`, { cache: 'no-store' })
+            .catch(() => { throw new Error("Can't reach the internet. Check this phone's connection."); });
+          const j = await r.json().catch(() => ({}));
+          if (!j.ok) throw new Error(j.error || (r.status === 503 ? 'The TV is off or has no internet right now.' : 'That did not work. Try again.'));
+          cur = { host: j.host || '', key: j.key, name: j.name || t.name, relay: j.relay || '' }; away = false;
+          tvs = [cur, ...tvs.filter((x) => x.host !== cur.host || !cur.host)]; save();
+          buzz('success'); toast('Connected to ' + cur.name); await refresh(true); rmt.afterPair();
+        } catch (e) { b.disabled = false; b.textContent = 'Connect ' + t.name; paintPairErr(e.message); }
+      }));
+    }
     const farGo = root.querySelector('#tvFarGo');
     if (farGo) {
       const far = root.querySelector('#tvFar');

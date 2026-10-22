@@ -343,7 +343,7 @@ export async function filesApi(req, res, path, url) {
     if (req.method === "GET" && what === "admin/devices") return json(res, 200, await admin(`accounts/${url.searchParams.get("id")}/devices`)), true;
     if (req.method === "GET" && what === "recovery") { const s = load(); return json(res, 200, { code: s ? C.recoveryCode(s.masterKey) : "" }), true; }
     // another PC of the company asks for the account's key (the hub window shows the question)
-    if (req.method === "GET" && what === "asks") return json(res, 200, (await keyRequests()).map((k) => ({ id: k.id, name: k.name }))), true;
+    if (req.method === "GET" && what === "asks") return json(res, 200, (await keyRequests()).map((k) => ({ id: k.id, name: k.name, kind: k.kind || "pc" }))), true;
     if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
     if (what === "answer") { const b = await readBody(req); await answerKey(String(b.id || ""), !!b.ok); return json(res, 200, { ok: true }), true; }
 

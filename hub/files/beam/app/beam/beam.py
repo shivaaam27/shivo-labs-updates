@@ -585,6 +585,13 @@ class Handler(BaseHTTPRequestHandler):
         local = self.server.relay.get("local", "")
         return bool(local) and secrets.compare_digest(self.headers.get("X-Beam-Relay", ""), local)
 
+    def from_hub(self):
+        """True for the hub's own calls on this PC: a header the relay never passes on (hub/api/beamrelay.mjs), so a
+        phone on the relay can't make them."""
+        local = self.server.relay.get("local", "")
+        return (self.client_address[0] == "127.0.0.1" and bool(local)
+                and secrets.compare_digest(self.headers.get("X-Beam-Hub", ""), local))
+
     def mac(self):
         """This device's Wi-Fi address (cached a minute, like trust)."""
         ip, now = self.client_address[0], time.time()
@@ -880,10 +887,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/files/join":
             return self.files_join()
         if path == "/revoke":   # the hub, when you remove a phone on the PC: its key stops working
-            if self.client_address[0] != "127.0.0.1" or not self.via_relay():
+            if not self.from_hub():
                 return self.reply(403, "Not allowed")
             n = revoke_device(self.param("did"))
             return self.reply(200, json.dumps({"ok": True, "revoked": n}), "application/json")
+        if path == "/passkey":
+            # the hub, for a phone of this PC's own company (its Shivo Labs pass, signed with its device key, checked by
+            # the hub against shivo-id): its key for use away from home, without first meeting on the home Wi-Fi
+            if not self.from_hub():
+                return self.reply(403, "Not allowed")
+            bid = re.sub(r"[^A-Za-z0-9-]", "", self.param("bid"))[:64]
+            if not bid:
+                return self.reply(400, "No device")
+            did = "app:" + bid
+            kind = re.sub(r"[^a-z]", "", self.param("bkind").lower())[:12]
+            note_device(did, urllib.parse.unquote(self.param("bname"))[:60].strip(), kind)
+            info = {"key": new_key(did), "relay": {"id": self.server.relay["id"], "url": self.server.relay.get("url", RELAY_URL)}, "pc": socket.gethostname()}
+            return self.reply(200, json.dumps(info), "application/json")
         if not self.authed(path):
             return self.drain()
         self.seen()

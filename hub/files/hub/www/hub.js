@@ -217,7 +217,7 @@ async function checkAsks() {
     window.focus();
   }
 }
-// "Allow ... to open your Cloud files?": another computer of the company joined Shivo Labs Cloud and needs the key
+// "Allow ... to open your Cloud files?": another computer or phone of the company joined Shivo Labs Cloud and needs the key
 // (hub/api/files.mjs); allowing seals it so only that computer can open it
 let keyAskAt = 0;
 async function checkKeyAsks() {
@@ -230,7 +230,7 @@ async function checkKeyAsks() {
     const d = document.createElement('div');
     d.className = 'ask-veil';
     d.innerHTML = `<div class="ask card"><div class="ask-mark">${shivoMark('play loop')}</div><h2>Allow ${esc(a.name)} <span>to open your Cloud files?</span></h2>
-      <p>A new computer of your company joined Shivo Labs Cloud. Allow it only if you know it.</p>
+      <p>A new ${a.kind === 'phone' ? 'phone' : 'computer'} of your company joined Shivo Labs Cloud. Allow it only if you know it.</p>
       <div class="ask-acts"><button class="btn" data-ok="0">Don't allow</button><button class="btn pri" data-ok="1">Allow</button></div></div>`;
     d.onclick = async (e) => {
       const b = e.target.closest('[data-ok]'); if (!b) return;

@@ -10,6 +10,7 @@
 // update. The phone gets the relay address and its own key when the PC accepts it over the home Wi-Fi (the answer to
 // /ping); the relay never sees more than the PC lets through.
 import { plugin } from './native.js';
+import * as pass from './id.js';
 
 export const SHARE_URL = 'https://shivamparmar.vercel.app/beam';
 let host = 'beam.local';
@@ -135,10 +136,12 @@ export async function lanForJoin() {
 let resolving = null;
 export function resolve(ms = 8000) {
   return resolving ??= (async () => {
-    const R = rd(RK);
+    let R = rd(RK);
     const lan = [lanBase(host), ...(rd(LK) || []).filter((ip) => ip !== host).map(lanBase)];
     const hit = await firstOf(lan.map((b) => probe(b, R?.key ? Math.min(ms, 3500) : ms).then((j) => (j && !j.denied ? { ...j, _base: b } : j))));
     if (hit && !hit.denied) { route.mode = 'lan'; route.base = hit._base; route.at = Date.now(); route.denied = 0; learn(hit); shareWithFiles(hit.pc); return hit; }
+    // never met the PC on the home Wi-Fi: a phone of the PC's company gets its key with its Shivo Labs pass
+    if (!R?.key && await passJoin().catch(() => false)) R = rd(RK);
     if (R?.key && R.url && R.id) {
       const j = await probe(relayBase(R), 10000);
       if (j && !j.denied) { route.mode = 'relay'; route.base = relayBase(R); route.at = Date.now(); route.denied = 0; learn(j); shareWithFiles(j.pc); return j; }
@@ -146,6 +149,24 @@ export function resolve(ms = 8000) {
     route.denied = hit?.denied || 0;
     return null;
   })().finally(() => { resolving = null; });
+}
+// UNIFY-PLAN.md (23 Oct 2026): the company's PCs come from shivo-id with their relay addresses; the PC seen last is
+// asked first. It checks this phone's signature against shivo-id and answers with this phone's key.
+let passTried = 0;
+async function passJoin() {
+  if (!pass.passFor('files') || Date.now() - passTried < 5 * 60e3) return false;   // (a PC that is off: not at every try)
+  passTried = Date.now();
+  const pcs = (await pass.companyDevices()).filter((d) => d.kind === 'pc' && d.beam?.id).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+  for (const pc of pcs) {
+    const s = await pass.signFor('beam.' + pc.beam.id);
+    const q = new URLSearchParams({ device: s.device, ts: s.ts, sig: s.sig, bid: deviceId(), bkind: deviceKind(), bname: deviceName() });
+    try {
+      const r = await fetch(`${pc.beam.url}/p/${pc.beam.id}/pass-key?${q}`, { cache: 'no-store' });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.key && j.relay?.id) { wr(RK, { url: j.relay.url, id: j.relay.id, key: j.key }); return true; }
+    } catch {}
+  }
+  return false;
 }
 // away from home we sit on the relay; check now and then whether the home Wi-Fi is back (without making anyone wait)
 let lastLan = 0;

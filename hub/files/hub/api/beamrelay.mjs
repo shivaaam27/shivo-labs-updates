@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import http from "node:http";
+import { checkPhone } from "./id.mjs";
 
 const HOME = () => join(process.env.APPDATA || homedir(), "Beam");
 const readJson = (f) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };
@@ -74,6 +75,7 @@ export function startBeamRelay() {
 
   function control(sock, m, port, local) {
     const send = (o) => { try { sock.send(JSON.stringify(o)); } catch {} };
+    if (m.t === "req" && m.path === "/pass-key") return passKey(m, port, local, send);
     if (m.t === "req") {
       const headers = { "x-beam-relay": local };
       for (const k of PASS) if (m.headers?.[k]) headers[k] = String(m.headers[k]);
@@ -111,6 +113,21 @@ export function startBeamRelay() {
     }
   }
 
+  // a phone of this PC's company that has never met it on the home Wi-Fi (UNIFY-PLAN.md, 23 Oct 2026): it signs
+  // "beam.<this PC's relay id>.<ts>" with its Shivo Labs device key; checked here against shivo-id, it gets its key from
+  // the engine (/passkey, a call only the hub can make), as it would on the home Wi-Fi
+  async function passKey(m, port, local, send) {
+    const q = new URLSearchParams(m.query || "");
+    const answer = (status, body) => { const b = Buffer.from(JSON.stringify(body)); send({ t: "res", rid: m.rid, status, headers: { "content-type": "application/json" } }); try { ws?.send(frame(m.rid, b)); } catch {} send({ t: "end", rid: m.rid }); };
+    try {
+      const phone = await checkPhone(q.get("device") || "", q.get("ts") || "", q.get("sig") || "", `beam.${relayState.id}`);
+      if (!phone) return answer(403, { error: "This phone isn't part of this PC's Shivo Labs" });
+      const r = await fetch(`http://127.0.0.1:${port}/passkey?bid=${encodeURIComponent(q.get("bid") || "")}&bkind=${encodeURIComponent(q.get("bkind") || "")}&bname=${encodeURIComponent(q.get("bname") || phone.name || "")}`,
+        { method: "POST", headers: { "x-beam-hub": local }, signal: AbortSignal.timeout(8000) });
+      answer(r.status, await r.json().catch(() => ({ error: "Beam on the PC answered " + r.status })));
+    } catch (e) { answer(502, { error: "The PC couldn't check this phone: " + (e.message || e) }); }
+  }
+
   connect();
   return () => { stopped = true; try { ws?.close(); } catch {} clearInterval(beat); };
 }
@@ -120,5 +137,5 @@ export async function revokeKey(did) {
   const port = (readJson(join(HOME(), "config.json")) || {}).port || 8765;
   const id = readJson(join(HOME(), "relay.json"));
   if (!id?.local) return;
-  await fetch(`http://127.0.0.1:${port}/revoke?did=${encodeURIComponent(did)}`, { method: "POST", headers: { "x-beam-relay": id.local }, signal: AbortSignal.timeout(4000) }).catch(() => {});
+  await fetch(`http://127.0.0.1:${port}/revoke?did=${encodeURIComponent(did)}`, { method: "POST", headers: { "x-beam-hub": id.local }, signal: AbortSignal.timeout(4000) }).catch(() => {});
 }

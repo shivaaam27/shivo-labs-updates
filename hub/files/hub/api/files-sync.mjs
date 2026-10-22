@@ -84,6 +84,16 @@ async function ensureRoot(pair) {
   const found = top.find((x) => x.kind === "folder" && x.name.toLowerCase() === pair.name.toLowerCase());
   const s = F.load();
   p.root = found ? found.id : (await F.apiJson("/v1/folders", { method: "POST", body: { parent: "", name: C.encName(s.masterKey, pair.name) } })).id;
+  if (!found) {
+    // two PCs of a company setting up at the same moment each made one (names are encrypted, so the server can't tell):
+    // everyone keeps the oldest, and the one just made here goes if it isn't that one (it is still empty)
+    const same = (await F.list("")).filter((x) => x.kind === "folder" && x.name.toLowerCase() === pair.name.toLowerCase())
+      .sort((a, b) => (a.mtime || 0) - (b.mtime || 0) || String(a.id).localeCompare(String(b.id)));
+    if (same.length > 1 && same[0].id !== p.root) {
+      await F.apiJson("/v1/item/" + p.root, { method: "DELETE" }).catch(() => {});
+      p.root = same[0].id;
+    }
+  }
   saveState();
   return p.root;
 }

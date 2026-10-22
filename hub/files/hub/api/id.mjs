@@ -140,15 +140,54 @@ export async function renew() {
 
 // ---------- check-ins (UNIFY-PLAN.md, 23 Oct 2026): every 15 minutes while the hub runs, this PC tells shivo-id it is
 // there, with its version and its last update result, for the Owner pages (online, version, update problems)
+// (also its Beam relay address, so its company's phones find it from anywhere: /devices in shivo-id)
+const beamRelay = () => { try { const r = JSON.parse(readFileSync(join(process.env.APPDATA || homedir(), "Beam", "relay.json"), "utf8")); return r.id && r.url ? { id: r.id, url: r.url } : undefined; } catch { return undefined; } };
+// a request signed with this PC's key: {device, ts, sig} over "<what>.<device>.<ts>"
+async function signedBy(what) {
+  const d = load(); if (!d?.device) throw new Error("This PC hasn't joined Shivo Labs");
+  const ts = await serverNow();
+  return { device: d.device, ts, sig: sign("sha256", Buffer.from(`${what}.${d.device}.${ts}`), { key: createPrivateKey({ key: d.key, format: "jwk" }), dsaEncoding: "ieee-p1363" }).toString("base64url") };
+}
 async function alive() {
   const d = load(); if (!d?.device || !d.pass) return;
   try {
-    const ts = await serverNow();
-    const sig = sign("sha256", Buffer.from(`alive.${d.device}.${ts}`), { key: createPrivateKey({ key: d.key, format: "jwk" }), dsaEncoding: "ieee-p1363" }).toString("base64url");
     const build = Number(release().split(".")[2]) || 0;
-    await post("/alive", { device: d.device, ts, sig, version: upd.version, info: { app: "laptop", os: `Windows ${build >= 22000 ? 11 : 10}`,
+    await post("/alive", { ...(await signedBy("alive")), version: upd.version, info: { app: "laptop", os: `Windows ${build >= 22000 ? 11 : 10}`, beam: beamRelay(),
       update: { ok: !upd.error, msg: upd.error || (upd.available ? `Update ${upd.available.version} waiting` : ""), at: upd.lastCheck } } });
   } catch (e) { if (e.removed) renew().catch(() => {}); }   // removed by the owner: the renew takes the modules away
+}
+
+// ---------- the devices of this PC's company (UNIFY-PLAN.md): a phone of the same company asking for Beam away from
+// home is checked against its key here (hub/api/beamrelay.mjs). Asked of shivo-id at most once a minute.
+let company = { at: 0, list: [] };
+async function companyDevices() {
+  if (Date.now() - company.at > 60e3) company = { at: Date.now(), list: (await post("/devices", await signedBy("devices"))).devices || [] };
+  return company.list;
+}
+// is this a phone of this PC's company, with Cloud (Beam is part of it), that signed "<text>.<ts>" just now? -> its row
+export async function checkPhone(device, ts, sig, text) {
+  if (Math.abs((await serverNow()) - Number(ts)) > 10 * 60e3) return null;
+  let list = await companyDevices().catch(() => []);
+  let p = list.find((x) => x.id === device);
+  // a phone that joined a moment ago: ask again, but at most every 10 seconds (unknown phones can't make it hammer shivo-id)
+  if (!p && Date.now() - company.at > 10e3) { company.at = 0; list = await companyDevices().catch(() => []); p = list.find((x) => x.id === device); }
+  if (!p || p.kind !== "phone" || !p.modules?.includes("files")) return null;
+  try { return verify("sha256", Buffer.from(`${text}.${ts}`), { key: createPublicKey({ key: p.key, format: "jwk" }), dsaEncoding: "ieee-p1363" }, Buffer.from(String(sig), "base64url")) ? p : null; } catch { return null; }
+}
+
+// ---------- the owner's own PC running from the repo (FREE: it opens everything without a pass) joins shivo-id too, as
+// a device of the owner customer, so it checks in, shows on the Owner pages and lets its own phones use Beam from
+// anywhere. Made with the owner key (admin.json): a one-use code for the owner customer, used at once.
+async function ownerJoin() {
+  if (load()?.device) return;
+  const a = JSON.parse(readFileSync(ADMIN_FILE, "utf8")), base = a.url || ID_API, h = { authorization: "Bearer " + a.key, "content-type": "application/json" };
+  const st = await (await fetch(base + "/admin/state", { headers: h, signal: AbortSignal.timeout(20000) })).json();
+  const own = st.customers?.find((c) => c.owner); if (!own) return;
+  const c = await (await fetch(base + "/admin/code", { method: "POST", headers: h, body: JSON.stringify({ customer: own.id, uses: 1, days: 1, label: "This PC" }), signal: AbortSignal.timeout(20000) })).json();
+  if (!c.code) return;
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const r = await post("/enrol", { code: c.code, kind: "pc", name: hostname(), key: publicKey.export({ format: "jwk" }), version: upd.version });
+  save({ device: r.device, key: privateKey.export({ format: "jwk" }), pass: r.pass, customer: r.customer });
 }
 
 // the pass changed what this PC may use: fetch the packs it doesn't have yet, then restart the hub so it starts only
@@ -209,7 +248,13 @@ export function startId() {
   try { startIdNow(); } catch (e) { status.error = e.message; }   // never let this stop the hub
 }
 function startIdNow() {
-  if (FREE) return;
+  if (FREE) {
+    if (!isOwner()) return;
+    const go = () => ownerJoin().then(() => renew()).catch(() => {});
+    go(); setInterval(go, RENEW);
+    setTimeout(alive, 60e3); setInterval(alive, 15 * 60e3);
+    return;
+  }
   if (!existsSync(INSTALLED) && upd.mode === "installed") {
     // an install from before packs (everything was copied): what is on disk counts as installed
     writeFileSync(INSTALLED, JSON.stringify({ modules: Object.keys(PACKS).filter((m) => m !== "core" && PACKS[m].some((p) => existsSync(join(ROOT, p)))) }));
