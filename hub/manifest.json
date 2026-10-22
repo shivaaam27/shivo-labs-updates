@@ -1,14 +1,14 @@
 {
- "version": "1.0.424",
- "build": 424,
- "built": "2026-10-22T21:31:55.257Z",
+ "version": "1.0.426",
+ "build": 426,
+ "built": "2026-10-22T21:55:19.110Z",
  "notes": [
+  "Check-ins (UNIFY-PLAN.md phase 1): every joined PC and phone tells shivo-id every 15 minutes while it runs (POST /alive, signed: version, system, last update result); both Owner pages show online, system, version and update problems. Owner pages can delete a paused customer (POST /admin/customer/delete, never the owner). 7 new e2e checks, all 56 pass; tested with a local shivo-id, a test hub and the phone screens",
+  "Owner page on the owner's phone (UNIFY-PLAN.md phase 1): Settings > Owner lists customers, their modules, pause and paid-until, invite codes (QR, send, cancel) and devices (seen, version, remove). shivo-id: POST /owner/<call>, the admin calls signed with a device of the owner customer (each call once, 10 minutes), so the admin key stays on the PC; 9 new e2e checks, all 49 pass locally; tested in the phone screens against a local shivo-id",
   "Phone: join by QR (UNIFY-PLAN.md phase 1): the code screen shows this phone's QR for a joined phone, or scans the owner's code; Settings > Add a device scans a new PC, phone or TV and adds it; shivolabs://join and shivolabs://code links open it. Owner page: each code as a QR. Tested against a local shivo-id both ways (phone joined by approval; phone added a new PC)",
   "Hub: join by QR on the code screen (a joined phone scans it and approves this PC); tested end to end against a local shivo-id: the PC joined the phone's customer with its modules, no code typed",
   "shivo-id: join by QR (/join/new, /join/look, /join/approve, /join/wait): a new device is added by a joined phone's approval, signed with each device's key; 11 new e2e checks, all 40 pass on a local copy",
-  "Business leaves the PC (UNIFY-PLAN.md, Shivam 23 Oct): off the hub (modules, routes, screen, settings row), installer, updates and packs; shivo-id no longer grants it. The code stays in business/",
-  "UNIFY-PLAN.md: Shivam's decisions (AI keys both, QR approval, Business hidden, free plan for now, phase 1 first, nav bar, browser iPhone first)",
-  "UNIFY-PLAN.md: the unified plan (one identity, phone around search, X Tools tray, Cloud like Dropbox, Cloudflare as the one server), from the code on 23 Oct"
+  "Business leaves the PC (UNIFY-PLAN.md, Shivam 23 Oct): off the hub (modules, routes, screen, settings row), installer, updates and packs; shivo-id no longer grants it. The code stays in business/"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11392,7 +11392,7 @@
   "hub/api/files-crypto.mjs": "133c90ce99a4aa2abd1f4df2e1158b94894d4575fc83347b5a92bad25771dea6",
   "hub/api/files-sync.mjs": "746f1d57701cf3b8faefb969ce93fb58990576163e74e3b182b160c8bc6c540c",
   "hub/api/files.mjs": "6f993dc9831ef5208d703963c2428385ae3e0e102ceeaf0025a146ed63747156",
-  "hub/api/id.mjs": "87e14f2318fe81c2e60c935a577b3135bb97c23f94d4acdbf717dc8a29005581",
+  "hub/api/id.mjs": "a4f0dc8c89fd3cda4a54dc225b45e94faa5ee6347653eda0094604400f1833be",
   "hub/api/idevice.mjs": "6b152d85d3595069868bcf28c6a22101900dcfa1cfe5b0764766c2ff5117152a",
   "hub/api/insights.mjs": "a8357ed4e50842ab9a4abbb657b1cf149802efe47bd746a7c65e29e22afc366d",
   "hub/api/mirror.mjs": "78134c0ff48da346939e03974be4d07fff0d4acbf728dddc888e222d56868c96",
@@ -11412,7 +11412,7 @@
   "hub/server.mjs": "33e6d42e85b6fb708aa84178816169fdfe7e177437610ac5374978f11e8342cc",
   "hub/shivo-labs.ico": "2150b7a9f2c995ac9678ab5f46228c734a3214b45d5cc56ea94b9d48cca34e34",
   "hub/update-key.xml": "f820afc3dbebe9df8147803b7da0a78ddd9a79bca8141d416d8f6bc178e381ab",
-  "hub/www/hub.css": "dbcbd48a66fe2ac19fd67037a095d3cde537000554172ae0b0a2c4afd4442de5",
+  "hub/www/hub.css": "057d73b2d087f38febe0ddbaba13567ae6dda0064f770e6cee45c85521009923",
   "hub/www/hub.js": "69da45bed14d5120229f784a95ee444ae0cd7d4dd7a2277603cb71c7572ed6ad",
   "hub/www/index.html": "26f61890e31854cfbac68dc85982b316823eef8c9240a35351d89002ae27a923",
   "hub/www/mirror-float.html": "04f5ef54a84a5dffda8104e1ced92ed7b0715ce322556f5e4ecb097bd1267c2c",
@@ -11423,7 +11423,7 @@
   "hub/www/modules/insights.js": "5aff94062da3f18af4778e6d9234227f49296c1ee2471e06fc73ddcdbb75fd0c",
   "hub/www/modules/mirror-player.js": "1d6faed94d7dd992a76bab69e17a716feda019ad8ad8ae09d7c2b600bc19f911",
   "hub/www/modules/mirror.js": "a9104345f27832f592b5afc690d2cd013a4f5d9a6c0c727600d593a16015415d",
-  "hub/www/modules/owner.js": "b17ea42c3acba91ace81036956258f513bcc8c712b9a291baf7fbfb98b21ac39",
+  "hub/www/modules/owner.js": "4a4915d99530ce88c92c43e8b01d942179f817a36cfb922f7f811148efc538a0",
   "hub/www/modules/quiet.js": "242dd7b138aa98516e17052278e47326849185a4da6c57b0f3a9eeaf46c8ef90",
   "hub/www/modules/settings.js": "427b919df84922d410a617adb875351b710ba641adbd3ee81d3caa1696f82b50",
   "hub/www/modules/tv.js": "83dde1ead72bf1e447197cd405e818c58f3e682dd9c9d67c2249c40356de5ef0",

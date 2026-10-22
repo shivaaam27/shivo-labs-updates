@@ -9,7 +9,7 @@
 import { generateKeyPairSync, createPrivateKey, createPublicKey, sign, verify, createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir, hostname, tmpdir } from "node:os";
+import { homedir, hostname, tmpdir, release } from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { state as upd, signedOk, restartHub } from "./update.mjs";
@@ -138,6 +138,19 @@ export async function renew() {
   await afterChange(before);
 }
 
+// ---------- check-ins (UNIFY-PLAN.md, 23 Oct 2026): every 15 minutes while the hub runs, this PC tells shivo-id it is
+// there, with its version and its last update result, for the Owner pages (online, version, update problems)
+async function alive() {
+  const d = load(); if (!d?.device || !d.pass) return;
+  try {
+    const ts = await serverNow();
+    const sig = sign("sha256", Buffer.from(`alive.${d.device}.${ts}`), { key: createPrivateKey({ key: d.key, format: "jwk" }), dsaEncoding: "ieee-p1363" }).toString("base64url");
+    const build = Number(release().split(".")[2]) || 0;
+    await post("/alive", { device: d.device, ts, sig, version: upd.version, info: { app: "laptop", os: `Windows ${build >= 22000 ? 11 : 10}`,
+      update: { ok: !upd.error, msg: upd.error || (upd.available ? `Update ${upd.available.version} waiting` : ""), at: upd.lastCheck } } });
+  } catch (e) { if (e.removed) renew().catch(() => {}); }   // removed by the owner: the renew takes the modules away
+}
+
 // the pass changed what this PC may use: fetch the packs it doesn't have yet, then restart the hub so it starts only
 // the allowed modules' background parts (Beam, Mirror, sync)
 async function afterChange(before) {
@@ -219,6 +232,7 @@ function startIdNow() {
   if (existsSync(ENROL)) { join_().catch(() => {}); const t = setInterval(() => (existsSync(ENROL) ? join_().catch(() => {}) : clearInterval(t)), 60e3); }
   else renew().catch(() => {});
   setInterval(() => renew().catch(() => {}), RENEW);
+  setTimeout(alive, 60e3); setInterval(alive, 15 * 60e3);
   // a pack that couldn't be fetched (offline, not published yet) is tried again every 15 minutes
   setInterval(() => ensurePacks().then((got) => got && restartHub()).catch(() => {}), 15 * 60e3);
 }

@@ -479,3 +479,5 @@ input[type=checkbox]{accent-color:var(--sage);width:16px;height:16px}
 .own-line{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;color:var(--muted)}.own-line>.own-in{flex:1;min-width:200px}
 .own.shown .set-card{animation:none}
 .own-c.paused{opacity:.7}.set-row.gone{opacity:.55}
+.own-on{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--sage);margin:0 7px 1px 0;vertical-align:middle}
+.set-row small.own-bad{display:block;color:var(--err)}.own-del{margin-top:14px;color:var(--err)}

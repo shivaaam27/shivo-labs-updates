@@ -8,6 +8,8 @@ const NAMES = { ai: 'Shivo Labs AI', chat: 'Chat', mirror: 'Mirror', files: 'Shi
 const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Error ${r.status}`); return j; });
 const day = (t) => (t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 const ago = (t) => { if (!t) return 'never'; const m = (Date.now() - t) / 60000; return m < 2 ? 'just now' : m < 90 ? `${Math.round(m)} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : day(t); };
+// a device that checked in within 20 minutes (it sends one every 15 while it runs) is online
+const online = (d) => !d.removed && d.last_seen && Date.now() - d.last_seen < 20 * 60e3;
 const pretty = (c) => `${c.slice(0, 5)}-${c.slice(5)}`;
 
 export function mountOwner(root, { esc, toast }) {
@@ -67,8 +69,9 @@ export function mountOwner(root, { esc, toast }) {
           <label>Days <input class="own-in xs" name="days" type="number" min="1" max="90" value="7"></label></div>
           <button class="btn sm pri">Make a code</button></form>
         <h4>Devices</h4>
-        ${c.devices.map((d) => `<div class="set-row${d.removed ? ' gone' : ''}"><span><b>${esc(d.name)}</b><small>${esc(d.kind.toUpperCase())} · seen ${ago(d.last_seen)}${d.version ? ' · ' + esc(d.version) : ''}${d.modules ? ' · only ' + d.modules.map((m) => esc(NAMES[m] || m)).join(', ') : ''}${d.removed ? ' · removed' : ''}</small></span>
+        ${c.devices.map((d) => `<div class="set-row${d.removed ? ' gone' : ''}"><span><b>${online(d) ? '<i class="own-on"></i>' : ''}${esc(d.name)}</b><small>${esc(d.info?.os || d.kind.toUpperCase())} · ${online(d) ? 'online' : 'seen ' + ago(d.last_seen)}${d.version ? ' · ' + esc(d.version) : ''}${d.modules ? ' · only ' + d.modules.map((m) => esc(NAMES[m] || m)).join(', ') : ''}${d.removed ? ' · removed' : ''}</small>${d.info?.update && !d.info.update.ok ? `<small class="own-bad">${esc(d.info.update.msg)}</small>` : ''}</span>
           <button class="btn" data-dev="${d.id}" data-removed="${d.removed ? 1 : 0}">${d.removed ? 'Allow again' : 'Remove'}</button></div>`).join('') || '<p class="set-note">No devices yet. Send a code.</p>'}
+        ${c.paused && !c.owner ? '<button class="btn sm own-del" data-del>Delete this customer</button>' : ''}
       </div>` : ''}
     </section>`;
   }
@@ -102,6 +105,12 @@ export function mountOwner(root, { esc, toast }) {
       box.hidden = false;
     }));
     el.querySelectorAll('[data-revoke]').forEach((b) => (b.onclick = async () => { try { await post('/api/owner/code/revoke', { code: b.dataset.revoke }); load(); } catch (er) { toast(er.message); } }));
+    // deleted for good, with its codes and devices: only a paused customer, and a second click to be sure
+    const del = el.querySelector('[data-del]');
+    if (del) del.onclick = async () => {
+      if (!del.dataset.sure) { del.dataset.sure = 1; del.textContent = `Click again to delete ${c.name}`; return; }
+      try { await post('/api/owner/customer/delete', { id: c.id }); open.delete(c.id); toast(`${c.name} deleted`); load(); } catch (er) { toast(er.message); }
+    };
     el.querySelectorAll('[data-dev]').forEach((b) => (b.onclick = async () => {
       try { await post('/api/owner/device', { id: b.dataset.dev, removed: b.dataset.removed !== '1' }); load(); } catch (er) { toast(er.message); }
     }));
