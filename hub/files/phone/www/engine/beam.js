@@ -206,6 +206,17 @@ const denial = () => (route.denied === 403 ? new Error(NOT_ACCEPTED) : route.den
 
 // Is Beam there? Returns the PC's name. The first call may wait while the owner clicks Accept,
 // so the default wait is long; background checks pass a short one.
+// the PC's shared folders (beam/app/beam/beamfs.py), for Labs AI's PC tools (engine/pcctl.js)
+export async function fsList(p = '') {
+  const r = await call('/fs/list?p=' + encodeURIComponent(p));
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Your PC answered ${r.status}`);
+  return (await r.json()).items || [];
+}
+export async function fsFile(p) {
+  const r = await call('/fs/file?p=' + encodeURIComponent(p), {}, 180000);
+  if (!r.ok) throw new Error(`Your PC answered ${r.status}`);
+  return r.blob();
+}
 export async function ping(ms = 75000) {
   const j = await resolve(ms);
   if (!j) throw denial() || cantReach();

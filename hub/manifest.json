@@ -1,14 +1,9 @@
 {
- "version": "1.0.428",
- "build": 428,
- "built": "2026-10-22T22:38:48.667Z",
+ "version": "1.0.431",
+ "build": 431,
+ "built": "2026-10-22T23:43:36.362Z",
  "notes": [
-  "Phase 1 finished: one join for Beam and the TV, owner PC in shivo-id, bug fixes",
-  "Phase 1, one join: Add a device on the phone shows a QR (a one-use 10-minute code from shivo-id POST /invite) for a new phone, next to scanning a new PC or TV; the phone joins Chat with its pass; the phone joins Cloud from anywhere with its pass (files/worker pass/enrol makes phones non-admin, a PC of the company allows the key, as for a new PC). Tests: shivo-id 61 pass, Cloud pass-e2e 29 pass (new phone part, the phone side done with WebCrypto as on the phone)",
-  "Check-ins (UNIFY-PLAN.md phase 1): every joined PC and phone tells shivo-id every 15 minutes while it runs (POST /alive, signed: version, system, last update result); both Owner pages show online, system, version and update problems. Owner pages can delete a paused customer (POST /admin/customer/delete, never the owner). 7 new e2e checks, all 56 pass; tested with a local shivo-id, a test hub and the phone screens",
-  "Owner page on the owner's phone (UNIFY-PLAN.md phase 1): Settings > Owner lists customers, their modules, pause and paid-until, invite codes (QR, send, cancel) and devices (seen, version, remove). shivo-id: POST /owner/<call>, the admin calls signed with a device of the owner customer (each call once, 10 minutes), so the admin key stays on the PC; 9 new e2e checks, all 49 pass locally; tested in the phone screens against a local shivo-id",
-  "Phone: join by QR (UNIFY-PLAN.md phase 1): the code screen shows this phone's QR for a joined phone, or scans the owner's code; Settings > Add a device scans a new PC, phone or TV and adds it; shivolabs://join and shivolabs://code links open it. Owner page: each code as a QR. Tested against a local shivo-id both ways (phone joined by approval; phone added a new PC)",
-  "Hub: join by QR on the code screen (a joined phone scans it and approves this PC); tested end to end against a local shivo-id: the PC joined the phone's customer with its modules, no code typed"
+  "Phase 2 finished: search tools for team Chat (overview, read, search, send), the PC (status, renew iPhone apps, find files in its shared folders, copy one to Cloud), contacts and the flashlight; browser history and bookmarks (iPhone); the Shivo Browser on Android (ShivoBrowserPlugin.java) and open_app on Android; visual fixes from a check at 360-430 px, light and dark, and on the Android emulator (Home apps in rows of four, Chat sign-in clear of the bar, code screen with Continue under the box and room for the QR, Cloud's Connect as the one main button, Scan"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11414,7 +11409,7 @@
   "hub/update-key.xml": "f820afc3dbebe9df8147803b7da0a78ddd9a79bca8141d416d8f6bc178e381ab",
   "hub/www/hub.css": "057d73b2d087f38febe0ddbaba13567ae6dda0064f770e6cee45c85521009923",
   "hub/www/hub.js": "16f49e8314a998d24c2f68b230ea28302ead3d0170f894593ebec14b336a121c",
-  "hub/www/index.html": "26f61890e31854cfbac68dc85982b316823eef8c9240a35351d89002ae27a923",
+  "hub/www/index.html": "21acd7af9f74003349581b5d1db96732a3340b65c8a02fc0b3760dd43a03b507",
   "hub/www/mirror-float.html": "04f5ef54a84a5dffda8104e1ced92ed7b0715ce322556f5e4ecb097bd1267c2c",
   "hub/www/modules/ai.js": "6234299bcad6c1bf1011dbc58c0428174d35ee8d015b50e07822140d1fe53a77",
   "hub/www/modules/beam.js": "d6ff68707701c64d35678ba1d4f83e67ecb692798b044c752807a4d567f8f542",
@@ -11428,7 +11423,7 @@
   "hub/www/modules/settings.js": "427b919df84922d410a617adb875351b710ba641adbd3ee81d3caa1696f82b50",
   "hub/www/modules/tv.js": "83dde1ead72bf1e447197cd405e818c58f3e682dd9c9d67c2249c40356de5ef0",
   "hub/www/modules/xtools.js": "b92417e485f9822536665046d0a44ec124d0563a2e5af7852d81426fe8f701fe",
-  "phone/www/engine/beam.js": "97f0f81b8c65a9da20242e50e8b5f4cab45b3714536a65479c95f9cf93c9f056",
+  "phone/www/engine/beam.js": "2e53da755924c78a91308b8a9eb535cb57c98c58b96ddb271e1a74e2295efbde",
   "phone/www/engine/native.js": "ae40f54a61fb6417fafc70d34ed994dfed4c3249fda34c6babc066f4c595c9d6",
   "phone/www/insights/insights.css": "937d23dece2b6323df84af7e3c28d3cc214da069c1cf2b51983318ab2394be5c",
   "phone/www/insights/insights.js": "6067bd1d308a7fe7c4f3ef3b4af6cafea1b36a65d77bb92726a2c230df093707",
