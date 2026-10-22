@@ -383,7 +383,7 @@ function Set-WifiPhone([string]$Udid, [hashtable]$Changes) {
 
 # wifi.sh into Linux, and the two programs: x-tools/wifi/package.sh's package, downloaded once (and again when it
 # changes), checked against its SHA-256. SHIVO_WIFI_TOOLS_URL / _SHA256 override them for testing a new package.
-$WifiToolsUrl = 'https://github.com/shivaaam27/shivo-labs-updates/releases/download/shivo-wifi-tools-27bfb6ba/shivo-wifi-tools.tar.gz'
+$WifiToolsUrl = 'https://shivo-id.ishivamparmar.workers.dev/ota/tools/shivo-wifi-tools-27bfb6ba.tar.gz'   # R2 (was a GitHub release until 22 Oct 2026); checked against the SHA-256 below
 $WifiToolsSha = '27bfb6ba496023a78b501056c258b6faad340c216d51efc1357f49d40280c480'
 function Install-WifiTools {
     # the script travels inside the command (base64), not by a /mnt/c path: nothing depends on where the files are

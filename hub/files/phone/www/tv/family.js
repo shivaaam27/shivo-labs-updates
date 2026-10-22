@@ -101,7 +101,7 @@ export function sheet(title, body, { onSave, onDelete, saveText = 'Save', done =
 
 export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowPlaying = () => null, appsOnTv = () => [], pics = () => {}, tvName = () => 'the TV' }) {
   let answer = null, modsAt = 0, lastMods = null;
-  let data = null, mods = {}, mode = ai ? 'ask' : 'msg', rec = null, clip = null, alive = true, timer = 0, lastSig = '';
+  let data = null, mods = {}, mode = ai ? 'ask' : 'msg', rec = null, clip = null, alive = true, timer = 0, lastSig = '', msgs = [];
   const api = async (path, q = {}, body) => {
     const r = await call(path, q, { post: true, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     if (r && r.ok === false) throw new Error(r.error || "The TV couldn't do that");
@@ -110,14 +110,15 @@ export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowP
   async function load(quiet) {
     try {
       const needMods = !quiet || Date.now() - modsAt > 60000;
-      const [d, m] = await Promise.all([call('/items'), needMods ? call('/mods').catch(() => null) : Promise.resolve(lastMods)]);
+      const [d, m, ms] = await Promise.all([call('/items'), needMods ? call('/mods').catch(() => null) : Promise.resolve(lastMods), call('/messages').catch(() => [])]);
       if (needMods && m) { modsAt = Date.now(); lastMods = m; }
       if (!d || !Array.isArray(d.items)) throw Object.assign(new Error('old'), { old: true });
       // drawn again only when something changed (the list is asked for every few seconds)
-      const sig = JSON.stringify([d.items, d.log, d.asking, m?.mods?.map((x) => x.on)]);
+      const sig = JSON.stringify([d.items, d.log, d.asking, m?.mods?.map((x) => x.on), ms]);
       if (quiet && sig === lastSig) return;
       lastSig = sig;
       data = d; mods = Object.fromEntries((m?.mods || []).map((x) => [x.id, x]));
+      msgs = (Array.isArray(ms) ? ms : []).slice().reverse();   // newest first
       paint();
     } catch (e) {
       if (quiet) return;
@@ -158,6 +159,10 @@ export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowP
            <div class="tvf-row"><small>${sendOff ? `${mode === 'msg' ? 'Messages are' : 'Announce is'} off: turn it on in its settings.` : mode === 'msg' ? 'Shows on the TV, over any app.' : 'Read out loud on the TV.'}</small>
            <button class="btn pri sm" id="tvfGo">${IC.send}${mode === 'msg' ? 'Send' : 'Say it'}</button></div>`}
       </section>
+
+      ${msgs.length ? `<h3 class="tvx-h tvf-h"><span class="tvf-ht">Messages on the TV</span><span class="tvf-hb"><button class="tvf-add" id="tvfMsgAll">Delete all</button></span></h3>
+        <div class="tvf-msgs">${msgs.map((m) => `<div class="tvf-msg"><span class="tvf-main"><b>${esc(m.text)}</b><small>${m.who ? `${esc(m.who)} · ` : ''}${when(m.made)}${m.shown === false ? ' · waiting for quiet hours to end' : ''}</small></span>
+          <button class="tvf-x" data-msgdel="${esc(m.id)}" aria-label="Delete">${IC.trash}</button></div>`).join('')}</div>` : ''}
 
       ${head('Reminders and medicine', 'reminders', 'data-add="reminder"')}
       ${rem.length ? `<div class="tvf-list">${rem.map((r) => { const st = stateOf(r), t = TYPES.find((x) => x[0] === r.type) || TYPES[1]; return `
@@ -219,6 +224,15 @@ export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowP
         box.querySelector('#tvfText').value = '';
       } catch (e) { toast(e.message); } finally { go.disabled = false; }
     };
+    // messages kept on the TV (they also show on its screensaver): one at a time, or all after a second tap
+    box.querySelectorAll('[data-msgdel]').forEach((b) => (b.onclick = async () => {
+      try { await api('/messages/del', { a: b.dataset.msgdel }); buzz(); toast('Deleted'); load(true); } catch (err) { toast(err.message); }
+    }));
+    box.querySelector('#tvfMsgAll')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Tap again to delete all'; return; }
+      try { await api('/messages/del', { a: 'all' }); buzz('success'); toast('Deleted'); load(true); } catch (err) { toast(err.message); }
+    });
     box.querySelector('#tvfClear')?.addEventListener('click', async (e) => {
       const b = e.currentTarget;
       if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Tap again to clear'; return; }

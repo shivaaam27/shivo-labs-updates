@@ -1,9 +1,9 @@
 // Updates for Shivo Labs (the hub and everything installed with it).
 //  - "repo" mode (this folder is a git checkout, e.g. Shivam's PC): new commits on GitHub; installing runs `git pull`.
-//  - "installed" mode (installed by installer\install.ps1): over the air, like the phone app. Every change pushed to
-//    main is published by .github/workflows/hub-ota.yml to the public repo shivo-labs-updates (folder hub/): the files,
-//    and manifest.json listing each file's SHA-256, signed with the key in GitHub's secrets (hub\update-key.xml is the
-//    public half). An install downloads only the files that differ (each one checked), backs up what it replaces,
+//  - "installed" mode (installed by installer\install.ps1): over the air, like the phone app. installer\publish-hub-ota.ps1
+//    (on Shivam's PC) puts each update in R2 through shivo-id (ota/hub/, since 22 Oct 2026; the GitHub repo
+//    shivo-labs-updates before): head.json (the newest version, small), <version>/manifest.json listing each file's
+//    SHA-256, signed with the laptop update key (hub\update-key.xml is the public half), and every file by its SHA-256. An install downloads only the files that differ (each one checked), backs up what it replaces,
 //    installs by itself, and restarts only what the change touches. If the hub doesn't come back, the backup is put back
 //    (engines/restart.mjs).
 // When: right away. The hub keeps a connection open to the Cloudflare shelf (/u/ws); publishing an update
@@ -21,8 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const HUB = join(here, "..");
 const ROOT = join(HUB, "..");
 const MODE = existsSync(join(ROOT, ".git")) ? "repo" : "installed";
-const UPDATES = process.env.HUB_UPDATE_BASE || "https://raw.githubusercontent.com/shivaaam27/shivo-labs-updates";
-const UPDATES_HEAD = process.env.HUB_UPDATE_HEAD || "https://api.github.com/repos/shivaaam27/shivo-labs-updates/commits/main";
+const OTA = process.env.HUB_OTA_BASE || "https://shivo-id.ishivamparmar.workers.dev/ota";
 const WORK = join(process.env.LOCALAPPDATA || tmpdir(), "Shivo Labs", "update");
 const AI = `http://127.0.0.1:${Number(process.env.HUB_AI_PORT) || 4823}`;
 const AI_UPDATE = AI + "/api/update";
@@ -97,16 +96,19 @@ async function runCheck() {
   return state;
 }
 
-// The newest update, pinned to one commit of the updates repo so the list and the files always match. null: none yet.
+// The newest update. head.json (small) says which version is newest; only when it is newer than this install is that
+// version's list (about 1 MB) fetched and checked. Files are fetched by their SHA-256 (base + "f/" + sha), so the list
+// and the files always match. null: none yet.
 async function latest() {
-  let ref = "main";
-  try { const r = await fetch(UPDATES_HEAD, { headers: { accept: "application/vnd.github.sha" }, signal: AbortSignal.timeout(15000) }); if (r.ok) ref = (await r.text()).trim(); } catch {}
-  const base = `${UPDATES}/${ref}/hub/`;
-  const get = async (name) => { const r = await fetch(base + name, { signal: AbortSignal.timeout(20000) }); if (r.status === 404) return null; if (!r.ok) throw new Error(`The update server answered ${r.status}`); return r.text(); };
-  const [text, sig] = await Promise.all([get("manifest.json"), get("manifest.sig")]);
+  const get = async (path) => { const r = await fetch(`${OTA}/hub/${path}`, { cache: "no-store", signal: AbortSignal.timeout(20000) }); if (r.status === 404) return null; if (!r.ok) throw new Error(`The update server answered ${r.status}`); return r.text(); };
+  const head = await get(`head.json?t=${Date.now()}`);
+  if (!head) return null;
+  const v = JSON.parse(head).version;
+  if (!(buildOf(v) > buildOf(state.version))) return { m: { version: v } };
+  const [text, sig] = await Promise.all([get(`${v}/manifest.json`), get(`${v}/manifest.sig`)]);
   if (!text || !sig) return null;
   if (!signedOk(text, sig)) throw new Error("An update was found but it isn't signed by Shivo Labs, so it was ignored.");
-  return { m: JSON.parse(text), base };
+  return { m: JSON.parse(text), base: `${OTA}/hub/` };
 }
 
 // Stop a program by part of its command line (the AI server or Beam's engine after their code changed); the hub
@@ -169,7 +171,7 @@ export async function install() {
     const queue = [...changed];
     const one = async () => {
       for (let rel; (rel = queue.shift());) {
-        const r = await fetch(base + "files/" + rel.split("/").map(encodeURIComponent).join("/"), { signal: AbortSignal.timeout(120000) });
+        const r = await fetch(base + "f/" + m.files[rel], { signal: AbortSignal.timeout(120000) });
         if (!r.ok) throw new Error(`Download failed (${r.status})`);
         let buf = Buffer.from(await r.arrayBuffer());
         if (fileHash(buf) !== m.files[rel]) throw new Error("A downloaded file was damaged. It will try again later.");
@@ -263,7 +265,7 @@ function installAi() {
 // Safe at any hour: TVs on 1.0.19+ install only under the screensaver. Only what is on GitHub is published: skipped
 // while tv/home here differs from origin/main. A failed publish is tried again after an hour.
 const TV_KEY = join(process.env.USERPROFILE || "", ".fabra-labs-ai", "android-build", "shivo-tv.keystore");
-const TV_FEED = process.env.HUB_TV_FEED || "https://raw.githubusercontent.com/shivaaam27/shivo-labs-updates/main/tv/latest.json";   // HUB_TV_FEED, HUB_TV_DRYRUN: tests only
+const TV_FEED = process.env.HUB_TV_FEED || "https://shivo-id.ishivamparmar.workers.dev/ota/tv/latest.json";   // HUB_TV_FEED, HUB_TV_DRYRUN: tests only
 let tvBusy = false;
 export async function publishTv() {
   if (MODE !== "repo" || tvBusy || !existsSync(TV_KEY)) return null;

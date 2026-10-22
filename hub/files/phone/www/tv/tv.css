@@ -193,6 +193,10 @@ html[data-theme=dark] .tvf-ask > span{color:var(--glow)}
 .tvf-log{display:flex;flex-direction:column;gap:10px;padding:2px 4px}
 .tvf-log div{display:grid;grid-template-columns:14px 1fr;column-gap:8px}
 .tvf-log b{font:600 14px/1.3 var(--body)}.tvf-log small{grid-column:2;color:var(--muted);font-size:12.5px}
+.tvf-msgs{display:flex;flex-direction:column;gap:8px}
+.tvf-msg{display:flex;align-items:center;gap:10px;padding:10px 10px 10px 14px;border-radius:16px;background:var(--soft)}
+.tvf-msg .tvf-main b{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tvf-msg .tvf-x{background:var(--bg)}
 .tvf-dot{width:8px;height:8px;border-radius:50%;margin-top:6px;background:var(--faint)}
 .tvf-dot.done{background:var(--sage)}.tvf-dot.missed,.tvf-dot.off{background:var(--err)}
 /* sheet */

@@ -101,7 +101,7 @@ export function makeRemote(ctx) {
 
   // phone motion moves the pointer: turning left/right is the spin around the up direction (so it works however the
   // phone is held), tilting is the spin across it; tiny shakes are ignored, slow turns move finely, fast ones far
-  let upv = [0, 0, 1], sx = 0, sy = 0, nativeSub = null, nMotion = 0;
+  let upv = [0, 0, 1], sx = 0, sy = 0, nativeSub = null, nMotion = 0, padTouch = false, motionQuietUntil = 0;
   const curve = (v) => { const a = Math.abs(v); if (a < 1.2) return 0; const q = a - 1.2; return Math.sign(v) * (q < 20 ? q * (0.7 + q / 66) : q); };
   const onMotion = (e) => {
     nMotion++;
@@ -113,6 +113,9 @@ export function makeRemote(ctx) {
       upv = upv.map((v, i) => v * 0.85 + u[i] * 0.15);
     }
     if (!motionOn || !r) return;
+    // a finger on the pad (and a moment after) holds the pointer still: tapping the glass jolts the phone, and the jolt
+    // moved the pointer onto the next button just before the click (Shivam, 22 Oct)
+    if (padTouch || Date.now() < motionQuietUntil) { sx = 0; sy = 0; return; }
     const t = (e.interval > 1 ? e.interval / 1000 : e.interval) || 0.016;
     const yaw = (r.beta || 0) * upv[0] + (r.gamma || 0) * upv[1] + (r.alpha || 0) * upv[2];
     sx = sx * 0.4 + curve(yaw) * 0.6; sy = sy * 0.4 + curve(r.beta || 0) * 0.6;
@@ -270,6 +273,7 @@ export function makeRemote(ctx) {
         try { pad.setPointerCapture(e.pointerId); } catch {}
         pts.set(e.pointerId, [e.clientX, e.clientY]);
         holding = true;
+        if (motionOn) { padTouch = true; dx = 0; dy = 0; }
         if (pts.size === 1) { down = Date.now(); moved = 0; two = false; } else two = true;
         pad.classList.add('touch');
       });
@@ -285,7 +289,7 @@ export function makeRemote(ctx) {
       });
       const up = (e) => {
         if (!pts.delete(e.pointerId)) return;
-        if (!pts.size) { pad.classList.remove('touch'); holding = false; if (laterPaint) { laterPaint = false; setTimeout(paint, 0); } }
+        if (!pts.size) { padTouch = false; motionQuietUntil = Date.now() + 250; pad.classList.remove('touch'); holding = false; if (laterPaint) { laterPaint = false; setTimeout(paint, 0); } }
         if (!pts.size && !two && moved < 24 && Date.now() - down < 400) { wsSend('c'); buzz('medium'); }
       };
       pad.addEventListener('pointerup', up); pad.addEventListener('pointercancel', up);

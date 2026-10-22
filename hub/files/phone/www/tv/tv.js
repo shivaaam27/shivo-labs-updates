@@ -658,7 +658,7 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
   // (kits/app-native/live-activity/extension/ShivoTVCard.swift). Its buttons go to the TV by themselves, with the
   // address, key and relay given here; the text is refreshed from here whenever the app asks the TV what plays.
   // Starts when something plays, stays while it is paused, goes when nothing has played for two looks.
-  let card = false, cardWas = '', cardGone = 0, cardTimer = 0;
+  let card = false, cardWas = '', cardGone = 0, cardTimer = 0, sharedWas = '';
   const cardPic = { id: '', b64: '' };
   async function tinyPic(path) {   // a picture small enough for the card (Apple allows a card 4 KB in all)
     try {
@@ -677,7 +677,11 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
   async function tvCard(list) {
     if (!cur?.key) return;
     const p = (list || []).find((x) => x.playing) || (card ? (list || [])[0] : null);
+    const tv = JSON.stringify({ h: cur.host || '', k: cur.key, r: cur.relay || (cur.kh ? `${RELAY}/k/${cur.kh}` : '') });
+    // the widget and Control Centre buttons: the address always, what plays when something does
+    const share = (f) => { const k = JSON.stringify(f); if (k !== sharedWas) { sharedWas = k; live.shareTv(f); } };
     if (!p) {
+      share({ tv, title: '', subtitle: cur.name || '', playing: false });
       if (card && ++cardGone >= 2) { card = false; cardWas = ''; cardGone = 0; live.done('tv', {}, 0); }
       return;
     }
@@ -687,8 +691,9 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
     const fields = {
       title: p.title, subtitle: `${label(p.pkg) || 'Playing'} on ${cur.name || 'the TV'}`, icon: 'tv.fill', tag: 'TV',
       playing: !!p.playing, muted: !!dev.muted, thumb: cardPic.b64,
-      tv: JSON.stringify({ h: cur.host || '', k: cur.key, r: cur.relay || (cur.kh ? `${RELAY}/k/${cur.kh}` : '') }),
+      tv,
     };
+    share({ tv, title: fields.title, subtitle: fields.subtitle, thumb: fields.thumb, playing: fields.playing });
     const was = JSON.stringify(fields);
     if (card && was === cardWas) return;   // nothing new: the card isn't touched
     cardWas = was; card = true;
