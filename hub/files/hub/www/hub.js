@@ -6,22 +6,22 @@ import { mountChat } from '/shared/chat/chat.js';
 import { makeAiPage, aiSettings, aiCommand } from './modules/ai.js';
 import { mountSettings } from './modules/settings.js';
 import { mountMirror } from './modules/mirror.js';
-import { mountBusiness } from './modules/business.js';
 import { mountTv } from './modules/tv.js';
 import { mountInsights } from './modules/insights.js';
 import { quietStart, quietReload } from './modules/quiet.js';
 import { mountOwner } from './modules/owner.js';
+import qrcode from '/shared/qrcode.mjs';
 const QUIET = quietStart();   // this load follows a quiet update: no splash, no entrance animations
 // Chat joins this PC's customer team with its shivo-id pass (null on Shivam's PC: the invite code screen as before)
 const chatPass = () => fetch('/api/id/chatpass', { method: 'POST', headers: { 'x-hub': '1' } }).then((r) => r.json()).then((j) => j.pass).catch(() => null);
-const PAGES = { owner: mountOwner, business: mountBusiness, chat: (el, o) => mountChat(el, { ...o, getPass: chatPass }), mirror: mountMirror, files: mountFiles, xtools: mountXtools, tv: mountTv, insights: mountInsights };  // module id -> its screen (modules/<id>.js)
+const PAGES = { owner: mountOwner, chat: (el, o) => mountChat(el, { ...o, getPass: chatPass }), mirror: mountMirror, files: mountFiles, xtools: mountXtools, tv: mountTv, insights: mountInsights };  // module id -> its screen (modules/<id>.js)
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 let list = [], leave = null;
 // nothing on the hub's screens can be dragged out of the window (pictures, links, highlighted text); files dragged in
-// from Explorer still drop (Cloud, X Tools, Business): those drags start outside the page
+// from Explorer still drop (Cloud, X Tools): those drags start outside the page
 document.addEventListener('dragstart', (e) => { const el = e.target.nodeType === 1 ? e.target : e.target.parentElement; if (!el?.closest('[draggable=true],input,textarea')) e.preventDefault(); });
 
 // theme: light, dark or automatic (follows Windows); chosen in Settings
@@ -72,7 +72,7 @@ function openModule(id, startEngine, opts = {}) {
   $('#home').hidden = true; $('#page').hidden = false;
   $('#page').classList.toggle('full', !!m.full);
   leave = PAGES[id]($('#pageBody'), { esc, toast, openModule, module: m, startModule: start, goHome });
-  // a module may keep its own place after its id (#business/l/product); keep it when it is already there
+  // a module may keep its own place after its id (#<module>/<place>); keep it when it is already there
   if (!location.hash.startsWith(`#${id}/`)) history.replaceState(null, '', `#${id}`);
   if (opts.aiSettings && id === 'ai') aiSettings();
   if (opts.aiCmd && id === 'ai') aiCommand(opts.aiCmd);
@@ -129,18 +129,40 @@ function showGate() {
   const msg = (t, bad) => { $('#gateMsg').textContent = t; $('#gateMsg').classList.toggle('bad', !!bad); };
   const input = $('#gateCode'); input.focus();
   input.oninput = () => { const c = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10); input.value = c.length > 5 ? `${c.slice(0, 5)}-${c.slice(5)}` : c; msg(''); };
-  const go = async () => {
-    const code = input.value.replace(/[^A-Z0-9]/gi, '');
-    if (code.length < 10) return msg('The code has 10 letters and numbers', true);
-    $('#gateBtn').disabled = true; msg('Getting your modules ready… this can take a few minutes');
-    let r = null; try { r = await (await fetch('/api/id/enrol', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ code }) })).json(); } catch {}
-    if (!r?.ok) { $('#gateBtn').disabled = false; return msg(r?.error || "Couldn't reach Shivo Labs. Check the internet and try again", true); }
-    msg(`Welcome, ${r.customer}. Starting…`);
-    for (let i = 0; i < 60; i++) {   // the hub restarts with this PC's modules
+  // done: the hub restarts with this PC's modules; wait for it, then the home screen
+  const started = async (customer) => {
+    msg(`Welcome, ${customer}. Starting…`);
+    for (let i = 0; i < 60; i++) {
       await new Promise((ok) => setTimeout(ok, 1500));
       try { const s = await (await fetch('/api/id', { cache: 'no-store' })).json(); if (!s.needCode) { store.set('welcomed', '1'); location.replace('/'); return; } } catch {}
     }
     location.replace('/');
+  };
+  // or a phone that is already joined scans the QR and approves this PC (UNIFY-PLAN.md): checked every 3 seconds
+  let qrTimer = 0;
+  const post = (u) => fetch(u, { method: 'POST', headers: { 'x-hub': '1' } }).then((r) => r.json()).catch(() => null);
+  const showQr = async () => {
+    const j = await post('/api/id/join');
+    if (!j?.link) { $('#gateQr').hidden = true; qrTimer = setTimeout(showQr, 30000); return; }   // offline: try again
+    const q = qrcode(0, 'M'); q.addData(j.link); q.make();
+    $('#gateQrImg').innerHTML = q.createSvgTag({ cellSize: 4, margin: 1, scalable: true });
+    $('#gateCheck').textContent = j.check; $('#gateQr').hidden = false;
+    const wait = async () => {
+      const r = await post('/api/id/join/wait');
+      if (r?.ok) { $('#gateQr').hidden = true; $('#gateBtn').disabled = true; msg('Getting your modules ready… this can take a few minutes'); return started(r.customer); }
+      qrTimer = setTimeout(r?.expired ? showQr : wait, r?.expired ? 0 : 3000);
+    };
+    qrTimer = setTimeout(wait, 3000);
+  };
+  showQr();
+  const go = async () => {
+    const code = input.value.replace(/[^A-Z0-9]/gi, '');
+    if (code.length < 10) return msg('The code has 10 letters and numbers', true);
+    clearTimeout(qrTimer); $('#gateQr').hidden = true;
+    $('#gateBtn').disabled = true; msg('Getting your modules ready… this can take a few minutes');
+    let r = null; try { r = await (await fetch('/api/id/enrol', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify({ code }) })).json(); } catch {}
+    if (!r?.ok) { $('#gateBtn').disabled = false; showQr(); return msg(r?.error || "Couldn't reach Shivo Labs. Check the internet and try again", true); }
+    started(r.customer);
   };
   $('#gateBtn').onclick = go;
   input.onkeydown = (e) => { if (e.key === 'Enter') go(); };

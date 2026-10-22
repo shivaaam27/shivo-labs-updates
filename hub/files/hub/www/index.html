@@ -8,7 +8,6 @@
 <link rel="stylesheet" href="/shared/tokens.css">
 <link rel="stylesheet" href="hub.css">
 <link rel="stylesheet" href="/shared/chat/chat.css">
-<link rel="stylesheet" href="/shared/biz/biz.css">
 </head>
 <body>
   <div id="splash"><div class="lock"><div id="splashMark"></div><div class="word">SHIVO<span>LABS</span></div></div></div>
@@ -32,6 +31,13 @@
       <input id="gateCode" class="gate-in" placeholder="ABCDE-FGHJK" autocomplete="off" spellcheck="false" maxlength="14">
       <p class="gate-msg" id="gateMsg"></p>
       <button class="btn pri" id="gateBtn">Continue</button>
+      <div class="gate-qr" id="gateQr" hidden>
+        <div class="gate-or"><span>or</span></div>
+        <div class="gate-qr-row">
+          <div class="gate-qr-img" id="gateQrImg"></div>
+          <p>Scan with a phone that already has Shivo Labs, then tap <b>Add</b>.<br><span class="gate-check">The phone shows <b id="gateCheck"></b></span></p>
+        </div>
+      </div>
     </div>
   </section>
 

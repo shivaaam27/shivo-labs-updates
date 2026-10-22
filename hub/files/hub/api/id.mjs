@@ -97,6 +97,32 @@ export async function enrol(code) {
   return { ok: true, customer: r.customer, modules: r.modules };
 }
 
+// ---------- joining by QR (UNIFY-PLAN.md, 23 Oct 2026): instead of typing the code, this PC asks shivo-id to be added
+// and shows that as a QR; a phone that is already joined scans it and approves it, and this PC joins that phone's
+// customer. Checked every few seconds by the code screen; a join lasts 10 minutes, then the screen asks for a new one.
+let joining = null;   // {join, check, link, expires, key: this PC's new private key (JWK)}
+async function joinStart() {
+  if (joining && joining.expires > Date.now() + 60e3) return joining;
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const r = await post("/join/new", { kind: "pc", name: hostname(), key: publicKey.export({ format: "jwk" }), version: upd.version });
+  joining = { ...r, key: privateKey.export({ format: "jwk" }) };
+  return joining;
+}
+async function joinCheck() {
+  if (!joining) return { expired: true };
+  const ts = await serverNow();
+  const sig = sign("sha256", Buffer.from(`wait.${joining.join}.${ts}`), { key: createPrivateKey({ key: joining.key, format: "jwk" }), dsaEncoding: "ieee-p1363" }).toString("base64url");
+  let r;
+  try { r = await post("/join/wait", { join: joining.join, ts, sig }); }
+  catch (e) { if (e.status === 404) { joining = null; return { expired: true }; } throw e; }
+  if (r.waiting) return { waiting: true };
+  save({ device: r.device, key: joining.key, pass: r.pass, customer: r.customer });
+  joining = null; status.error = null; status.lastRenew = Date.now();
+  await ensurePacks();
+  restartHub();   // start this PC's modules, as after typing the code
+  return { ok: true, customer: r.customer, modules: r.modules };
+}
+
 export async function renew() {
   const d = load(); if (!d?.device) return;
   const before = [...(allowed() || [])].sort().join();
@@ -217,6 +243,15 @@ export async function idApi(req, res, path) {
     const { code } = await readJson(req);
     try { return json(res, 200, await enrol(String(code || ""))), true; }
     catch (e) { return json(res, e.status === 404 ? 400 : 502, { error: e.status === 404 ? "That code is wrong or has expired" : e.message }), true; }
+  }
+  // the code screen's QR: start a join (or keep the current one), then ask every few seconds whether a phone approved it
+  if (path === "/api/id/join" && req.method === "POST") {
+    try { const j = await joinStart(); return json(res, 200, { link: j.link, check: j.check, expires: j.expires }), true; }
+    catch (e) { return json(res, 502, { error: e.message }), true; }
+  }
+  if (path === "/api/id/join/wait" && req.method === "POST") {
+    try { return json(res, 200, await joinCheck()), true; }
+    catch (e) { return json(res, 502, { error: e.message }), true; }
   }
   if (path.startsWith("/api/owner/")) {
     if (!isOwner()) return json(res, 403, { error: "Only on the owner's PC" }), true;

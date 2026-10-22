@@ -14,7 +14,6 @@ import { startFilesSync } from "./api/files-sync.mjs";
 import { xtoolsApi } from "./api/xtools.mjs";
 import { settingsApi } from "./api/settings.mjs";
 import { mirrorApi, superviseMirror } from "./api/mirror.mjs";
-import { businessApi } from "./api/business.mjs";
 import { tvApi } from "./api/tv.mjs";
 import { insightsApi } from "./api/insights.mjs";
 import { autoCheck } from "./api/update.mjs";
@@ -30,7 +29,7 @@ const ROOTS = { "/shared/": [join(here, "shared"), join(here, "..", "shared")].f
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".ttf": "font/ttf", ".png": "image/png", ".ico": "image/x-icon" };
 const HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`]);
 // each module's own API, closed when this PC's pass doesn't have the module (hub/api/id.mjs)
-const API_OF = { "/api/beam": "files", "/api/files": "files", "/api/xtools": "xtools", "/api/mirror": "mirror", "/api/business": "business", "/api/tv": "tv", "/api/insights": "insights" };
+const API_OF = { "/api/beam": "files", "/api/files": "files", "/api/xtools": "xtools", "/api/mirror": "mirror", "/api/tv": "tv", "/api/insights": "insights" };
 const moduleOf = (path) => Object.entries(API_OF).find(([p]) => path === p || path.startsWith(p + "/"))?.[1];
 
 // %ROOT% is the folder that holds hub\ (the repo here, the program folder when installed); %NODE% is the
@@ -77,7 +76,6 @@ http.createServer(async (req, res) => {
     if (await xtoolsApi(req, res, url.pathname, url)) return;
     if (await settingsApi(req, res, url.pathname)) return;
     if (await mirrorApi(req, res, url.pathname)) return;
-    if (await businessApi(req, res, url.pathname)) return;
     if (await tvApi(req, res, url.pathname, url)) return;
     if (await insightsApi(req, res, url.pathname, url)) return;
     // the home screen's cards: the modules this PC's pass has (the Owner page only on the owner's PC)

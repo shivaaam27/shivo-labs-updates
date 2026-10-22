@@ -1,7 +1,9 @@
 // The Owner page (only on the PC that holds the owner key, hub/api/id.mjs): every customer, which modules they have,
 // their PCs, phones and TVs, and invite codes. Changes reach their devices at the next pass (within a few hours, or
 // at once when the device restarts).
-const NAMES = { ai: 'Shivo Labs AI', business: 'Business', chat: 'Chat', mirror: 'Mirror', files: 'Shivo Labs Cloud', xtools: 'X Tools', tv: 'TV',
+import qrcode from '/shared/qrcode.mjs';
+
+const NAMES = { ai: 'Shivo Labs AI', chat: 'Chat', mirror: 'Mirror', files: 'Shivo Labs Cloud', xtools: 'X Tools', tv: 'TV',
   camera: 'Camera', phone: 'Phone', insights: 'Insights', oracle: 'Oracle TM' };
 const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Error ${r.status}`); return j; });
 const day = (t) => (t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
@@ -57,7 +59,8 @@ export function mountOwner(root, { esc, toast }) {
           <button class="btn sm">Save</button></form>
         <h4>Invite codes</h4>
         ${c.codes.map((k) => `<div class="set-row"><span><b class="own-code">${pretty(k.code)}</b><small>${esc(k.label || 'No label')} · ${k.uses - k.used} of ${k.uses} left · until ${day(k.expires)}${k.modules ? ' · ' + k.modules.map((m) => esc(NAMES[m] || m)).join(', ') : ''}</small></span>
-          <span class="own-acts"><button class="btn" data-copy="${k.code}">Copy</button><button class="btn" data-revoke="${k.code}">Cancel</button></span></div>`).join('') || '<p class="set-note">No open codes.</p>'}
+          <span class="own-acts"><button class="btn" data-qr="${k.code}">QR</button><button class="btn" data-copy="${k.code}">Copy</button><button class="btn" data-revoke="${k.code}">Cancel</button></span></div>
+          <div class="own-qr" data-qr-for="${k.code}" hidden></div>`).join('') || '<p class="set-note">No open codes.</p>'}
         <form class="own-code-new"><div class="own-chips">${chips(c.modules, 'k', c.modules)}</div>
           <div class="own-line"><input class="own-in" name="label" placeholder="For (e.g. Till PC, Mum's phone)" maxlength="60">
           <label>Uses <input class="own-in xs" name="uses" type="number" min="1" max="100" value="1"></label>
@@ -89,6 +92,15 @@ export function mountOwner(root, { esc, toast }) {
       } catch (er) { toast(er.message); }
     };
     el.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = async () => { await copy(b.dataset.copy); toast('Copied, with the download link'); }));
+    // the code as a QR (UNIFY-PLAN.md): a customer's first phone scans it with Shivo Labs or the Camera app instead of
+    // typing it; that phone then adds their other devices by QR
+    el.querySelectorAll('[data-qr]').forEach((b) => (b.onclick = () => {
+      const box = el.querySelector(`[data-qr-for="${b.dataset.qr}"]`);
+      if (!box.hidden) { box.hidden = true; return; }
+      const q = qrcode(0, 'M'); q.addData(`shivolabs://code/${b.dataset.qr}`); q.make();
+      box.innerHTML = `<div class="own-qr-img">${q.createSvgTag({ cellSize: 4, margin: 1, scalable: true })}</div><p>Scan with the phone's camera or in Shivo Labs. Then that phone adds the customer's other PCs, phones and TVs by QR.</p>`;
+      box.hidden = false;
+    }));
     el.querySelectorAll('[data-revoke]').forEach((b) => (b.onclick = async () => { try { await post('/api/owner/code/revoke', { code: b.dataset.revoke }); load(); } catch (er) { toast(er.message); } }));
     el.querySelectorAll('[data-dev]').forEach((b) => (b.onclick = async () => {
       try { await post('/api/owner/device', { id: b.dataset.dev, removed: b.dataset.removed !== '1' }); load(); } catch (er) { toast(er.message); }
