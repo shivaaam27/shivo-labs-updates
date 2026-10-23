@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync, mkdirSync, statSync, watch } from "node:fs
 import { join, dirname } from "node:path";
 import net from "node:net";
 import { quietCall, xtoolsBusy, hooks } from "./xtools.mjs";
+import { notify } from "./tray.mjs";
 
 const FL = join(process.env.LOCALAPPDATA || "", "Fabra Labs");
 const STORE = join(FL, "state.json");   // X Tools' apps: name, bundle id, kept copy (File), when installed
@@ -117,10 +118,13 @@ async function installAll(udid, items) {
       st.items = st.items.filter((x) => x !== it);
       st.done = [{ name: it.name, phone: phoneName(udid), why: it.why, at: Date.now() }, ...st.done].slice(0, 5);
       log("installed", it.name);
+      notify(it.why === "new build" ? "Updated" : "Renewed for 7 days", `${it.name} on ${phoneName(udid)}`);
     } catch (e) {
       it.tries++; it.error = String(e.message || e).slice(0, 200);
       it.next = Date.now() + BACKOFF[Math.min(it.tries - 1, BACKOFF.length - 1)] * 60000;
       log("not yet:", it.name, "-", it.error);
+      // (an app on screen can't be replaced, so a try or two failing is normal: say so only after an hour of tries)
+      if (it.tries === 4) notify(`${it.name} hasn't updated yet`, `${it.error} It keeps trying while ${phoneName(udid)} is on this Wi-Fi.`, false);
     }
     save();
   }

@@ -1,6 +1,6 @@
 // Shivo Labs Cloud on the laptop (files/PLAN.md): sending to your phones (beam.js) and the files kept in the cloud,
-// on one page. Browse, upload (drop or choose), new folder, rename, delete to the Trash, download, versions, share links
-// and request-files links. Everything is encrypted by the hub before it leaves this PC (hub/api/files.mjs).
+// on one page. Browse, search, previews (pictures, PDFs, video, sound, text), upload (drop or choose), new folder, rename,
+// move, delete to the Trash, download, versions, share links (a folder's is a .zip of it) and request-files links. Everything is encrypted by the hub before it leaves this PC (hub/api/files.mjs).
 import { enhanceSelects } from '/shared/select.js';
 import { mountBeam } from './beam.js';
 
@@ -16,12 +16,17 @@ const ICON = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   people: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.2a3 3 0 0 1 0 5.6M17.5 14.2A5.5 5.5 0 0 1 20.5 19"/>',
   inbox: '<path d="M4 13l2.5-7h11L20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM4 13h5l1 2h4l1-2h5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24">${ICON[k]}</svg>`;
 const big = (n, u) => `${n >= 100 || Number.isInteger(n) ? Math.round(n) : n.toFixed(1)} ${u}`;
 const size = (b) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : b < 1073741824 ? big(b / 1048576, 'MB') : b < 1099511627776 ? big(b / 1073741824, 'GB') : big(b / 1099511627776, 'TB');
 const ext = (n) => (n.match(/\.([a-z0-9]{1,4})$/i)?.[1] || 'file').toUpperCase();
 const isImg = (n) => /\.(jpe?g|png|gif|heic|heif|webp|mov|mp4)$/i.test(n);
+const thumbable = (n) => /\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(n);
+// what the hub can show here (hub/api/files.mjs viewType); everything else downloads
+const kindOf = (n) => /\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(n) ? 'img' : /\.pdf$/i.test(n) ? 'pdf' : /\.(mp4|m4v|webm|mov)$/i.test(n) ? 'video'
+  : /\.(mp3|m4a|wav|ogg|aac)$/i.test(n) ? 'audio' : /\.(txt|md|csv|tsv|json|log|xml|svg|html?|css|js|mjs|ts|py|ps1|sh|bat|ini|yaml|yml|toml|sql)$/i.test(n) ? 'text' : '';
 const ago = (t) => { const s = (Date.now() - t) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(t).toLocaleDateString(); };
 // the link on the clipboard; if the browser says no, shown so it can be copied by hand
 async function copy(link, toast, what) {
@@ -32,7 +37,7 @@ const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-hub': '
 
 export function mountFiles(root, ctx) {
   const { esc, toast } = ctx;
-  let folder = '', path = [], trash = false, menuFor = '', st = null, busy = 0;
+  let folder = '', path = [], trash = false, menuFor = '', st = null, busy = 0, query = '';
   root.innerHTML = `
     <div class="bm-grid">
       <div class="bm-col">
@@ -43,6 +48,7 @@ export function mountFiles(root, ctx) {
             <button class="tbtn" id="flAsk">${svg('inbox')}Request files</button>
             <button class="tbtn" id="flTrash">${svg('trash')}Trash</button>
             <button class="tbtn" id="flCust" hidden>${svg('people')}Customers</button></div>
+          <label class="fl-search">${svg('search')}<input id="flQ" type="search" placeholder="Search your files" autocomplete="off" spellcheck="false"></label>
           <label class="fl-drop" id="flDrop"><input type="file" id="flPick" multiple hidden>
             <span>${svg('up')}</span><b id="flDropT">Drop files to keep them here</b><small>or click to choose</small></label>
           <div id="flList"></div>
@@ -103,8 +109,8 @@ export function mountFiles(root, ctx) {
       $('#flList').innerHTML = ''; $('#flDrop').hidden = true;
       return;
     }
-    $('#flDrop').hidden = trash;
-    $('#flCust').hidden = !st.operator;
+    $('#flDrop').hidden = trash || !!query;
+    $('#flCust').hidden = !st.operator || !!query;
     const pct = st.quota ? Math.min(100, (st.used / st.quota) * 100) : 0;
     const devs = (await (await fetch('/api/files/devices')).json().catch(() => ({}))).devices || [];
     el.innerHTML = `<div class="bm-h"><h2>Storage</h2><small class="bm-hint">${svg('lock')}Encrypted</small></div>
@@ -113,7 +119,7 @@ export function mountFiles(root, ctx) {
       ${st.readOnly ? '<p class="bm-note fl-warn">Read-only: files can be opened and downloaded, not added. Contact Shivo Labs to continue.</p>' : ''}
       <div class="bm-h fl-sec"><h2>Synced with this PC</h2><button class="tbtn" id="flAddF">${svg('plus')}Add folder</button><button class="tbtn" id="flSyncNow">Sync now</button></div>
       <div id="flFolders"></div>
-      <p class="bm-note">${st.sync?.error ? 'Sync problem: ' + esc(st.sync.error) : st.sync?.busy ? esc(st.sync.busy) + '…' : st.sync?.last ? 'Synced ' + ago(st.sync.last) : 'Not synced yet'}. These folders open on your phone with this PC off.</p>
+      <p class="bm-note">${st.sync?.error ? 'Sync problem: ' + esc(st.sync.error) : st.sync?.busy ? esc(st.sync.busy) + '…' : st.sync?.last ? 'Synced ' + ago(st.sync.last) : 'Not synced yet'}. The Shivo Cloud folder is also in Explorer's side bar. Everything here opens on your phone with this PC off.</p>
       <div id="flLinks"></div>
       <div class="bm-h fl-sec"><h2>Access to your files</h2></div>
       ${devs.map((d) => `<div class="file"><span class="ext">${d.admin ? 'PC' : (d.kind || 'DEV').slice(0, 4).toUpperCase()}</span>
@@ -140,7 +146,11 @@ export function mountFiles(root, ctx) {
     const row = (name, path, removable, missing) => `<div class="file"><span class="ext">${svg('folder')}</span>
       <div class="meta"><div class="n">${esc(name)}</div><div class="s">${missing ? 'Not found on this PC' : esc(path)}</div></div>
       ${removable ? `<button class="ibtn" data-unsync="${esc(path)}" aria-label="Stop syncing">${svg('x')}</button>` : ''}</div>`;
-    el.innerHTML = row('Beam', f.beam, false) + (f.list || []).map((x) => row(x.name, x.path, true, x.missing)).join('');
+    const mine = st?.sync?.pairs?.find((x) => x.name === ':all');
+    el.innerHTML = (mine ? `<div class="file"><span class="ext">${svg('folder')}</span>
+      <div class="meta"><div class="n">Shivo Cloud</div><div class="s fl-path" title="${esc(mine.local)}">${esc(mine.local)}</div></div>
+      <button class="tbtn" id="flOpenF">Open</button></div>` : '') + row('Beam', f.beam, false) + (f.list || []).map((x) => row(x.name, x.path, true, x.missing)).join('');
+    const of = $('#flOpenF'); if (of) of.onclick = () => post('/api/files/open-folder');
     el.querySelectorAll('[data-unsync]').forEach((b) => (b.onclick = async () => {
       const r = await post('/api/beam/folders', { remove: b.dataset.unsync });
       if (r.ok) { toast('No longer synced. The copy in the cloud stays.'); folders(); }
@@ -184,31 +194,40 @@ export function mountFiles(root, ctx) {
   // ---------- the list
   async function show() {
     if (!st?.ready) return;
-    $('#flDrop').hidden = trash;
+    $('#flDrop').hidden = trash || !!query;
     $('#flTrash').innerHTML = trash ? `${svg('back')}Files` : `${svg('trash')}Trash`;
-    $('#flNew').hidden = trash; $('#flAsk').hidden = trash;
-    $('#flCrumbs').innerHTML = trash ? '<b>Trash</b>'
+    $('#flNew').hidden = trash || !!query; $('#flAsk').hidden = trash || !!query; $('#flTrash').hidden = !!query; $('#flCust').hidden = !st?.operator || !!query;
+    $('#flCrumbs').innerHTML = trash ? '<b>Trash</b>' : query ? `<button class="tbtn" data-go="${esc(folder)}">${svg('back')}Back</button><b>Results for “${esc(query)}”</b>`
       : [{ id: '', name: 'Your files' }, ...path].map((p, i, a) => i === a.length - 1 ? `<b>${esc(p.name)}</b>` : `<button class="tbtn" data-go="${esc(p.id)}">${esc(p.name)}</button><span>›</span>`).join('');
     root.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => open(b.dataset.go)));
-    const r = await fetch(trash ? '/api/files/trash' : `/api/files/list?parent=${encodeURIComponent(folder)}`);
+    const r = await fetch(trash ? '/api/files/trash' : query ? `/api/files/search?q=${encodeURIComponent(query)}` : `/api/files/list?parent=${encodeURIComponent(folder)}`);
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { $('#flList').innerHTML = `<p class="emptyt">${esc(j.error || "Couldn't reach Shivo Labs Cloud")}</p>`; return; }
     const items = j.items || [];
     $('#flList').innerHTML = items.length ? items.map((f) => `
       <div class="file fl-row${f.kind === 'file' && isImg(f.name) ? ' img' : ''}" data-id="${esc(f.id)}">
         <button class="fl-open" data-open="${esc(f.id)}" data-kind="${f.kind}">
-          <span class="ext">${f.kind === 'folder' ? svg('folder') : esc(ext(f.name))}</span>
-          <div class="meta"><div class="n">${esc(f.name)}</div><div class="s">${f.kind === 'folder' ? 'Folder' : size(f.size)} · ${ago(trash ? f.deleted : f.mtime)}</div></div></button>
+          <span class="ext">${f.kind === 'folder' ? svg('folder') : !trash && thumbable(f.name) && f.size < 30 * 1048576 ? `<img class="fl-thumb" loading="lazy" alt="" src="/api/files/view?id=${encodeURIComponent(f.id)}&v=${f.version}">` : esc(ext(f.name))}</span>
+          <div class="meta"><div class="n">${esc(f.name)}</div><div class="s">${f.kind === 'folder' ? 'Folder' : size(f.size)} · ${ago(trash ? f.deleted : f.mtime)}${query && f.where ? ' · in ' + esc(f.where) : query ? ' · Your files' : ''}</div></div></button>
         ${trash ? `<button class="tbtn" data-restore="${esc(f.id)}">Restore</button>`
           : `<button class="ibtn" data-more="${esc(f.id)}" aria-label="More">${svg('dots')}</button>
-             ${menuFor === f.id ? `<div class="bm-devmenu">${f.kind === 'file' ? `<button class="tbtn" data-share="${esc(f.id)}">Copy link</button><button class="tbtn" data-sharepw="${esc(f.id)}">Link with password</button><button class="tbtn" data-vers="${esc(f.id)}">Versions</button>` : ''}<button class="tbtn" data-ren="${esc(f.id)}">Rename</button><button class="tbtn" data-del="${esc(f.id)}">Delete</button></div>` : ''}`}
+             ${menuFor === f.id ? `<div class="bm-devmenu">${f.kind === 'file' ? `<button class="tbtn" data-share="${esc(f.id)}">Copy link</button><button class="tbtn" data-sharepw="${esc(f.id)}">Link with password</button><button class="tbtn" data-vers="${esc(f.id)}">Versions</button>` : `<button class="tbtn" data-sharef="${esc(f.id)}">Copy link</button>`}<button class="tbtn" data-ren="${esc(f.id)}">Rename</button><button class="tbtn" data-move="${esc(f.id)}">Move</button><button class="tbtn" data-del="${esc(f.id)}">Delete</button></div>` : ''}`}
       </div>`).join('')
-      : `<p class="emptyt">${trash ? 'The Trash is empty. Deleted files stay here for 30 days.' : 'Nothing here yet. Drop files above.'}</p>`;
+      : `<p class="emptyt">${trash ? 'The Trash is empty. Deleted files stay here for 30 days.' : query ? 'Nothing found.' : 'Nothing here yet. Drop files above.'}</p>`;
     root.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => {
       if (trash) return;
-      if (b.dataset.kind === 'folder') return open(b.dataset.open, items.find((x) => x.id === b.dataset.open)?.name);
-      location.href = '/api/files/download?id=' + encodeURIComponent(b.dataset.open);   // decrypted by the hub, saved by the browser
+      const it = items.find((x) => x.id === b.dataset.open);
+      if (b.dataset.kind === 'folder') { if (query) { query = ''; $('#flQ').value = ''; path = []; } return open(it.id, it.name); }
+      if (kindOf(it.name)) return preview(it);
+      location.href = '/api/files/download?id=' + encodeURIComponent(it.id);   // decrypted by the hub, saved by the browser
     }));
+    root.querySelectorAll('[data-sharef]').forEach((b) => (b.onclick = async () => {
+      menuFor = ''; show(); toast('Making a link to the folder…');
+      const r = await post('/api/files/share-folder', { id: b.dataset.sharef, days: 7 }), jj = await r.json().catch(() => ({}));
+      if (!r.ok) return toast(jj.error || "Couldn't make a link");
+      links(); copy(jj.link, toast, `Link to ${jj.name} (works for 7 days)`);
+    }));
+    root.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => { menuFor = ''; show(); moveTo(items.find((x) => x.id === b.dataset.move)); }));
     root.querySelectorAll('[data-more]').forEach((b) => (b.onclick = () => { menuFor = menuFor === b.dataset.more ? '' : b.dataset.more; show(); }));
     root.querySelectorAll('[data-ren]').forEach((b) => (b.onclick = async () => {
       const it = items.find((x) => x.id === b.dataset.ren), name = prompt('New name', it.name); menuFor = '';
@@ -226,7 +245,48 @@ export function mountFiles(root, ctx) {
   }
   // ---------- a file's earlier versions: download one, or make it the current one again
   const veil = $('#flVeil'), dlg = $('#flDialog');
-  const closeDialog = () => { veil.hidden = true; dlg.innerHTML = ''; dlg.classList.remove('wide'); };
+  // ---------- a look at a file without downloading it (decrypted by the hub, kept on this PC for the next look)
+  async function preview(it) {
+    const src = `/api/files/view?id=${encodeURIComponent(it.id)}&v=${it.version}`, k = kindOf(it.name);
+    veil.hidden = false; dlg.classList.add('wide', 'fl-viewer');
+    dlg.innerHTML = `<div class="bm-h"><h2>${esc(it.name)}</h2></div><div class="fl-view" id="flView">${
+      k === 'img' ? `<img src="${src}" alt="">` : k === 'pdf' ? `<iframe src="${src}" title="${esc(it.name)}"></iframe>`
+      : k === 'video' ? `<video src="${src}" controls autoplay></video>` : k === 'audio' ? `<audio src="${src}" controls autoplay></audio>` : '<pre>Loading…</pre>'}</div>
+      <div class="xt-actions"><span class="bm-note">${size(it.size)} · ${ago(it.mtime)}</span><button class="tbtn" id="flGet">Download</button><button class="btn xt-btn" id="flClose">Close</button></div>`;
+    $('#flClose').onclick = closeDialog;
+    $('#flGet').onclick = () => { location.href = '/api/files/download?id=' + encodeURIComponent(it.id); };
+    const media = dlg.querySelector('img, video, audio');
+    if (media) media.onerror = () => { $('#flView').innerHTML = '<p class="emptyt">This file can\'t be shown here. Download it to open it.</p>'; };
+    if (k === 'text') {
+      const r = await fetch(src);
+      const t = r.ok ? await r.text() : '';
+      const pre = dlg.querySelector('pre');
+      if (pre) pre.textContent = r.ok ? (t.length > 200000 ? t.slice(0, 200000) + '\n…' : t) : ((await r.json().catch(() => ({}))).error || "Couldn't open it");
+    }
+  }
+  // ---------- move a file or folder: pick the folder it goes into
+  async function moveTo(it) {
+    let at = '', trail = [{ id: '', name: 'Your files' }];
+    veil.hidden = false;
+    const paint = async () => {
+      const r = await fetch(`/api/files/list?parent=${encodeURIComponent(at)}`), j = await r.json().catch(() => ({}));
+      const subs = (j.items || []).filter((x) => x.kind === 'folder' && x.id !== it.id);
+      dlg.innerHTML = `<h2>Move “${esc(it.name)}”</h2>
+        <nav class="fl-crumbs fl-mcrumbs">${trail.map((p, i) => i === trail.length - 1 ? `<b>${esc(p.name)}</b>` : `<button class="tbtn" data-to="${i}">${esc(p.name)}</button><span>›</span>`).join('')}</nav>
+        <div class="fl-mlist">${subs.map((f) => `<button class="file" data-in="${esc(f.id)}"><span class="ext">${svg('folder')}</span><div class="meta"><div class="n">${esc(f.name)}</div></div></button>`).join('') || '<p class="emptyt">No folders inside.</p>'}</div>
+        <div class="xt-actions"><button class="tbtn" id="flMNo">Cancel</button><button class="btn xt-btn" id="flMGo"${at === it.parent ? ' disabled' : ''}>Move here</button></div>`;
+      dlg.querySelectorAll('[data-in]').forEach((b) => (b.onclick = () => { const f = subs.find((x) => x.id === b.dataset.in); at = f.id; trail.push({ id: f.id, name: f.name }); paint(); }));
+      dlg.querySelectorAll('[data-to]').forEach((b) => (b.onclick = () => { trail = trail.slice(0, Number(b.dataset.to) + 1); at = trail.at(-1).id; paint(); }));
+      $('#flMNo').onclick = closeDialog;
+      $('#flMGo').onclick = async () => {
+        const rr = await post('/api/files/move', { id: it.id, parent: at }), jj = await rr.json().catch(() => ({}));
+        if (!rr.ok) return toast(jj.error || "Couldn't move it");
+        closeDialog(); toast(`Moved to ${trail.at(-1).name}`); show();
+      };
+    };
+    paint();
+  }
+  const closeDialog = () => { veil.hidden = true; dlg.innerHTML = ''; dlg.classList.remove('wide', 'fl-viewer'); };
   veil.onclick = (e) => { if (e.target === veil) closeDialog(); };
   async function versions(it) {
     veil.hidden = false;
@@ -302,11 +362,16 @@ export function mountFiles(root, ctx) {
   }
   $('#flCust').onclick = customers;
   async function open(id, name) {
+    if (query) { query = ''; $('#flQ').value = ''; }
     folder = id || '';
     if (!folder) path = [];
     else { const i = path.findIndex((p) => p.id === folder); path = i >= 0 ? path.slice(0, i + 1) : [...path, { id: folder, name: name || '…' }]; }
     menuFor = ''; show();
   }
+
+  let qt = 0;
+  $('#flQ').oninput = () => { clearTimeout(qt); qt = setTimeout(() => { query = $('#flQ').value.trim(); trash = false; menuFor = ''; show(); }, 250); };
+  $('#flQ').onkeydown = (e) => { if (e.key === 'Escape') { $('#flQ').value = ''; query = ''; show(); } };
 
   // ---------- uploading (the hub encrypts as it goes)
   async function upload(list) {

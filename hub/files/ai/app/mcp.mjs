@@ -35,6 +35,9 @@ export function makeConnectors(dataDir, { secret = () => undefined, auth = null 
   // All servers for a chat: the app's own plus the project's .mcp.json (project wins on a name clash).
   function configsFor(workDir) {
     const out = {};
+    // Shivo Labs on this PC: the hub's modules (Cloud, Chat, TV, Beam, X Tools) as tools (hub/api/mcp.mjs), always there.
+    // (A connector of the same name in the user's list replaces it.)
+    if (!process.env.FABRA_NO_HUB) out["shivo-labs"] = { type: "http", url: `http://localhost:${process.env.HUB_PORT || 4800}/mcp`, headers: { "x-hub": "1" }, source: "builtin" };
     for (const [n, c] of Object.entries(load().mcpServers || {})) if (!c.disabled) out[n] = { ...c, source: "app" };
     const proj = workDir && join(workDir, ".mcp.json");
     if (proj && existsSync(proj)) {
@@ -112,6 +115,7 @@ export function makeConnectors(dataDir, { secret = () => undefined, auth = null 
       const cfgs = configsFor(workDir), defs = [], routes = new Map(), status = [];
       await Promise.all(Object.entries(cfgs).map(async ([name, cfg]) => {
         const e = await connect(name, cfg);
+        if (cfg.source === "builtin" && e.error) return;   // (the hub isn't running: no tools from it, and no error to show)
         status.push({ name, source: cfg.source, ok: !e.error, error: e.error, needsAuth: e.needsAuth, tools: e.tools.length });
         for (const t of e.tools) {
           let full = `mcp__${safeName(name)}__${safeName(t.name)}`.slice(0, 64);

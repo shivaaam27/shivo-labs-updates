@@ -457,6 +457,21 @@ select.field{appearance:none;cursor:pointer}
 .fl-big{font-size:22px;letter-spacing:.12em;padding:12px 0}
 .fl-warn{color:var(--err)}
 .fl-sec{margin-top:18px}
+.fl-search{display:flex;align-items:center;gap:8px;padding:0 12px;height:38px;margin:10px 0 2px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.fl-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-search:focus-within{border-color:var(--sage)}
+.fl-search svg{width:16px;height:16px;flex:none;fill:none;stroke:var(--muted);stroke-width:2;stroke-linecap:round}
+.fl-search input{all:unset;flex:1;min-width:0;font:14px var(--body);color:var(--text)}
+.fl-thumb{width:100%;height:100%;object-fit:cover;border-radius:9px}
+.file .ext:has(.fl-thumb){overflow:hidden;background:var(--hover)}
+.xt-dialog.fl-viewer{max-width:min(1000px,94vw)}
+.fl-view{display:grid;place-items:center;min-height:200px;max-height:62vh;overflow:auto;border-radius:14px;background:var(--hover);margin:8px 0}
+.fl-view img,.fl-view video{max-width:100%;max-height:62vh;display:block}
+.fl-view iframe{width:100%;height:62vh;border:0;background:#fff}
+.fl-view audio{width:90%;margin:40px 0}
+.fl-view pre{align-self:start;justify-self:stretch;margin:0;padding:16px;font:12.5px/1.55 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.fl-mcrumbs{margin:6px 0 4px;font-size:14px}
+.fl-mlist{max-height:46vh;overflow:auto}
 input[type=checkbox]{accent-color:var(--sage);width:16px;height:16px}
 .bm-links .sl{min-width:180px}.bm-links .sl-btn{padding:8px 12px;font-size:13.5px}
 .bm-h+.file,.bm-h+div>.file:first-child{border-top:0}

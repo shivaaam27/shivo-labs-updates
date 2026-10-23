@@ -2,7 +2,7 @@
 // xtools-bridge.ps1; this file passes the page's commands to it and streams its events (progress, the
 // Apple 2FA code question) back to the page. The Apple password only passes through, never stored or logged.
 import { spawn } from "node:child_process";
-import { copyFileSync, createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,8 @@ import { pipeline } from "node:stream/promises";
 import { hostname } from "node:os";
 import { listUsb, describe, watch as watchDevices } from "./idevice.mjs";
 import { startPairHost } from "./pairhost.mjs";
+import { notify, noticesSince, lastNotice, tray } from "./tray.mjs";
+import net from "node:net";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The hub's own copy of the X Tools engine, refreshed from this repo each time it starts (x-tools/installer/src).
@@ -36,6 +38,8 @@ export const work = { installing: false };
 // set by autoinstall.mjs: wait(udid, bundleId, why) keeps an install for when the phone is near; waiting() lists them
 export const hooks = { wait: null, waiting: null };
 const NOT_NEAR = /isn't on this Wi-Fi right now/i;
+// what the engine is doing or asking right now, for the icon in the notification area (tray.mjs) when no page is open
+const live = { ask: null, label: "" };
 const broadcast = (evt) => { const line = `data: ${JSON.stringify(evt)}\n\n`; for (const res of listeners) res.write(line); };
 
 // ---------- the device, live (idevice.mjs, Apple's device service; no engine needed for the cable)
@@ -92,7 +96,7 @@ const wifiReady = new Map();   // udid -> true (set up) | false (couldn't: Linux
 function wifiPair(udid, name) {
   wifiReady.set(udid, null);
   call("wifiPair", { udid, name }).then(() => wifiReady.set(udid, true), () => wifiReady.delete(udid))
-    .finally(() => { if (dev.view?.udid === udid) { dev.view = { ...dev.view, wifi: wifiReady.get(udid) ?? null }; broadcast({ event: "device", data: dev.view }); } });
+    .finally(() => { letGo(); if (dev.view?.udid === udid) { dev.view = { ...dev.view, wifi: wifiReady.get(udid) ?? null }; broadcast({ event: "device", data: dev.view }); } });
 }
 // Pair without a cable (iOS 27; x-tools/wifi/README.md): this PC shows up on the iPhone under Settings > Developer >
 // Paired Macs > Other Devices; the person taps it and types the code the page shows. One at a time; the page hears
@@ -153,7 +157,7 @@ function watchStart() {
   dev.watcher = watchDevices();
   dev.watcher.on("attach", soon); dev.watcher.on("detach", soon);
   // an untrusted device becomes trusted without a plug event: look again while one waits for "Trust"
-  dev.poll = setInterval(() => { if (listeners.size && dev.view?.untrusted) refreshDevice(); }, 3000);
+  dev.poll = setInterval(() => { if ((listeners.size || tray.on) && dev.view?.untrusted) refreshDevice(); }, 3000);
   refreshDevice();
 }
 function watchStop() { dev.watcher?.stop(); dev.watcher = null; clearInterval(dev.poll); }
@@ -175,15 +179,19 @@ function start() {
       if (!line.startsWith("{")) continue;
       let m; try { m = JSON.parse(line); } catch { continue; }
       if (m.event === "busy") { for (const [, w] of pending) w.reject(new Error(BUSY)); pending.clear(); continue; }
+      if (m.event === "ask") live.ask = m.data;
+      if (m.event === "progress") live.label = m.data?.label || "";
       if (m.event) { broadcast(m); continue; }
       const w = pending.get(m.id); if (!w) continue;
       pending.delete(m.id);
       m.ok ? w.resolve(m.data) : w.reject(new Error(m.error || "Something went wrong."));
+      if (!pending.size) live.ask = null;   // (nothing is running, so nothing waits for an answer any more)
       if (stopWanted && !pending.size) { stopWanted = false; p.stdin.end(); }
     }
   });
   p.on("exit", () => {
     if (bridge === p) bridge = null;
+    live.ask = null;
     for (const [, w] of pending) w.reject(new Error(BUSY));
     pending.clear();
   });
@@ -194,6 +202,7 @@ function start() {
 
 async function call(cmd, args) {
   stopWanted = false;
+  if (cmd === "answer" || cmd === "cancel") live.ask = null;
   // the engine is still letting go (its input was closed when the page was left): wait for it to finish first
   const old = bridge;
   if (old?.stdin.writableEnded) await new Promise((r) => { old.once("exit", r); setTimeout(r, 5000); });
@@ -243,6 +252,87 @@ function devRun(kind) {
   p.on("error", () => finish(false));
 }
 
+// ---------- the icon in the notification area (tray.mjs, engines/tray.ps1)
+// While the icon runs, the plugged-in device is watched all the time (not only while the X Tools page is open), and
+// the phones set up for Wi-Fi are knocked on (their pairing port) at most once a minute, to light the icon when one is near.
+export function startTrayWatch() { watchStart(); }
+const FL = join(process.env.LOCALAPPDATA || "", "Fabra Labs");
+const readFl = (f) => { try { return JSON.parse(readFileSync(join(FL, f), "utf8").replace(/^﻿/, "")); } catch { return null; } };
+const knock = (ip, ms = 1500) => new Promise((ok) => {
+  if (!ip) return ok(false);
+  const s = net.connect({ host: ip, port: 49152 }); const done = (v) => { s.destroy(); ok(v); };
+  s.setTimeout(ms, () => done(false)); s.once("connect", () => done(true)); s.once("error", () => done(false));
+});
+const near = { at: 0, list: [] };
+function lookNear() {
+  if (Date.now() - near.at < 60000) return;
+  near.at = Date.now();
+  const phones = Object.entries(readFl("wifi.json") || {});
+  Promise.all(phones.map(async ([udid, p]) => ((await knock(p?.ip)) ? { udid, name: String(p.name || "iPhone").replace(/’/g, "'") } : null)))
+    .then((l) => { near.list = l.filter(Boolean); }, () => {});
+}
+const storeApps = () => (readFl("state.json")?.Apps || []).map((a) => ({ name: a.Name, bundleId: a.BundleId,
+  daysLeft: a.InstalledAt ? Math.max(0, 7 - Math.floor((Date.now() - Date.parse(a.InstalledAt)) / 86400000)) : null }));
+const onDevice = (apps, bundleId) => apps.some((x) => x.bundleId === bundleId || (String(x.bundleId).startsWith("XTL-") && String(x.bundleId).endsWith("." + bundleId)));
+const job = { kind: "", started: 0, signIn: false };
+function trayState(since) {
+  lookNear();
+  const v = dev.view, plugged = v && dev.current ? { udid: v.udid, name: v.name, kind: v.kind, untrusted: !!v.untrusted } : null;
+  const apps = storeApps().map((a) => ({ ...a, onDevice: plugged && v.apps ? onDevice(v.apps, a.bundleId) : null }));
+  return { device: plugged, near: near.list, apps, appleId: readFl("state.json")?.AppleId || "",
+    job: job.kind ? { kind: job.kind, label: live.label } : work.installing ? { kind: "auto", label: live.label || "Updating apps" } : null,
+    ask: listeners.size ? null : live.ask, signIn: job.signIn, notices: noticesSince(since), last: lastNotice() };
+}
+// one thing at a time from the icon, in the background; the result comes back as a notice
+function background(kind, fn) {
+  if (job.kind || xtoolsBusy()) throw new Error("X Tools is busy. Try again when it has finished.");
+  job.kind = kind; job.started = Date.now(); live.label = "";
+  fn().catch((e) => {
+    const msg = String(e.message || e);
+    if (/sign in/i.test(msg)) job.signIn = true;
+    notify(kind === "signIn" ? "Apple sign-in didn't work" : kind === "install" ? "The install didn't finish" : "The renew didn't finish", msg, false);
+  }).finally(() => { job.kind = ""; live.label = ""; work.installing = false; letGo(); refreshDevice(); });
+}
+async function trayDo(what, b) {
+  if (what === "answer") { await call("answer", { kind: String(b.kind || ""), value: String(b.value ?? "") }); return null; }
+  if (what === "signin-later") { job.signIn = false; return null; }
+  if (what === "signin") {
+    job.signIn = false;
+    background("signIn", async () => { await call("signIn", { email: String(b.email || ""), password: String(b.password || "") }); notify("Signed in to Apple", String(b.email || "")); });
+    return null;
+  }
+  const v = dev.view, usb = v && dev.current && !v.untrusted ? v : null;
+  const udid = String(b.udid || usb?.udid || near.list[0]?.udid || "");
+  if (!udid) throw new Error("Plug in your iPhone, or keep it awake on this Wi-Fi.");
+  const viaUsb = usb?.udid === udid;
+  if (what === "install") {
+    const path = String(b.path || "");
+    if (!/\.ipa$/i.test(path) || !existsSync(path)) throw new Error("Choose an .ipa file.");
+    background("install", async () => {
+      work.installing = true;
+      const r = await call("install", { path, udid, wifi: !viaUsb });
+      notify("Installed for 7 days", r?.name || basename(path));
+    });
+    return null;
+  }
+  if (what === "renew") {
+    background("renew", async () => {
+      let names;
+      if (viaUsb) {
+        work.installing = true;
+        const todo = storeApps().filter((a) => onDevice(usb.apps || [], a.bundleId) && (!b.bundleId || a.bundleId === b.bundleId))
+          .sort((x, y) => (x.bundleId === "com.shivolabs.labs") - (y.bundleId === "com.shivolabs.labs"));
+        if (!todo.length) throw new Error("No apps from X Tools on this iPhone.");
+        for (const a of todo) await call("renew", { bundleId: a.bundleId, udid });
+        names = todo.map((a) => a.name);
+      } else names = await renewPhoneApps(udid, (s) => { live.label = s; });
+      notify("Renewed for 7 days", names.join(", "));
+    });
+    return null;
+  }
+  throw new Error("Unknown command");
+}
+
 const json = (res, code, body) => { res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
 const readJson = async (req) => { let s = ""; for await (const c of req) { s += c; if (s.length > 1e6) break; } return JSON.parse(s || "{}"); };
 const cleanName = (n) => basename(String(n || "")).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/^\.+/, "").slice(0, 160) || "app.ipa";
@@ -254,12 +344,17 @@ export async function xtoolsApi(req, res, path, url) {
   if (what === "events" && req.method === "GET") {  // progress and questions, as they happen
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
     res.write(": hello\n\n");
-    listeners.add(res); req.on("close", () => { listeners.delete(res); if (!listeners.size) { watchStop(); pairStop(); } });
+    listeners.add(res); req.on("close", () => { listeners.delete(res); if (!listeners.size) { if (!tray.on) watchStop(); pairStop(); } });
     watchStart();
     if (dev.view !== undefined) res.write(`data: ${JSON.stringify({ event: "device", data: dev.view })}\n\n`);
     return true;
   }
   if (what === "dev" && req.method === "GET") return json(res, 200, { ok: true, data: devState() }), true;
+  if (what === "tray" && req.method === "GET") return json(res, 200, trayState(Number(url.searchParams.get("since")) || 0)), true;
+  if (what.startsWith("tray/") && req.method === "POST") {
+    try { return json(res, 200, { ok: true, data: await trayDo(what.slice(5), await readJson(req)) }), true; }
+    catch (e) { return json(res, 200, { ok: false, error: String(e.message || e) }), true; }
+  }
   if (what === "waiting" && req.method === "GET") return json(res, 200, { ok: true, data: hooks.waiting?.() || { items: [], done: [] } }), true;
   if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
   if (what === "pair/start" || what === "pair/stop") {

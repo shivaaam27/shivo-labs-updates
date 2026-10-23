@@ -13,6 +13,11 @@ import { mountOwner } from './modules/owner.js';
 import qrcode from '/shared/qrcode.mjs';
 const QUIET = quietStart();   // this load follows a quiet update: no splash, no entrance animations
 // Chat joins this PC's customer team with its shivo-id pass (null on Shivam's PC: the invite code screen as before)
+// Chat's sign-in on this PC, for the AI app's chat tools (hub/api/mcp.mjs): the hub uses the page's own sign-in, since
+// signing in again would sign this page out
+let chatLinked = '';
+const linkChat = () => { try { const c = JSON.parse(localStorage.getItem('shivoChat')) || {}; const v = JSON.stringify({ token: c.demo ? '' : c.token || '', server: c.server || '' }); if (v !== chatLinked) fetch('/api/chat/link', { method: 'POST', headers: { 'x-hub': '1', 'content-type': 'application/json' }, body: v }).then(() => { chatLinked = v; }, () => {}); } catch {} };
+linkChat(); setInterval(linkChat, 30000);
 const chatPass = () => fetch('/api/id/chatpass', { method: 'POST', headers: { 'x-hub': '1' } }).then((r) => r.json()).then((j) => j.pass).catch(() => null);
 const PAGES = { owner: mountOwner, chat: (el, o) => mountChat(el, { ...o, getPass: chatPass }), mirror: mountMirror, files: mountFiles, xtools: mountXtools, tv: mountTv, insights: mountInsights };  // module id -> its screen (modules/<id>.js)
 

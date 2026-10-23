@@ -160,7 +160,7 @@ async function alive() {
 // ---------- the devices of this PC's company (UNIFY-PLAN.md): a phone of the same company asking for Beam away from
 // home is checked against its key here (hub/api/beamrelay.mjs). Asked of shivo-id at most once a minute.
 let company = { at: 0, list: [] };
-async function companyDevices() {
+export async function companyDevices() {
   if (Date.now() - company.at > 60e3) company = { at: Date.now(), list: (await post("/devices", await signedBy("devices"))).devices || [] };
   return company.list;
 }

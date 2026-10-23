@@ -11,7 +11,8 @@ import { spawn } from "node:child_process";
 import { beamApi, startBeam, superviseBeam } from "./api/beam.mjs";
 import { filesApi } from "./api/files.mjs";
 import { startFilesSync } from "./api/files-sync.mjs";
-import { xtoolsApi } from "./api/xtools.mjs";
+import { xtoolsApi, startTrayWatch } from "./api/xtools.mjs";
+import { startTray } from "./api/tray.mjs";
 import { settingsApi } from "./api/settings.mjs";
 import { mirrorApi, superviseMirror } from "./api/mirror.mjs";
 import { tvApi } from "./api/tv.mjs";
@@ -20,6 +21,7 @@ import { autoCheck } from "./api/update.mjs";
 import { startPcLink } from "./api/pclink.mjs";
 import { startAutoInstall } from "./api/autoinstall.mjs";
 import { idApi, startId, may, isOwner, hasPack } from "./api/id.mjs";
+import { mcpApi } from "./api/mcp.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] || process.env.HUB_PORT) || 4800;
@@ -68,6 +70,7 @@ http.createServer(async (req, res) => {
   // anything that changes something must come from the hub's own page (other sites can't add this header)
   if (req.method !== "GET" && req.headers["x-hub"] !== "1") return send(res, 403, { error: "forbidden" });
   try {
+    if (await mcpApi(req, res, url.pathname, PORT)) return;   // the AI app's connector to the modules (api/mcp.mjs)
     if (await idApi(req, res, url.pathname)) return;
     const mod = moduleOf(url.pathname);
     if (mod && !may(mod)) return send(res, 403, { error: "This module isn't part of your Shivo Labs" });
@@ -107,5 +110,5 @@ http.createServer(async (req, res) => {
     return send(res, 200, await readFile(file), TYPES[extname(file)] || "application/octet-stream");
   } catch (e) { return send(res, 500, { error: String(e.message || e) }); }
 }).listen(PORT, "127.0.0.1", () => { console.log(`Shivo Labs hub on http://localhost:${PORT}`); if (PORT === 4800 || process.env.HUB_ID_FORCE) startId();
-  if (PORT === 4800) { if (may("files")) { superviseBeam(); startFilesSync(); } if (may("mirror")) superviseMirror(); autoCheck(); if (may("xtools")) { startPcLink(); startAutoInstall(); } } else if (process.env.HUB_FILES_SYNC) startFilesSync(); else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_AUTOINSTALL) startAutoInstall(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); })
+  if (PORT === 4800) { if (may("files")) { superviseBeam(); startFilesSync(); } if (may("mirror")) superviseMirror(); autoCheck(); if (may("xtools")) { startPcLink(); startAutoInstall(); startTray(PORT); startTrayWatch(); } } else if (process.env.HUB_FILES_SYNC) startFilesSync(); else if (process.env.HUB_PCLINK) startPcLink(); else if (process.env.HUB_AUTOINSTALL) startAutoInstall(); else if (process.env.HUB_MIRROR_NAME) superviseMirror(); if (PORT !== 4800 && process.env.HUB_TRAY) { startTray(PORT); startTrayWatch(); } })
   .on("error", (e) => console.log(e.code === "EADDRINUSE" ? `Port ${PORT} is busy; the hub may already be running.` : e.message));

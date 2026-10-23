@@ -2,8 +2,9 @@
 // (files/worker) and does all the encryption here (files-crypto.mjs, files/FORMAT.md). The account, this PC's device
 // token and the master key live in %APPDATA%\Shivo Labs\Files\cloud.json (HUB_FILES_DIR for tests); they never go
 // into the repo or to the server (the master key never leaves this PC except to a phone joining on the home Wi-Fi).
-import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync, rmSync, createReadStream, createWriteStream, readdirSync, statSync, openSync, writeSync, closeSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { homedir, hostname } from "node:os";
 import { Readable } from "node:stream";
 import { randomBytes, createECDH } from "node:crypto";
@@ -57,6 +58,107 @@ async function freeName(parent, name) {
   for (let n = 0; ; n++) { const t = n ? `${stem} (${n})${ext}` : name; if (!taken.has(t.toLowerCase())) return t; }
 }
 const cleanName = (n) => String(n || "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").trim().slice(0, 200) || "Untitled";
+
+// ---------- every live item at once (names readable), for search, the Shivo Cloud folder's first fill and folder links;
+// kept 30 seconds, forgotten after any change made here
+let every = null;
+export async function allItems(fresh = false) {
+  if (!fresh && every && Date.now() - every.at < 30000) return every.items;
+  const out = new Map();
+  for (let since = 0, more = true; more; ) { const j = await apiJson("/v1/changes?since=" + since); for (const it of j.items) out.set(it.id, it); since = j.seq; more = j.more; }
+  const items = [...out.values()].filter((it) => !it.deleted).map(readable);
+  every = { at: Date.now(), items };
+  return items;
+}
+const byName = (a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) : a.kind === "folder" ? -1 : 1);
+async function search(q) {
+  const t = String(q || "").trim().toLowerCase(); if (!t) return [];
+  const items = await allItems(), byId = new Map(items.map((it) => [it.id, it]));
+  const where = (it) => { const p = []; for (let at = byId.get(it.parent); at && p.length < 20; at = byId.get(at.parent)) p.unshift(at.name); return p.join(" › "); };
+  return items.filter((it) => it.name.toLowerCase().includes(t)).sort(byName).slice(0, 100).map((it) => ({ ...it, where: where(it) }));
+}
+
+// ---------- previews: a file decrypted for the page to show (pictures, PDFs, video, sound, text). Kept on this PC under
+// %LOCALAPPDATA%\Shivo Labs\cloud-previews by id and version (up to 500 MB, oldest first out), so a second look is instant.
+// Only types that can't run anything in the hub's page are shown inline; the rest download.
+const VIEW_DIR = join(process.env.LOCALAPPDATA || DIR, "Shivo Labs", "cloud-previews");
+const VIEW_TYPES = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", avif: "image/avif",
+  pdf: "application/pdf", mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", mov: "video/mp4", mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", ogg: "audio/ogg", aac: "audio/aac" };
+const TEXT = /\.(txt|md|csv|tsv|json|log|xml|svg|html?|css|js|mjs|ts|py|ps1|sh|bat|ini|yaml|yml|toml|sql)$/i;
+export const viewType = (name) => VIEW_TYPES[(String(name).match(/\.([a-z0-9]+)$/i)?.[1] || "").toLowerCase()] || (TEXT.test(name) ? "text/plain; charset=utf-8" : "");
+async function viewFile(id) {
+  const it = readable(await apiJson("/v1/item/" + id));
+  if (it.kind !== "file") throw new CloudError(400, "Not a file");
+  const type = viewType(it.name);
+  if (!type) throw new CloudError(415, "No preview for this kind of file");
+  if (it.size > 300 * 1048576) throw new CloudError(413, "Too big to preview. Download it instead.");
+  mkdirSync(VIEW_DIR, { recursive: true });
+  const file = join(VIEW_DIR, `${id}-${it.version}`);
+  if (!existsSync(file)) {
+    const { stream } = await download(id), tmp = file + ".part";
+    try { await pipeline(stream, createWriteStream(tmp)); renameSync(tmp, file); } catch (e) { rmSync(tmp, { force: true }); throw e; }
+    try {   // keep the folder under 500 MB
+      const all = readdirSync(VIEW_DIR).map((n) => { const p = join(VIEW_DIR, n), s = statSync(p); return { p, size: s.size, t: s.mtimeMs }; }).sort((a, b) => b.t - a.t);
+      let total = 0; for (const f of all) { total += f.size; if (total > 500 * 1048576 && f.p !== file) rmSync(f.p, { force: true }); }
+    } catch {}
+  }
+  return { it, type, file };
+}
+
+// ---------- a link to a whole folder: a .zip of it as it is now, kept in "Shared links" at the top, shared like a file
+// (the share page and the server stay as they are). Up to 2 GB.
+const CRC = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
+const crc32 = (buf, c = -1) => { for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 0xff] ^ (c >>> 8); return c; };
+async function shareFolder(id, days, password) {
+  const items = await allItems(true), folder = items.find((x) => x.id === id);
+  if (!folder || folder.kind !== "folder") throw new CloudError(404, "Folder not found");
+  const kids = new Map(); for (const it of items) { const k = it.parent || ""; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(it); }
+  const files = [], walk = (fid, rel) => { for (const it of kids.get(fid) || []) { const r = rel + it.name; if (it.kind === "folder") walk(it.id, r + "/"); else files.push({ it, r }); } };
+  walk(id, "");
+  if (!files.length) throw new CloudError(400, "This folder is empty");
+  if (files.reduce((n, f) => n + f.it.size, 0) > 2 * 1073741824) throw new CloudError(413, "This folder is over 2 GB. Share smaller folders or single files.");
+  const tmp = join(process.env.LOCALAPPDATA || DIR, "Shivo Labs", "share-" + randomBytes(6).toString("hex") + ".zip");
+  mkdirSync(dirname(tmp), { recursive: true });
+  const fd = openSync(tmp, "w"), central = []; let at = 0, closed = false;
+  const put = (b) => { writeSync(fd, b); at += b.length; };
+  try {
+    // stored (no compression: photos and videos don't shrink), with the sizes and checksum after each file (data descriptor)
+    for (const { it, r } of files) {
+      const name = Buffer.from(r, "utf8"), head = Buffer.alloc(30), start = at;
+      head.writeUInt32LE(0x04034b50, 0); head.writeUInt16LE(20, 4); head.writeUInt16LE(0x0808, 6); head.writeUInt16LE(0, 8);
+      head.writeUInt32LE(dosTime(it.mtime), 10); head.writeUInt16LE(name.length, 26);
+      put(head); put(name);
+      let c = -1, n = 0;
+      const { stream } = await download(it.id);
+      for await (const chunk of stream) { c = crc32(chunk, c); n += chunk.length; put(chunk); }
+      const crc = (c ^ -1) >>> 0, desc = Buffer.alloc(16);
+      desc.writeUInt32LE(0x08074b50, 0); desc.writeUInt32LE(crc, 4); desc.writeUInt32LE(n, 8); desc.writeUInt32LE(n, 12); put(desc);
+      central.push({ name, crc, n, start, time: dosTime(it.mtime) });
+    }
+    const cdStart = at;
+    for (const e of central) {
+      const h = Buffer.alloc(46);
+      h.writeUInt32LE(0x02014b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(20, 6); h.writeUInt16LE(0x0808, 8); h.writeUInt16LE(0, 10);
+      h.writeUInt32LE(e.time, 12); h.writeUInt32LE(e.crc, 16); h.writeUInt32LE(e.n, 20); h.writeUInt32LE(e.n, 24); h.writeUInt16LE(e.name.length, 28);
+      h.writeUInt32LE(e.start, 42); put(h); put(e.name);
+    }
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(central.length, 8); end.writeUInt16LE(central.length, 10);
+    end.writeUInt32LE(at - cdStart, 12); end.writeUInt32LE(cdStart, 16); put(end);
+    closeSync(fd); closed = true;
+    const s = load(), top = await list("");
+    let box = top.find((x) => x.kind === "folder" && x.name === "Shared links");
+    if (!box) box = readable(await apiJson("/v1/folders", { method: "POST", body: { parent: "", name: C.encName(s.masterKey, "Shared links") } }));
+    const zipName = await freeName(box.id, cleanName(folder.name) + ".zip");
+    const up = await upload(box.id, zipName, statSync(tmp).size, createReadStream(tmp));
+    every = null;
+    return { ...(await makeShare(up.id, days, password)), name: zipName };
+  } finally { if (!closed) closeSync(fd); rmSync(tmp, { force: true }); }
+}
+function dosTime(ms) {
+  const d = new Date(ms || Date.now());
+  return (((d.getFullYear() - 1980) << 25) | ((d.getMonth() + 1) << 21) | (d.getDate() << 16) | (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) >>> 0;
+}
 
 // a plain stream up to Shivo Cloud: encrypted here, sent in 8 MiB parts
 export async function upload(parent, name, size, plainStream, replaces) {
@@ -334,6 +436,14 @@ export async function filesApi(req, res, path, url) {
       stream.on("error", () => res.destroy()); stream.pipe(res);
       return true;
     }
+    if (req.method === "GET" && what === "search") return json(res, 200, { items: await search(url.searchParams.get("q")) }), true;
+    if (req.method === "GET" && what === "view") {   // a preview, decrypted here (see viewFile)
+      const { type, file } = await viewFile(url.searchParams.get("id") || "");
+      res.writeHead(200, { "content-type": type, "content-length": String(statSync(file).size), "cache-control": "private, max-age=86400",
+        "x-content-type-options": "nosniff", "content-disposition": "inline" });
+      createReadStream(file).on("error", () => res.destroy()).pipe(res);
+      return true;
+    }
     if (req.method === "GET" && what === "trash") return json(res, 200, { items: (await apiJson("/v1/trash")).items.map(readable) }), true;
     if (req.method === "GET" && what === "devices") return json(res, 200, await apiJson("/v1/devices")), true;
     if (req.method === "GET" && what === "versions") return json(res, 200, { versions: await versions(url.searchParams.get("id") || "") }), true;
@@ -345,6 +455,7 @@ export async function filesApi(req, res, path, url) {
     // another PC of the company asks for the account's key (the hub window shows the question)
     if (req.method === "GET" && what === "asks") return json(res, 200, (await keyRequests()).map((k) => ({ id: k.id, name: k.name, kind: k.kind || "pc" }))), true;
     if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" }), true;
+    every = null;   // (something changes: search looks again)
     if (what === "answer") { const b = await readBody(req); await answerKey(String(b.id || ""), !!b.ok); return json(res, 200, { ok: true }), true; }
 
     if (what === "setup") {
@@ -380,6 +491,13 @@ export async function filesApi(req, res, path, url) {
     if (what === "admin/code") return json(res, 200, await admin(`accounts/${b.id}/code`, "POST", {})), true;
     if (what === "admin/takedown") return json(res, 200, await admin("takedown", "POST", { link: b.link })), true;
     if (what === "share") return json(res, 200, await makeShare(b.id, b.days, b.password)), true;
+    if (what === "share-folder") return json(res, 200, await shareFolder(String(b.id || ""), b.days, b.password)), true;
+    if (what === "open-folder") {   // the Shivo Cloud folder on this PC, in Explorer
+      const { cloudDir } = await import("./files-sync.mjs");
+      mkdirSync(cloudDir(), { recursive: true });
+      (await import("node:child_process")).spawn("explorer.exe", [cloudDir()], { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
+      return json(res, 200, { ok: true }), true;
+    }
     if (what === "share-remove") return json(res, 200, await apiJson("/v1/shares/" + b.id, { method: "DELETE" })), true;
     if (what === "request") return json(res, 200, await makeRequest(b.folder || "", b.title, b.days)), true;
     if (what === "request-remove") return json(res, 200, await apiJson("/v1/requests/" + b.id, { method: "DELETE" })), true;

@@ -1,10 +1,15 @@
 // Shivo Cloud sync on the PC (files/PLAN.md, phase 2): PC folders and Shivo Cloud folders kept the same, both ways.
-// Pairs: the Beam folder (Downloads\Beam <-> "Beam" at Shivo Cloud's top) and every folder added on the Beam page
-// (Folders on your phone, %APPDATA%\Beam\phone-folders.json: <path> <-> "<name>" at the top).
+// Pairs: the "Shivo Cloud" folder in the user's folder (%USERPROFILE%\Shivo Cloud <-> everything at Shivo Cloud's top,
+// like Dropbox; pinned in Explorer's sidebar; UNIFY-PLAN.md phase 3), the Beam folder (Downloads\Beam <-> "Beam" at
+// the top) and every folder added on the Beam page (Folders on your phone, %APPDATA%\Beam\phone-folders.json:
+// <path> <-> "<name>" at the top). The top folders that sync somewhere else (Beam, the added ones) stay out of the
+// Shivo Cloud folder, so nothing is on the PC twice.
 //   up:    a new or changed file on the PC is uploaded (encrypted by files.mjs); one deleted on the PC goes to the
 //          Shivo Cloud Trash.
 //   down:  what the phone (or another PC) added or changed is downloaded; what it deleted goes to the Recycle Bin.
 //   both changed the same file since the last sync: both are kept ("name (from Shivo Cloud).ext").
+//   a new pair (or one whose PC folder was removed) first gets everything already in Shivo Cloud (fill); a removed
+//   PC folder never empties the cloud.
 // What was synced is remembered in sync.json next to cloud.json, so nothing goes twice. Runs in the main hub only:
 // every 20 s, sooner when a file changes on the PC (fs.watch), and only while Shivo Cloud is set up.
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, statSync, readdirSync, createReadStream, createWriteStream, watch, rmSync, realpathSync } from "node:fs";
@@ -13,6 +18,7 @@ import { homedir } from "node:os";
 import { pipeline } from "node:stream/promises";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import * as F from "./files.mjs";
 import * as C from "./files-crypto.mjs";
 
@@ -21,12 +27,15 @@ const SYNC = join(FILES_DIR, "sync.json");
 const BEAM_HOME = join(process.env.APPDATA || homedir(), "Beam");
 const BEAM_INBOX = process.env.HUB_SYNC_BEAM || join(homedir(), "Downloads", "Beam");
 const SKIP = /^(\.|~\$)|\.part$|^desktop\.ini$|^thumbs\.db$/i;
+const CLOUD_DIR = process.env.HUB_SYNC_CLOUD || join(homedir(), "Shivo Cloud");
+const ALL = ":all";   // the Shivo Cloud folder's pair (a name no folder can have)
+export const cloudDir = () => CLOUD_DIR;
 
 export const syncState = { running: false, last: 0, error: "", up: 0, down: 0, busy: "" };
 
 // ---------- what is synced with what
 function pairs() {
-  const out = [{ name: "Beam", local: BEAM_INBOX }];
+  const out = [{ name: ALL, local: CLOUD_DIR, all: true }, { name: "Beam", local: BEAM_INBOX }];
   try {
     for (const f of JSON.parse(readFileSync(join(BEAM_HOME, "phone-folders.json"), "utf8")) || []) {
       if (f?.path && existsSync(f.path) && !out.some((p) => p.name.toLowerCase() === String(f.name).toLowerCase())) out.push({ name: String(f.name || basename(f.path)), local: f.path });
@@ -75,6 +84,7 @@ const conflictName = (rel) => { const e = extname(rel); return rel.slice(0, rel.
 
 // ---------- the cloud side
 async function ensureRoot(pair) {
+  if (pair.all) return "";   // (Shivo Cloud's top)
   const p = P(pair.name);
   if (p.root) {
     try { const it = await F.apiJson("/v1/item/" + p.root); if (!it.deleted) return p.root; } catch {}
@@ -125,8 +135,47 @@ async function round() {
   const s = F.load(); if (!s) return;
   await F.claimRequests().catch(() => {});   // files sent through request links, so they come down like any other
   const all = pairs();
-  for (const pair of all) { mkdirSync(pair.local, { recursive: true }); await ensureRoot(pair); }
-  const byRoot = new Map(all.map((p) => [P(p.name).root, p]));
+  for (const pair of all) {
+    const p = P(pair.name);
+    // the PC folder was removed or moved away: fetch it again from Shivo Cloud (never read as "delete everything")
+    if (!existsSync(pair.local) && Object.keys(p.entries).length) { p.entries = {}; p.filled = false; }
+    mkdirSync(pair.local, { recursive: true }); await ensureRoot(pair);
+  }
+  const byRoot = new Map(all.filter((p) => !p.all).map((p) => [P(p.name).root, p]));
+  const allPair = all.find((p) => p.all), elsewhere = new Set(all.filter((p) => !p.all).map((p) => p.name.toLowerCase()));
+  const outOfAll = (topName) => elsewhere.has(String(topName).toLowerCase());   // synced to its own PC folder instead
+
+  // ---- fill: a new pair gets what Shivo Cloud already has
+  if (all.some((pair) => !P(pair.name).filled)) {
+    const items = await F.allItems(true), kids = new Map();
+    for (const it of items) { const k = it.parent || ""; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(it); }
+    for (const pair of all.filter((x) => !P(x.name).filled)) {
+      const p = P(pair.name);
+      const walk = async (fid, rel) => {
+        for (const it of kids.get(fid) || []) {
+          if (!rel && pair.all && (byRoot.has(it.id) || outOfAll(it.name))) continue;
+          const r = rel ? rel + "/" + it.name : it.name, local = join(pair.local, ...r.split("/"));
+          try {
+            if (it.kind === "folder") { mkdirSync(local, { recursive: true }); p.entries[r] ??= { id: it.id, kind: "folder", size: 0, mtime: 0, version: 0 }; await walk(it.id, r); continue; }
+            if (p.entries[r]) continue;
+            let target = local;
+            if (existsSync(local)) {
+              const ls = statSync(local);
+              if (ls.size === it.size) { p.entries[r] = { id: it.id, kind: "file", size: ls.size, mtime: Math.floor(ls.mtimeMs), version: it.version }; continue; }
+              target = join(pair.local, ...conflictName(r).split("/"));   // a different file of that name here already: keep both
+            }
+            syncState.busy = "Downloading " + it.name;
+            await downloadTo(it.id, target);
+            const ns = statSync(target);
+            if (target === local) p.entries[r] = { id: it.id, kind: "file", size: ns.size, mtime: Math.floor(ns.mtimeMs), version: it.version };
+            syncState.down++;
+          } catch (e) { syncState.error = `Couldn't fetch ${it.name}: ${e.message || e}`; }   // (a name Windows can't use, etc.: the rest goes on)
+        }
+      };
+      await walk(p.root, "");
+      p.filled = true; saveState();
+    }
+  }
 
   // ---- down: everything that changed in Shivo Cloud since last time
   const state = loadState();
@@ -136,6 +185,10 @@ async function round() {
       const it = F.readable(raw);
       // which pair, and where inside it
       let pair = byRoot.get(it.parent), rel = it.name;
+      if (!pair && !it.parent) {   // at the top: the Shivo Cloud folder's, unless it syncs somewhere else
+        if (byRoot.has(it.id) || outOfAll(it.name) || !allPair) continue;
+        pair = allPair;
+      }
       if (!pair) {
         for (const p of all) {
           const e = Object.entries(P(p.name).entries).find(([, v]) => v.kind === "folder" && v.id === it.parent);
@@ -182,6 +235,7 @@ async function round() {
   // ---- up: what changed on the PC
   for (const pair of all) {
     const p = P(pair.name), here = scan(pair.local);
+    if (pair.all) for (const k of [...here.keys()]) if (outOfAll(k.split("/")[0])) here.delete(k);
     // deleted on the PC (only what was synced before and is gone now)
     for (const [rel, e] of Object.entries(p.entries)) {
       if (here.has(rel) || !p.entries[rel]) continue;
@@ -206,6 +260,37 @@ async function round() {
     }
   }
   saveState();
+  if (allPair && st.pinned !== CLOUD_DIR && !process.env.HUB_SYNC_NO_PIN) { await pinInExplorer(CLOUD_DIR); st.pinned = CLOUD_DIR; saveState(); }
+}
+
+// ---------- the Shivo Cloud folder in Explorer's sidebar, the way OneDrive and Dropbox appear there (Microsoft's documented
+// "cloud storage provider" entries, for this user only: HKCU, no admin, nothing to install)
+const SHELL_ID = "{5B1A7C1E-3D4F-4E8A-9C2B-51A0C0DEC10D}";
+const ICON = fileURLToPath(new URL("../shivo-labs.ico", import.meta.url));
+function pinInExplorer(dir) {
+  if (process.platform !== "win32") return Promise.resolve();
+  const k = `HKCU:\\Software\\Classes\\CLSID\\${SHELL_ID}`;
+  const ps = [
+    `$k = '${k}'`,
+    `New-Item -Path $k -Force | Out-Null; Set-Item -Path $k -Value 'Shivo Cloud'`,
+    `New-ItemProperty -Path $k -Name 'System.IsPinnedToNameSpaceTree' -Value 1 -PropertyType DWord -Force | Out-Null`,
+    `New-ItemProperty -Path $k -Name 'SortOrderIndex' -Value 0x42 -PropertyType DWord -Force | Out-Null`,
+    `New-Item -Path "$k\\DefaultIcon" -Force | Out-Null; Set-Item -Path "$k\\DefaultIcon" -Value $env:SHIVO_ICON`,
+    `New-Item -Path "$k\\InProcServer32" -Force | Out-Null; New-ItemProperty -Path "$k\\InProcServer32" -Name '(default)' -Value '%SystemRoot%\\system32\\shell32.dll' -PropertyType ExpandString -Force | Out-Null`,
+    `New-Item -Path "$k\\Instance" -Force | Out-Null; New-ItemProperty -Path "$k\\Instance" -Name 'CLSID' -Value '{0E5AAE11-A475-4c5b-AB00-C66DE400274E}' -Force | Out-Null`,
+    `New-Item -Path "$k\\Instance\\InitPropertyBag" -Force | Out-Null`,
+    `New-ItemProperty -Path "$k\\Instance\\InitPropertyBag" -Name 'Attributes' -Value 0x11 -PropertyType DWord -Force | Out-Null`,
+    `New-ItemProperty -Path "$k\\Instance\\InitPropertyBag" -Name 'TargetFolderPath' -Value $env:SHIVO_DIR -PropertyType ExpandString -Force | Out-Null`,
+    `New-Item -Path "$k\\ShellFolder" -Force | Out-Null`,
+    `New-ItemProperty -Path "$k\\ShellFolder" -Name 'FolderValueFlags' -Value 0x28 -PropertyType DWord -Force | Out-Null`,
+    `New-ItemProperty -Path "$k\\ShellFolder" -Name 'Attributes' -Value 0xF080004D -PropertyType DWord -Force | Out-Null`,
+    `$ns = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\${SHELL_ID}'`,
+    `New-Item -Path $ns -Force | Out-Null; Set-Item -Path $ns -Value 'Shivo Cloud'`,
+    `$hd = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel'`,
+    `New-Item -Path $hd -Force | Out-Null; New-ItemProperty -Path $hd -Name '${SHELL_ID}' -Value 1 -PropertyType DWord -Force | Out-Null`,
+  ].join("; ");
+  return new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps],
+    { windowsHide: true, timeout: 60000, env: { ...process.env, SHIVO_DIR: dir, SHIVO_ICON: ICON } }, () => ok()));
 }
 
 // ---------- running it
