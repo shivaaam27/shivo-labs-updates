@@ -271,19 +271,24 @@ async function round() {
     }
   }
   saveState();
-  if (allPair && st.pinned !== CLOUD_DIR && !process.env.HUB_SYNC_NO_PIN) { await pinInExplorer(CLOUD_DIR); st.pinned = CLOUD_DIR; saveState(); }
+  // (only the real Shivo Labs, port 4800, sets the Explorer entry, and checks it at every start: a test copy once
+  // pointed it at a test folder)
+  if (allPair && pinOk && !pinChecked) { pinChecked = true; if (!(await pinnedTo(CLOUD_DIR))) await pinInExplorer(CLOUD_DIR); }
 }
 
 // ---------- the Shivo Cloud folder in Explorer's sidebar, the way OneDrive and Dropbox appear there (Microsoft's documented
 // "cloud storage provider" entries, for this user only: HKCU, no admin, nothing to install)
 const SHELL_ID = "{5B1A7C1E-3D4F-4E8A-9C2B-51A0C0DEC10D}";
 const ICON = fileURLToPath(new URL("../shivo-labs.ico", import.meta.url));
+let pinOk = false, pinChecked = false;
+const pinnedTo = (dir) => new Promise((ok) => execFile("reg.exe", ["query", "HKCU\\Software\\Classes\\CLSID\\" + SHELL_ID + "\\Instance\\InitPropertyBag", "/v", "TargetFolderPath"], { windowsHide: true },
+  (e, out) => ok(!e && String(out).toLowerCase().includes(dir.toLowerCase()))));
 function pinInExplorer(dir) {
   if (process.platform !== "win32") return Promise.resolve();
   const k = `HKCU:\\Software\\Classes\\CLSID\\${SHELL_ID}`;
   const ps = [
     `$k = '${k}'`,
-    `New-Item -Path $k -Force | Out-Null; Set-Item -Path $k -Value 'Shivo Cloud'`,
+    `New-Item -Path $k -Force | Out-Null; Set-Item -Path $k -Value 'Shivo Labs Cloud'`,
     `New-ItemProperty -Path $k -Name 'System.IsPinnedToNameSpaceTree' -Value 1 -PropertyType DWord -Force | Out-Null`,
     `New-ItemProperty -Path $k -Name 'SortOrderIndex' -Value 0x42 -PropertyType DWord -Force | Out-Null`,
     `New-Item -Path "$k\\DefaultIcon" -Force | Out-Null; Set-Item -Path "$k\\DefaultIcon" -Value $env:SHIVO_ICON`,
@@ -296,9 +301,11 @@ function pinInExplorer(dir) {
     `New-ItemProperty -Path "$k\\ShellFolder" -Name 'FolderValueFlags' -Value 0x28 -PropertyType DWord -Force | Out-Null`,
     `New-ItemProperty -Path "$k\\ShellFolder" -Name 'Attributes' -Value 0xF080004D -PropertyType DWord -Force | Out-Null`,
     `$ns = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\${SHELL_ID}'`,
-    `New-Item -Path $ns -Force | Out-Null; Set-Item -Path $ns -Value 'Shivo Cloud'`,
+    `New-Item -Path $ns -Force | Out-Null; Set-Item -Path $ns -Value 'Shivo Labs Cloud'`,
     `$hd = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel'`,
     `New-Item -Path $hd -Force | Out-Null; New-ItemProperty -Path $hd -Name '${SHELL_ID}' -Value 1 -PropertyType DWord -Force | Out-Null`,
+    // tell Explorer, so open windows show it without signing out
+    `Add-Type -Namespace SL -Name Sh -MemberDefinition '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int e, int f, System.IntPtr a, System.IntPtr b);'; [SL.Sh]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)`,
   ].join("; ");
   return new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps],
     { windowsHide: true, timeout: 60000, env: { ...process.env, SHIVO_DIR: dir, SHIVO_ICON: ICON } }, () => ok()));
@@ -342,7 +349,8 @@ function live() {
   ws.onerror = () => {};
   ws.onclose = () => { liveState.on = false; F.live.on = false; clearInterval(beat); setTimeout(live, liveDelay = Math.min(liveDelay * 2, 10 * 60000)); };
 }
-export function startFilesSync() {
+export function startFilesSync({ pin = false } = {}) {
+  pinOk = pin && !process.env.HUB_SYNC_NO_PIN;
   F.passLoop();   // a customer PC joins its company's Cloud with its pass, and gets the key
   const loop = () => { if (F.load()) tick(); };
   setTimeout(() => { rewatch(); loop(); live(); }, 5000);

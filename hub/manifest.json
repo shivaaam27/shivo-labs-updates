@@ -1,8 +1,9 @@
 {
- "version": "1.0.434",
- "build": 434,
- "built": "2026-10-23T09:49:41.960Z",
+ "version": "1.0.435",
+ "build": 435,
+ "built": "2026-10-23T11:19:36.505Z",
  "notes": [
+  "Explorer entry: only the real Shivo Labs (port 4800) sets it, it is checked at every start and repaired when it points elsewhere (a test copy had pointed it at a test folder), named Shivo Labs Cloud, and Explorer is told so open windows show it",
   "Phase 4, second part: voice messages as text in Chat (Workers AI Whisper on the chat server, kept per message; an Aa button on voice messages, PC and phone; tested with a spoken WAV and a WebM recorded like the app's, chat/test/voice-text.mjs) and TURN for family-room video calls on mobile data (the TV relay gives a paired phone short-lived TURN passwords at /k/<key>/turn; call.js uses them; waits for a TURN key from the Cloudflare dashboard, calls work as before until then). Plan notes for the parts left out (Turnstile, Email Routing, Access, Browser Run, owner report, AI Gateway) and why",
   "Phase 4, first part: told, not asking, and a usage meter. Shivo Cloud tells PCs when something changed (files/worker Live Durable Object per account, /v1/live, hibernating websockets; poke on every change and key request); the PC syncs within ~2 s and keeps only a 10-minute backup round instead of asking every 20 s (~4,000 requests a day per PC). Your"
  ],
@@ -11386,7 +11387,7 @@
   "hub/api/business.mjs": "5ccdc7ff105194767706cc375c8dc0ba7684ccc32a800fe577f67fd6663f3bc8",
   "hub/api/download.mjs": "54889d1b8010ab310846b49b3ae5f6f7182404a8513ea70b16292d4d08b5098b",
   "hub/api/files-crypto.mjs": "133c90ce99a4aa2abd1f4df2e1158b94894d4575fc83347b5a92bad25771dea6",
-  "hub/api/files-sync.mjs": "92596cb0c513b092ea413c38b54c9bec154bbe30fd91af44e567b0f7cd21ee88",
+  "hub/api/files-sync.mjs": "ea5abea88240658be4bb69304a1d11d92a00ad949f4dcf46e22dde36c688ab24",
   "hub/api/files.mjs": "8830cd3966490f38c392ef174a724d231915d5fdfe2471c89cd687f8e2845179",
   "hub/api/id.mjs": "0087cd6d77817d6c83fb9abd97bdb287050098f9f999e57cefbd7083f77e18bd",
   "hub/api/idevice.mjs": "6b152d85d3595069868bcf28c6a22101900dcfa1cfe5b0764766c2ff5117152a",
@@ -11409,7 +11410,7 @@
   "hub/id-key.json": "0f617e437892178170e3290481fa0f812da9d2fe5b4ca69eb9ecca0495580ec0",
   "hub/modules.json": "dbfd6e62fb3735f392fe6cb2b7107e6c5fc249508ab07d96d6dba44b6134d988",
   "hub/packs.json": "14875e4dec51557d559f10c86838e0398e5a5a0bbd9fcf955dd286200fa8210b",
-  "hub/server.mjs": "5e9aeea14adb772183c7d819b2e5cd553ffb0792d0baff11004f69149fae598a",
+  "hub/server.mjs": "0d9c1be3677810d0704b11e9fabce551d1b244a9a13bd6053b5730dcd80288b4",
   "hub/shivo-labs.ico": "2150b7a9f2c995ac9678ab5f46228c734a3214b45d5cc56ea94b9d48cca34e34",
   "hub/test/mcp-e2e.mjs": "0d091bc347a6f95f9a248a739c1e57985554186f3bc7a1da9d02ee5255a5ef44",
   "hub/update-key.xml": "f820afc3dbebe9df8147803b7da0a78ddd9a79bca8141d416d8f6bc178e381ab",
