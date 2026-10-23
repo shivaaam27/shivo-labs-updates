@@ -85,15 +85,44 @@ const monthKey = () => new Date().toISOString().slice(0, 7);
 function loadUsage() {
   try { return JSON.parse(readFileSync(usageFile, "utf8")); } catch { return { budget: 100, months: {} }; }
 }
+// The credits period (24 Oct 2026): Anthropic's free monthly credits come back on the day of the month they were granted, not on
+// the 1st, so the meter counts from `resetDay` (default 1; set in Usage & credits). `u.cycle` is the period now running; a finished
+// one moves to `u.cycles`. `months` keeps the calendar-month history as before.
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function cycleBounds(resetDay, now = new Date()) {
+  const at = (y, m) => new Date(y, m, Math.min(resetDay, new Date(y, m + 1, 0).getDate()));
+  let start = at(now.getFullYear(), now.getMonth());
+  if (start > now) start = at(now.getFullYear(), now.getMonth() - 1);
+  return { start, end: at(start.getFullYear(), start.getMonth() + 1) };
+}
+const emptyCycle = (start) => ({ start, cost: 0, input: 0, output: 0, cacheRead: 0, requests: 0, byModel: {} });
+function rollCycle(u) {   // brings u.cycle up to the period that is running now; true when u changed
+  u.resetDay = Math.min(31, Math.max(1, Math.floor(Number(u.resetDay)) || 1));
+  const key = dayKey(cycleBounds(u.resetDay).start);
+  if (!u.cycle) {
+    const m = u.months[monthKey()];   // first time: the month so far, when credits come back on the 1st
+    u.cycle = u.resetDay === 1 && m ? { ...emptyCycle(key), ...JSON.parse(JSON.stringify(m)), start: key } : emptyCycle(key);
+    return true;
+  }
+  if (u.cycle.start !== key) {
+    (u.cycles ||= {})[u.cycle.start] = u.cycle;
+    for (const k of Object.keys(u.cycles).sort().slice(0, -12)) delete u.cycles[k];
+    u.cycle = emptyCycle(key);
+    return true;
+  }
+  return false;
+}
 function addUsage(cost, usage = {}, model = "") {
   const u = loadUsage();
-  const m = (u.months[monthKey()] ||= { cost: 0, input: 0, output: 0, cacheRead: 0, requests: 0, byModel: {} });
-  m.cost += cost || 0;
-  m.input += (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
-  m.output += usage.output_tokens || 0;
-  m.cacheRead += usage.cache_read_input_tokens || 0;
-  m.requests += 1;
-  if (model) m.byModel[model] = (m.byModel[model] || 0) + (cost || 0);
+  rollCycle(u);
+  for (const m of [(u.months[monthKey()] ||= { cost: 0, input: 0, output: 0, cacheRead: 0, requests: 0, byModel: {} }), u.cycle]) {
+    m.cost += cost || 0;
+    m.input += (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+    m.output += usage.output_tokens || 0;
+    m.cacheRead += usage.cache_read_input_tokens || 0;
+    m.requests += 1;
+    if (model) m.byModel[model] = (m.byModel[model] || 0) + (cost || 0);
+  }
   writeFileSync(usageFile, JSON.stringify(u, null, 2));
 }
 
@@ -446,7 +475,22 @@ app.post("/api/providers", async (req, res) => {
 
 app.get("/api/usage", (_req, res) => {
   const u = loadUsage();
-  res.json({ budget: u.budget, month: monthKey(), current: u.months[monthKey()] || null, months: u.months });
+  if (rollCycle(u)) writeFileSync(usageFile, JSON.stringify(u, null, 2));
+  const b = cycleBounds(u.resetDay);
+  res.json({ budget: u.budget, month: monthKey(), current: u.cycle, cycleStart: dayKey(b.start), cycleEnd: dayKey(b.end), resetDay: u.resetDay, months: u.months });
+});
+
+// The credits came back: a fresh period from now, resetting on `day` of the month (today's day when none is given).
+app.post("/api/usage/reset", (req, res) => {
+  const u = loadUsage();
+  rollCycle(u);
+  const d = Math.floor(Number(req.body?.day));
+  u.resetDay = d >= 1 && d <= 31 ? d : new Date().getDate();
+  if (u.cycle && u.cycle.requests) (u.cycles ||= {})[`${u.cycle.start}~${dayKey()}`] = u.cycle;
+  u.cycle = emptyCycle(dayKey(cycleBounds(u.resetDay).start));
+  writeFileSync(usageFile, JSON.stringify(u, null, 2));
+  const b = cycleBounds(u.resetDay);
+  res.json({ ok: true, resetDay: u.resetDay, cycleStart: dayKey(b.start), cycleEnd: dayKey(b.end) });
 });
 
 app.post("/api/budget", (req, res) => {
@@ -1897,10 +1941,10 @@ app.post("/api/schedules/:id/run", (req, res) => {
 app.get("/api/notifications", (req, res) => res.json(notices.filter((n) => n.at > Number(req.query.since || 0))));
 
 // ---------- Updates
-// A tested update is placed in ../updates (a full copy of the app plus version.json).
-// The app offers it; installing waits until no chat is working, copies the files over,
-// then starts the new version and quits. Chats, settings and usage live in dataDir,
-// so nothing is lost.
+// A tested update is placed in ../updates (a full copy of the app plus version.json) by the Shivo Labs hub, which
+// also asks for the install (hub/api/update.mjs; the page shows nothing about updates). Installing refuses while a chat
+// or scheduled task is working, copies the files over, then starts the new version and quits. Chats, settings and
+// usage live in dataDir, so nothing is lost.
 const updatesDir = process.env.FABRA_UPDATES || join(here, "..", "updates");
 const readVersion = (dir) => { try { return JSON.parse(readFileSync(join(dir, "version.json"), "utf8")); } catch { return { version: "0.0.0" }; } };
 const newer = (a, b) => {

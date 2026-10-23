@@ -62,8 +62,6 @@ async function renderHome() {
     document.querySelectorAll('.door[data-id]').forEach((b) => (b.onclick = () => openModule(b.dataset.id)));
   }
   paintContinue();
-  // a dot on the Settings button when an update is ready
-  fetch('/api/settings').then((r) => r.json()).then((s) => { $('#setDot').hidden = !s.update?.available; }).catch(() => {});
   if (uiPending) quietReload();   // a screen update arrived while you were in a module: take it now, on the home screen
 }
 

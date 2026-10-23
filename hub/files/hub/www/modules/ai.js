@@ -3,8 +3,8 @@
 // coming back is instant. Its chats live in the window's browser profile, which the hub window
 // shares with the old AI window (see Shivo Labs.vbs), so they're all there.
 let frame = null, ready = false, homeFn = null, wanted = null;
-// Ask the AI page to do something as soon as it's ready: 'settings' (open its Settings window), 'install-update'
-// (install the update it has waiting) or 'ask' with { text } (a new chat with that question, from Home's search box).
+// Ask the AI page to do something as soon as it's ready: 'settings' (open its Settings window) or 'ask' with { text }
+// (a new chat with that question, from Home's search box). Its updates are the hub's (api/update.mjs), not the page's.
 const send = (cmd) => { wanted = null; frame.contentWindow.postMessage({ shivo: cmd.cmd, ...cmd.extra }, new URL(frame.src).origin); };
 export function aiCommand(cmd, extra = {}) { const c = { cmd, extra }; if (ready && frame?.src) send(c); else wanted = c; }
 export const aiSettings = () => aiCommand('settings');

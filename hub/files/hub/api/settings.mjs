@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { state as upd, check, install, restartHub } from "./update.mjs";
+import { state as upd, update, restartHub } from "./update.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const HUB = join(here, "..");
@@ -23,8 +23,9 @@ const PLACES = [
 
 const json = (res, code, body) => { res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
 const readJson = async (req) => { let s = ""; for await (const c of req) s += c; try { return JSON.parse(s || "{}"); } catch { return {}; } };
-const updateView = () => ({ mode: upd.mode, version: upd.version, checking: upd.checking, installing: upd.installing, error: upd.error, lastCheck: upd.lastCheck,
-  available: upd.available && { version: upd.available.version, notes: upd.available.notes, restart: !!upd.available.restart }, aiHandOff: upd.aiHandOff || null, ui: upd.ui, build: upd.build || null, updatedAt: upd.updatedAt || null });
+// the one update state (hub/api/update.mjs): phase idle / checking / updating / waiting (for a working chat)
+const updateView = () => ({ mode: upd.mode, version: upd.version, build: upd.build || null, updatedAt: upd.updatedAt || null, ui: upd.ui, ai: upd.ai || null,
+  phase: upd.phase, error: upd.error, lastCheck: upd.lastCheck, done: upd.done || null });
 
 export async function settingsApi(req, res, path) {
   if (!path.startsWith("/api/settings")) return false;
@@ -47,8 +48,8 @@ export async function settingsApi(req, res, path) {
       : await ps(`Remove-Item -LiteralPath ${q(STARTUP)} -Force -ErrorAction SilentlyContinue`);
     return json(res, 200, { ok, startup: existsSync(STARTUP) }), true;
   }
-  if (what === "/check") { await check(); return json(res, 200, updateView()), true; }
-  if (what === "/install") return json(res, 200, await install()), true;
+  // "Check for updates": the complete update (every part checked, whatever is new installed); answers when it's final
+  if (what === "/check" || what === "/install") { const r = await update({ manual: true }); return json(res, 200, { ...r, update: updateView() }), true; }
   if (what === "/restart") { json(res, 200, { ok: true }); restartHub(); return true; }
   if (what === "/reveal") {  // open one of the data folders above in Explorer
     const { i } = await readJson(req);

@@ -1,15 +1,22 @@
-// Updates for Shivo Labs (the hub and everything installed with it).
-//  - "repo" mode (this folder is a git checkout, e.g. Shivam's PC): new commits on GitHub; installing runs `git pull`.
-//  - "installed" mode (installed by installer\install.ps1): over the air, like the phone app. installer\publish-hub-ota.ps1
-//    (on Shivam's PC) puts each update in R2 through shivo-id (ota/hub/, since 22 Oct 2026; the GitHub repo
-//    shivo-labs-updates before): head.json (the newest version, small), <version>/manifest.json listing each file's
-//    SHA-256, signed with the laptop update key (hub\update-key.xml is the public half), and every file by its SHA-256. An install downloads only the files that differ (each one checked), backs up what it replaces,
-//    installs by itself, and restarts only what the change touches. If the hub doesn't come back, the backup is put back
-//    (engines/restart.mjs).
-// When: right away. The hub keeps a connection open to the Cloudflare shelf (/u/ws); publishing an update
-// (installer\publish-hub-ota.ps1) tells every laptop at once. Every 15 minutes it also checks, in case the signal was missed.
-// Both modes install every update by themselves, like the phone app; Settings keeps "Check now" for a manual look.
-// A change to Shivo Labs AI waits while it has a chat or scheduled task working, then installs and restarts it.
+// Updates for Shivo Labs: ONE update for everything, the hub's files, Shivo Labs AI and every module, installed in one
+// go by itself, like the phone app. Nothing else (the AI app included) shows or installs updates of its own.
+//  - "repo" mode (this folder is a git checkout, e.g. Shivam's PC): new commits on GitHub's main; installing runs
+//    `git pull`. Shivo Labs AI runs from its own live folder (Documents\Shivo Labs AI\fabra-labs-ai, outside the repo):
+//    when the pulled ai\app has a newer version, the hub hands it over (ai\release.ps1 -SkipInstaller, its checks) and
+//    has the AI app install it, as part of the same update.
+//  - "installed" mode (installed by installer\install.ps1): over the air. installer\publish-hub-ota.ps1 (on Shivam's PC)
+//    puts each update in R2 through shivo-id (ota/hub/): head.json (the newest version, small), <version>/manifest.json
+//    listing each file's SHA-256, signed with the laptop update key (hub\update-key.xml is the public half), and every
+//    file by its SHA-256. The AI app and the modules' files are in the same list (each install keeps only the modules
+//    its pass has, hub/packs.json). An install downloads only the files that differ (each one checked), backs up what
+//    it replaces, installs by itself, and restarts only what the change touches. If the hub doesn't come back, the
+//    backup is put back (engines/restart.mjs).
+// When: right away. The hub keeps a connection open to the Cloudflare shelf (/u/ws); publishing an update tells every
+// laptop at once. It also looks by itself: every 2 minutes on Shivam's PC (git fetch), every 15 minutes on installs.
+// One answer: update() checks every part and installs what it finds; a second call while one runs joins it, so
+// Settings' "Check for updates" never says "Up to date" while something is still to come. Shivo Labs AI's part waits
+// while it has a chat or scheduled task working ("Updating as soon as your chat finishes"), then installs; chats and
+// settings are kept (they live in ~\.fabra-labs-ai).
 import { spawn, execFile } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, copyFileSync } from "node:fs";
@@ -23,10 +30,12 @@ const ROOT = join(HUB, "..");
 const MODE = existsSync(join(ROOT, ".git")) ? "repo" : "installed";
 const OTA = process.env.HUB_OTA_BASE || "https://shivo-id.ishivamparmar.workers.dev/ota";
 const WORK = join(process.env.LOCALAPPDATA || tmpdir(), "Shivo Labs", "update");
+const DONE_FILE = process.env.HUB_UPDATE_DONE || join(dirname(WORK), "last-update.json");   // HUB_UPDATE_DONE: tests only
 const AI = `http://127.0.0.1:${Number(process.env.HUB_AI_PORT) || 4823}`;
 const AI_UPDATE = AI + "/api/update";
 const SIGNAL = process.env.HUB_UPDATE_SIGNAL || "wss://shivo-labs-shelf.ishivamparmar.workers.dev/u/ws";
 const PORT = Number(process.argv[2] || process.env.HUB_PORT) || 4800;
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
 export const version = () => {
   for (const f of [join(ROOT, "version.txt"), join(ROOT, "installer", "version.txt")]) {
@@ -54,7 +63,10 @@ const kept = () => { try { const m = JSON.parse(readFileSync(join(ROOT, "install
 // The same file counts as the same with Windows or Linux line endings (installer/ota-build.mjs hashes the same way).
 export const fileHash = (buf) => createHash("sha256").update(buf.subarray(0, 8000).includes(0) ? buf : Buffer.from(buf.toString("latin1").replace(/\r\n/g, "\n"), "latin1")).digest("hex");
 
-export const state = { mode: MODE, version: version(), checking: false, available: null, error: null, lastCheck: 0, installing: false, ui: null };
+// The one update state, shown by Settings. phase: "idle", "checking", "updating", or "waiting" (Shivo Labs AI's part
+// waits for a working chat). done: the last update installed ({ version, at }), kept across restarts.
+const readJson = (f) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };
+export const state = { mode: MODE, version: version(), phase: "idle", error: null, lastCheck: 0, available: null, done: readJson(DONE_FILE), ai: null, ui: null };
 // Files the running server has loaded: a change to one of these needs a restart. Anything else (the screens in
 // hub/www, shared/, modules.json, docs, other apps) is picked up by a quiet page refresh, like the phone app's updates.
 const SERVER_CODE = /^hub\/(server\.mjs|api\/|engines\/)/;
@@ -66,198 +78,236 @@ async function stamp() {
   if (MODE !== "repo") {
     state.ui = state.version; state.build = buildOf(state.version) || null;
     try { state.updatedAt = JSON.parse(readFileSync(join(ROOT, "files.json"), "utf8")).built || null; } catch {}
-    return;
+  } else {
+    const [h, when] = (await git("log", "-1", "--format=%h|%cI")).split("|");
+    state.ui = h; state.build = Number(await git("rev-list", "--count", "HEAD")); state.updatedAt = when;
   }
-  const [h, when] = (await git("log", "-1", "--format=%h|%cI")).split("|");
-  state.ui = h; state.build = Number(await git("rev-list", "--count", "HEAD")); state.updatedAt = when;
+  state.ai = aiVersion();
 }
 stamp().catch(() => {});
+const label = () => (state.build ? `1.0 (build ${state.build})` : state.version);
+function markDone() {
+  state.done = { version: label(), at: Date.now() };
+  try { mkdirSync(dirname(DONE_FILE), { recursive: true }); writeFileSync(DONE_FILE, JSON.stringify(state.done)); } catch {}
+}
+// A plain message for what went wrong (the details stay in state.detail).
+const plain = (e) => {
+  const m = String(e?.message || e);
+  if (!m.startsWith("Shivo Labs AI") && /could not resolve host|unable to access|timed out|timeout|ENOTFOUND|ECONN|fetch failed|network/i.test(m)) return "Couldn't reach the update server. It tries again by itself.";
+  return m;
+};
 
-// A check already running (the automatic one, or a second click) is joined, not answered early: answering early
-// said "You're up to date" while the running check was about to find an update.
-let checking = null;
-export function check() { return (checking ??= runCheck().finally(() => { checking = null; })); }
-async function runCheck() {
-  state.checking = true; state.error = null;
+// ---------- update(): check every part, install what is new, one answer
+let running = null;
+export function update(opts = {}) { return (running ??= runUpdate(opts).finally(() => { running = null; })); }
+export const check = update;   // (Settings' "Check for updates" is the same complete update)
+
+async function runUpdate({ manual } = {}) {
+  clearTimeout(aiRetry); aiRetry = null;
+  if (manual) aiFailed = null;   // a press of "Check for updates" tries an AI version that failed before once more
+  state.phase = "checking"; state.error = null; state.detail = null;
+  let hub = null, reload = false;
   try {
-    if (MODE === "repo") {
-      await git("fetch", "--quiet", "origin", "main");
-      const behind = Number(await git("rev-list", "--count", "HEAD..origin/main"));
-      const notes = behind ? (await git("log", "--format=%s", "-n", "6", "HEAD..origin/main")).split("\n") : [];
-      const files = behind ? (await git("diff", "--name-only", "HEAD", "origin/main")).split("\n").filter(Boolean) : [];
-      state.available = behind ? { version: `${behind} new change${behind > 1 ? "s" : ""}`, notes, restart: needsRestart(files) } : null;
-    } else {
-      const u = await latest();
-      state.available = u && buildOf(u.m.version) > buildOf(state.version)
-        ? { version: u.m.version, notes: [].concat(u.m.notes || []), manifest: u.m, base: u.base, restart: true } : null;
+    // 1. the hub's files (with the modules and, on installs, Shivo Labs AI)
+    hub = MODE === "repo" ? await repoBehind() : await otaNewer();
+    state.lastCheck = Date.now();
+    if (hub) {
+      state.available = hub; state.phase = "updating";
+      const r = MODE === "repo" ? await pullRepo(hub) : await installOta(hub);
+      if (r.waiting) { state.available = null; return waitForAi(); }
+      if (r.restarting) return { ok: true, found: true, restarting: true };   // the new hub finishes the rest at its start
+      reload = true; state.available = null;
     }
-  } catch (e) { state.error = e.message || String(e); }
-  state.checking = false; state.lastCheck = Date.now();
-  return state;
+    // 2. Shivo Labs AI on Shivam's PC (installs carry it in the files above)
+    const ai = await updateAi();
+    if (ai === "waiting") return waitForAi();
+    if (hub || ai === "done") markDone();
+    state.phase = "idle";
+    const found = !!hub || ai === "done";
+    if (manual && !found && state.done) state.done.seen = true;   // you looked again: "Up to date" from now on, not "Updated to"
+    return { ok: true, found, reload };
+  } catch (e) {
+    state.error = plain(e); state.detail = String(e?.message || e); state.phase = "idle"; state.available = null;
+    return { ok: false, found: !!hub, reload, error: state.error };
+  } finally { state.ai = aiVersion(); }
+}
+// Shivo Labs AI is busy: the rest is done, its part follows as soon as no chat or scheduled task is working
+function waitForAi() {
+  state.phase = "waiting";
+  aiRetry = setTimeout(() => update().catch(() => {}), 20000);
+  return { ok: true, found: true, waiting: true };
 }
 
-// The newest update. head.json (small) says which version is newest; only when it is newer than this install is that
-// version's list (about 1 MB) fetched and checked. Files are fetched by their SHA-256 (base + "f/" + sha), so the list
-// and the files always match. null: none yet.
-async function latest() {
+// repo mode: how far this checkout is behind GitHub's main
+async function repoBehind() {
+  await git("fetch", "--quiet", "origin", "main");
+  const behind = Number(await git("rev-list", "--count", "HEAD..origin/main"));
+  if (!behind) return null;
+  const files = (await git("diff", "--name-only", "HEAD", "origin/main")).split("\n").filter(Boolean);
+  return { version: `${behind} new change${behind > 1 ? "s" : ""}`, files };
+}
+async function pullRepo() {
+  const dirty = await git("status", "--porcelain", "--untracked-files=no");
+  if (dirty) throw new Error("This folder has changes that aren't saved to git, so it wasn't updated. Ask Claude to look at it.");
+  const before = await git("rev-parse", "HEAD");
+  await git("pull", "--rebase", "--quiet", "origin", "main");
+  const files = (await git("diff", "--name-only", before, "HEAD")).split("\n").filter(Boolean);
+  await stamp();
+  if (needsRestart(files)) { markDone(); restartHub(); return { restarting: true }; }   // the new hub hands the AI over (and the TV app) at its start
+  if (files.some((f) => f.startsWith("tv/home/"))) publishTv().catch(() => {});
+  return {};   // screens only: nothing to restart; open windows refresh themselves when they see the new version
+}
+
+// installed mode: the newest update. head.json (small) says which version is newest; only when it is newer than this
+// install is that version's list (about 1 MB) fetched and checked. Files are fetched by their SHA-256 (base + "f/" +
+// sha), so the list and the files always match.
+async function otaNewer() {
   const get = async (path) => { const r = await fetch(`${OTA}/hub/${path}`, { cache: "no-store", signal: AbortSignal.timeout(20000) }); if (r.status === 404) return null; if (!r.ok) throw new Error(`The update server answered ${r.status}`); return r.text(); };
   const head = await get(`head.json?t=${Date.now()}`);
   if (!head) return null;
   const v = JSON.parse(head).version;
-  if (!(buildOf(v) > buildOf(state.version))) return { m: { version: v } };
+  if (!(buildOf(v) > buildOf(state.version))) return null;
   const [text, sig] = await Promise.all([get(`${v}/manifest.json`), get(`${v}/manifest.sig`)]);
   if (!text || !sig) return null;
   if (!signedOk(text, sig)) throw new Error("An update was found but it isn't signed by Shivo Labs, so it was ignored.");
-  return { m: JSON.parse(text), base: `${OTA}/hub/` };
+  const m = JSON.parse(text);
+  return { version: m.version, manifest: m, base: `${OTA}/hub/` };
 }
 
 // Stop a program by part of its command line (the AI server or Beam's engine after their code changed); the hub
-// starts them again (Beam within a minute, the AI app when it is next opened).
+// starts them again (Beam within a minute, the AI app straight away if it was on).
 const stopMatching = (part) => new Promise((ok) => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
   `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${part.replace(/'/g, "''")}') -and $_.ProcessId -ne ${process.pid} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
   { windowsHide: true, timeout: 30000 }, () => ok()));
 
-async function aiBusy() {
-  try { return !!(await (await fetch(AI_UPDATE, { signal: AbortSignal.timeout(3000) })).json()).busy; } catch { return false; }  // not running: not busy
-}
-const aiRunning = async () => { try { await fetch(AI_UPDATE, { signal: AbortSignal.timeout(3000) }); return true; } catch { return false; } };
+// what Shivo Labs AI says about itself (null: not running): { current, available, busy }
+const aiStatus = async () => { try { return await (await fetch(AI_UPDATE, { cache: "no-store", signal: AbortSignal.timeout(3000) })).json(); } catch { return null; } };
 // start the AI server again (the hub's own "open" call, as when you open the module)
 const startAi = () => fetch(`http://127.0.0.1:${PORT}/api/open/ai`, { method: "POST", headers: { "x-hub": "1" }, signal: AbortSignal.timeout(10000) }).catch(() => {});
 
 // Restart the hub server (the window reconnects by itself). The Beam engine and the AI server keep running.
 // A separate restarter (engines/restart.mjs) waits for this hub to let go of its port, starts the new one on the
 // same port, checks it answers and retries if not, logging to %LOCALAPPDATA%\Shivo Labs\logs\restart.log.
-// (It used to be a fixed 2 s wait and one try: when the old hub was slow to quit, the new one gave up silently.)
 export function restartHub(backup) {
-  const port = Number(process.argv[2] || process.env.HUB_PORT) || 4800;
-  const args = [join(HUB, "engines", "restart.mjs"), String(port), join(HUB, "server.mjs"), ...(backup ? [backup, ROOT] : [])];
+  const args = [join(HUB, "engines", "restart.mjs"), String(PORT), join(HUB, "server.mjs"), ...(backup ? [backup, ROOT] : [])];
   spawn(process.execPath, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
   setTimeout(() => process.exit(0), 300);
 }
 
-export async function install() {
-  if (state.installing) return { ok: false, error: "Already installing" };
-  if (!state.available) return { ok: false, error: "No update to install" };
-  // (on this PC the live AI app is a separate folder: pulling doesn't disturb it, so only installed copies wait for it)
-  if (MODE === "installed" && await aiBusy()) return { ok: false, busy: true, error: "Shivo Labs AI is still working on a chat or scheduled task. It installs as soon as it's finished." };
-  state.installing = true;
-  try {
-    if (MODE === "repo") {
-      const dirty = await git("status", "--porcelain", "--untracked-files=no");
-      if (dirty) throw new Error("This folder has changes that aren't saved to git, so it wasn't updated. Ask Claude to look at it.");
-      const before = await git("rev-parse", "HEAD");
-      await git("pull", "--rebase", "--quiet", "origin", "main");
-      const files = (await git("diff", "--name-only", before, "HEAD")).split("\n").filter(Boolean);
-      if (needsRestart(files)) { restartHub(); return { ok: true, restarting: true }; }   // the new hub hands the AI over at its start
-      // screens only: nothing to restart; open windows refresh themselves when they see the new version
-      await stamp();
-      state.available = null; state.installing = false;
-      if (files.some((f) => f.startsWith("ai/app/"))) handAiUpdate().catch(() => {});
-      if (files.some((f) => f.startsWith("tv/home/"))) publishTv().catch(() => {});
-      return { ok: true, reload: true };
+// installed: only the files that differ, each checked against the signed list
+async function installOta({ manifest: m, base }) {
+  const changed = [], keep = kept();
+  for (const [rel, sha] of Object.entries(m.files)) {
+    if (!keep(rel)) continue;
+    let h = null; try { h = fileHash(readFileSync(join(ROOT, ...rel.split("/")))); } catch {}
+    if (h !== sha) changed.push(rel);
+  }
+  let before = {}; try { before = JSON.parse(readFileSync(join(ROOT, "files.json"), "utf8")).files || {}; } catch {}
+  const removed = Object.keys(before).filter((rel) => !(rel in m.files) && keep(rel));
+  const all = [...changed, ...removed];
+  const aiChanged = all.some((f) => f.startsWith("ai/app/"));
+  // Shivo Labs AI restarts when its files change: not while a chat or scheduled task is working (nothing is touched yet)
+  if (aiChanged && (await aiStatus())?.busy) return { waiting: true };
+  rmSync(WORK, { recursive: true, force: true });
+  const stage = join(WORK, "stage"), backup = join(WORK, "backup");
+  const queue = [...changed];
+  const one = async () => {
+    for (let rel; (rel = queue.shift());) {
+      const r = await fetch(base + "f/" + m.files[rel], { signal: AbortSignal.timeout(120000) });
+      if (!r.ok) throw new Error(`Download failed (${r.status})`);
+      let buf = Buffer.from(await r.arrayBuffer());
+      if (fileHash(buf) !== m.files[rel]) throw new Error("A downloaded file was damaged. It will try again later.");
+      if (/\.(vbs|cmd|bat)$/i.test(rel)) buf = Buffer.from(buf.toString("latin1").replace(/\r?\n/g, "\r\n"), "latin1");   // Windows scripts want CRLF
+      const p = join(stage, ...rel.split("/")); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, buf);
     }
-    // installed: only the files that differ, each checked against the signed list
-    const { manifest: m, base } = state.available;
-    const changed = [], keep = kept();
-    for (const [rel, sha] of Object.entries(m.files)) {
-      if (!keep(rel)) continue;
-      let h = null; try { h = fileHash(readFileSync(join(ROOT, ...rel.split("/")))); } catch {}
-      if (h !== sha) changed.push(rel);
-    }
-    let before = {}; try { before = JSON.parse(readFileSync(join(ROOT, "files.json"), "utf8")).files || {}; } catch {}
-    const removed = Object.keys(before).filter((rel) => !(rel in m.files) && keep(rel));
-    rmSync(WORK, { recursive: true, force: true });
-    const stage = join(WORK, "stage"), backup = join(WORK, "backup");
-    const queue = [...changed];
-    const one = async () => {
-      for (let rel; (rel = queue.shift());) {
-        const r = await fetch(base + "f/" + m.files[rel], { signal: AbortSignal.timeout(120000) });
-        if (!r.ok) throw new Error(`Download failed (${r.status})`);
-        let buf = Buffer.from(await r.arrayBuffer());
-        if (fileHash(buf) !== m.files[rel]) throw new Error("A downloaded file was damaged. It will try again later.");
-        if (/\.(vbs|cmd|bat)$/i.test(rel)) buf = Buffer.from(buf.toString("latin1").replace(/\r?\n/g, "\r\n"), "latin1");   // Windows scripts want CRLF
-        const p = join(stage, ...rel.split("/")); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, buf);
-      }
-    };
-    await Promise.all(Array.from({ length: 6 }, one));
-    // back up what is replaced or removed, then swap the new files in
-    for (const rel of [...changed, ...removed, "version.txt", "files.json"]) {   // (with the version, so a put-back retries later)
-      const from = join(ROOT, ...rel.split("/"));
-      if (existsSync(from)) { const to = join(backup, ...rel.split("/")); mkdirSync(dirname(to), { recursive: true }); copyFileSync(from, to); }
-    }
-    for (const rel of changed) { const to = join(ROOT, ...rel.split("/")); mkdirSync(dirname(to), { recursive: true }); copyFileSync(join(stage, ...rel.split("/")), to); }
-    for (const rel of removed) rmSync(join(ROOT, ...rel.split("/")), { force: true });
-    writeFileSync(join(ROOT, "version.txt"), m.version);
-    writeFileSync(join(ROOT, "files.json"), JSON.stringify({ version: m.version, built: m.built, files: m.files }));
-    state.version = m.version; await stamp();
-    // restart only what runs the changed code
-    const all = [...changed, ...removed];
-    // the AI server: stopped, and started again straight away if it was on (its page in the hub reloads by itself)
-    if (all.some((f) => f.startsWith("ai/app/"))) { const was = await aiRunning(); await stopMatching(join(ROOT, "ai", "app")); if (was) await startAi(); }
-    if (all.some((f) => f.startsWith("beam/") || f === "hub/engines/beam_host.py")) await stopMatching(join(ROOT, "hub", "engines", "beam_host.py"));
-    if (needsRestart(all)) { restartHub(backup); return { ok: true, restarting: true }; }
-    state.available = null; state.installing = false;
-    return { ok: true, reload: true };
-  } catch (e) { state.installing = false; return { ok: false, error: e.message || String(e) }; }
+  };
+  await Promise.all(Array.from({ length: 6 }, one));
+  // back up what is replaced or removed, then swap the new files in
+  for (const rel of [...all, "version.txt", "files.json"]) {   // (with the version, so a put-back retries later)
+    const from = join(ROOT, ...rel.split("/"));
+    if (existsSync(from)) { const to = join(backup, ...rel.split("/")); mkdirSync(dirname(to), { recursive: true }); copyFileSync(from, to); }
+  }
+  for (const rel of changed) { const to = join(ROOT, ...rel.split("/")); mkdirSync(dirname(to), { recursive: true }); copyFileSync(join(stage, ...rel.split("/")), to); }
+  for (const rel of removed) rmSync(join(ROOT, ...rel.split("/")), { force: true });
+  writeFileSync(join(ROOT, "version.txt"), m.version);
+  writeFileSync(join(ROOT, "files.json"), JSON.stringify({ version: m.version, built: m.built, files: m.files }));
+  state.version = m.version; await stamp();
+  // restart only what runs the changed code
+  // the AI server: stopped, and started again straight away if it was on (its page in the hub reloads by itself)
+  if (aiChanged) { const was = !!(await aiStatus()); await stopMatching(join(ROOT, "ai", "app")); if (was) await startAi(); }
+  if (all.some((f) => f.startsWith("beam/") || f === "hub/engines/beam_host.py")) await stopMatching(join(ROOT, "hub", "engines", "beam_host.py"));
+  if (needsRestart(all)) { markDone(); restartHub(backup); return { restarting: true }; }
+  return {};
 }
 
-// ---------- Shivo Labs AI on Shivam's PC: the live app (Documents\Shivo Labs AI\fabra-labs-ai) installs its
-// updates from the "updates" folder next to it, through its own "Update ready" button. When this repo has a newer
-// ai\app (after a pull), hand it over with ai\release.ps1 (its checks, then the copy), so updating needs no command.
-// On installs (no live folder) the AI app is part of the hub's own update package instead.
+// ---------- Shivo Labs AI on Shivam's PC: the live app (Documents\Shivo Labs AI\fabra-labs-ai, outside the repo)
+// installs from the "updates" folder next to it. When the pulled ai\app is newer, the hub hands it over with
+// ai\release.ps1 -SkipInstaller (its checks, then the copy) and asks the live app to install it as soon as no chat or
+// scheduled task is working (the AI app backs up, copies, adds new packages, restarts itself and goes back to the old
+// version if the new one doesn't start). On installs (no live folder) the AI app is part of the hub's files instead.
 const AI_LIVE = process.env.HUB_AI_LIVE || join(process.env.USERPROFILE || "", "Documents", "Shivo Labs AI"); // HUB_AI_LIVE: tests only
+const LIVE_APP = join(AI_LIVE, "fabra-labs-ai");
 const readVer = (f) => { try { return JSON.parse(readFileSync(f, "utf8")).version || "0.0.0"; } catch { return "0.0.0"; } };
+const aiVersion = () => (MODE === "repo" && existsSync(LIVE_APP) ? readVer(join(LIVE_APP, "version.json")) : existsSync(join(ROOT, "ai", "app", "version.json")) ? readVer(join(ROOT, "ai", "app", "version.json")) : null);
 // Packages a Node app's package.json lists that aren't in its node_modules.
 const missingDeps = (dir) => { try { return Object.keys(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).dependencies || {}).filter((d) => !existsSync(join(dir, "node_modules", d, "package.json"))); } catch { return []; } };
 const sameFile = (a, b) => { try { return readFileSync(a).equals(readFileSync(b)); } catch { return false; } };
-const run = (cmd, args, cwd) => new Promise((ok) => execFile(cmd, args, { cwd, windowsHide: true, timeout: 600000 }, (e, out, err) => ok({ ok: !e, out: String(out || "") + String(err || "") })));
-let aiBusyHanding = false;
-export async function handAiUpdate() {
-  if (MODE !== "repo" || aiBusyHanding || !existsSync(join(AI_LIVE, "fabra-labs-ai"))) return null;
-  const repoVer = readVer(join(ROOT, "ai", "app", "version.json"));
-  const handed = readVer(join(AI_LIVE, "updates", "version.json"));
-  const live = readVer(join(AI_LIVE, "fabra-labs-ai", "version.json"));
-  if (!newer(repoVer, live)) { state.aiHandOff = null; return null; } // the AI app is up to date
-  // handed over already, waiting for its "Update ready" (remembered again after the hub restarts, so Settings still offers it)
-  if (!newer(repoVer, handed)) { state.aiHandOff ||= { version: repoVer }; installAi(); return state.aiHandOff; }
-  aiBusyHanding = true;
-  try {
-    // new packages: add them to the live app first (adding packages doesn't disturb it). Also when a package
-    // the app lists is missing (an earlier install failed after package.json was already copied).
-    if (!sameFile(join(ROOT, "ai", "app", "package.json"), join(AI_LIVE, "fabra-labs-ai", "package.json")) || missingDeps(join(AI_LIVE, "fabra-labs-ai")).length) {
-      writeFileSync(join(AI_LIVE, "fabra-labs-ai", "package.json"), readFileSync(join(ROOT, "ai", "app", "package.json")));
+// Runs a program and never throws: { ok, out }. (Node refuses to start .cmd files such as npm.cmd directly since
+// 2024; that error used to be thrown here and swallowed, so the AI app silently stayed on 2.0.19 from 20 to 23 Oct.)
+const run = (cmd, args, cwd) => new Promise((ok) => {
+  try { execFile(cmd, args, { cwd, windowsHide: true, timeout: 600000 }, (e, out, err) => ok({ ok: !e, out: String(out || "") + String(err || "") + (e && !err ? e.message : "") })); }
+  catch (e) { ok({ ok: false, out: String(e?.message || e) }); }
+});
+const npm = (args, cwd) => run(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `npm ${args}`], cwd);
+const lastLine = (out, re) => (out.match(re)?.[0] || out.trim().split(/\r?\n/).filter(Boolean).pop() || "").trim().slice(0, 200);
+let aiRetry = null, aiFailed = null;
+
+// "none" (nothing to do), "done" (installed now) or "waiting" (a chat is working); throws with a plain message
+async function updateAi() {
+  if (MODE !== "repo" || !existsSync(LIVE_APP)) return "none";
+  const want = readVer(join(ROOT, "ai", "app", "version.json"));
+  if (!newer(want, readVer(join(LIVE_APP, "version.json")))) return "none";
+  if (aiFailed === want) throw new Error(`Shivo Labs AI ${want} didn't start, so the version before it was put back. Your chats are fine.`);
+  state.phase = "updating";
+  // 1. hand it over (once per version)
+  if (newer(want, readVer(join(AI_LIVE, "updates", "version.json")))) {
+    // new packages: added to the live app first (adding packages doesn't disturb it). Also when a package the app
+    // lists is missing (an earlier install failed after package.json was already copied).
+    if (!sameFile(join(ROOT, "ai", "app", "package.json"), join(LIVE_APP, "package.json")) || missingDeps(LIVE_APP).length) {
+      writeFileSync(join(LIVE_APP, "package.json"), readFileSync(join(ROOT, "ai", "app", "package.json")));
       const lock = join(ROOT, "ai", "app", "package-lock.json");
-      if (existsSync(lock)) writeFileSync(join(AI_LIVE, "fabra-labs-ai", "package-lock.json"), readFileSync(lock));
-      const n = await run("npm.cmd", ["install", "--omit=dev", "--no-audit", "--no-fund"], join(AI_LIVE, "fabra-labs-ai"));
-      if (!n.ok) { state.aiHandOff = { version: repoVer, error: "Couldn't add the new packages for Shivo Labs AI." }; return state.aiHandOff; }
+      if (existsSync(lock)) writeFileSync(join(LIVE_APP, "package-lock.json"), readFileSync(lock));
+      const n = await npm("install --omit=dev --no-audit --no-fund", LIVE_APP);
+      if (!n.ok) throw new Error(`Shivo Labs AI ${want}: its new parts couldn't be added (${lastLine(n.out, /[^\r\n]*ERR[^\r\n]*/)}). It tries again by itself.`);
     }
     const r = await run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(ROOT, "ai", "release.ps1"), "-SkipInstaller", "-Runtime", AI_LIVE], ROOT);
-    state.aiHandOff = r.ok ? { version: repoVer } : { version: repoVer, error: (r.out.match(/[^\r\n]*(failed|error|refuse)[^\r\n]*/i)?.[0] || "The checks didn't pass.").trim() };
-    return state.aiHandOff;
-  } finally { aiBusyHanding = false; if (state.aiHandOff && !state.aiHandOff.error) installAi(); }
-}
-
-// ...and install it in the live app straight away (no "Update ready" to press): as soon as no chat or scheduled task
-// is working, the hub asks the AI app to install what was handed over. The AI app restarts itself; its page in the
-// hub reloads when it sees the new version (hub.js). Not running: tried again every 20 seconds until it is.
-let aiTimer = null;
-function installAi() {
-  if (aiTimer) return;
-  const tick = async () => {
-    aiTimer = null;
-    const want = state.aiHandOff?.version;
-    if (!want || state.aiHandOff.error) return;
-    if (!newer(want, readVer(join(AI_LIVE, "fabra-labs-ai", "version.json")))) { state.aiHandOff = null; return; }   // done
-    try {
-      const u = await (await fetch(AI_UPDATE, { signal: AbortSignal.timeout(3000) })).json();
-      if (!u.busy && u.available) {
-        const { token } = await (await fetch(AI + "/api/token", { signal: AbortSignal.timeout(3000) })).json();
-        await fetch(AI + "/api/update/install", { method: "POST", headers: { "content-type": "application/json", "x-fabra-token": token }, body: "{}", signal: AbortSignal.timeout(300000) });
-      }
-    } catch {}
-    aiTimer = setTimeout(tick, 20000);
-  };
-  aiTimer = setTimeout(tick, 1000);
+    if (!r.ok) throw new Error(`Shivo Labs AI ${want} didn't pass its checks: ${lastLine(r.out, /[^\r\n]*(failed|error|refuse)[^\r\n]*/i)}`);
+  }
+  // 2. install it in the live app now, unless a chat or scheduled task is working
+  let u = await aiStatus();
+  if (!u) {   // not running: start it in the background (as opening it does), then install
+    await startAi();
+    for (let i = 0; i < 40 && !(u = await aiStatus()); i++) await sleep(1000);
+    if (!u) throw new Error("Shivo Labs AI didn't start, so its update waits. It tries again by itself.");
+  }
+  if (u.busy) return "waiting";
+  if (u.current === want) return "done";
+  let res;
+  try {
+    const { token } = await (await fetch(AI + "/api/token", { signal: AbortSignal.timeout(3000) })).json();
+    res = await fetch(AI + "/api/update/install", { method: "POST", headers: { "content-type": "application/json", "x-fabra-token": token }, body: "{}", signal: AbortSignal.timeout(300000) });
+  } catch (e) { throw new Error(`Shivo Labs AI ${want} didn't install (${e.message}). It tries again by itself.`); }
+  if (res.status === 409) return "waiting";
+  if (!res.ok) throw new Error(((await res.json().catch(() => ({}))).error) || `Shivo Labs AI ${want} didn't install (${res.status}). It tries again by itself.`);
+  // the AI app restarts itself on the new version (and goes back to the old one if it doesn't start)
+  for (let i = 0; i < 90; i++) {
+    await sleep(1000);
+    const s = await aiStatus();
+    if (s?.current === want) return "done";
+    if (s && i > 20 && s.current !== want) break;   // it answers, but on the old version: it was put back
+  }
+  aiFailed = want;
+  throw new Error(`Shivo Labs AI ${want} didn't start, so the version before it was put back. Your chats are fine.`);
 }
 
 // ---------- The TV app on Shivam's PC (the one with the TV signing key): a new tv\home\version.json on GitHub's main is
@@ -287,22 +337,10 @@ export async function publishTv() {
   } finally { tvBusy = false; }
 }
 
-// Every update installs by itself as soon as it is found (open windows refresh quietly, or show "Updating Shivo Labs..."
-// for a moment while the hub restarts). If Shivo Labs AI is busy, it tries again every 30 seconds.
-let retry = null;
-async function checkAndApply() {
-  clearTimeout(retry); retry = null;
-  await check();
-  if (!state.available || state.installing) return false;
-  const r = await install().catch((e) => ({ ok: false, error: String(e?.message || e) }));
-  if (r.busy) retry = setTimeout(() => checkAndApply().catch(() => {}), 30000);
-  return true;
-}
-
 // The signal from Cloudflare: one connection, kept open (a "ping" every 4 minutes so routers don't drop it), opened
 // again after a drop (5 s, growing to 5 minutes while offline). Each message names the newest laptop update; when it is
-// newer than this copy (on this PC: whenever one is published), check now. GitHub's files can lag a few seconds behind
-// the signal, so a check that doesn't see the update yet tries again a few times.
+// newer than this copy (on this PC: whenever one is published), update now. R2 can lag a moment behind the signal, so
+// an install that doesn't see the update yet tries again a few times.
 // the same connection also says when the phone asks a PC to renew its apps (pclink.mjs sets ask)
 export const signal = { on: false, ask: null };
 function listen() {
@@ -319,9 +357,10 @@ function listen() {
       const wanted = MODE === "installed" ? m.hub && buildOf(m.hub) > buildOf(state.version) : !first;
       if (!wanted) return;
       for (let i = 0; i < 8; i++) {
-        if (await checkAndApply().catch(() => false)) return;
-        if (MODE === "installed" && buildOf(m.hub) <= buildOf(state.version)) return;
-        await new Promise((ok) => setTimeout(ok, 15000));
+        const r = await update().catch(() => ({}));
+        if (r.found || MODE === "repo") return;
+        if (buildOf(m.hub) <= buildOf(state.version)) return;
+        await sleep(15000);
       }
     };
     ws.onclose = () => { signal.on = false; clearInterval(ping); setTimeout(open, wait); wait = Math.min(wait * 2, 5 * 60 * 1000); };
@@ -331,10 +370,11 @@ function listen() {
 }
 
 export function autoCheck() {
-  setTimeout(() => handAiUpdate().catch(() => {}), 10000); // e.g. right after the hub restarted with a pull
-  setTimeout(() => checkAndApply().catch(() => {}), 30000);
-  setInterval(() => checkAndApply().catch(() => {}), 15 * 60 * 1000);
-  setInterval(() => handAiUpdate().catch(() => {}), 15 * 60 * 1000);
+  // the first look starts at once (a hub that just restarted after an update finishes it here, AI part included)
+  state.phase = "checking";
+  const go = () => update().catch(() => {});
+  setTimeout(go, 2000);
+  setInterval(go, (MODE === "repo" ? 2 : 15) * 60 * 1000);
   setTimeout(() => publishTv().catch(() => {}), 60000);
   setInterval(() => publishTv().catch(() => {}), 15 * 60 * 1000);
   listen();

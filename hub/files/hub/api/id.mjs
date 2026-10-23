@@ -153,7 +153,7 @@ async function alive() {
   try {
     const build = Number(release().split(".")[2]) || 0;
     await post("/alive", { ...(await signedBy("alive")), version: upd.version, info: { app: "laptop", os: `Windows ${build >= 22000 ? 11 : 10}`, beam: beamRelay(),
-      update: { ok: !upd.error, msg: upd.error || (upd.available ? `Update ${upd.available.version} waiting` : ""), at: upd.lastCheck } } });
+      update: { ok: !upd.error, msg: upd.error || (upd.phase === "waiting" ? "Update waiting for a chat to finish" : ""), at: upd.lastCheck } } });
   } catch (e) { if (e.removed) renew().catch(() => {}); }   // removed by the owner: the renew takes the modules away
 }
 
