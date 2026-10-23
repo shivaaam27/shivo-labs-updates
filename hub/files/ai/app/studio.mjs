@@ -5,6 +5,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import crypto from "node:crypto";
+import { IMAGE_TOOLS } from "./imagetools.mjs";
 
 export const EDGE = [
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -63,9 +64,10 @@ export const STUDIO_TOOLS = [
   {
     name: "view_file",
     description:
-      "Look at a file that isn't plain text: an image (png, jpg, gif, webp), a PDF, or a Word, Excel or PowerPoint file. " +
-      "You see it as it really looks (layout, tables, charts, slides). Use it to check documents you made or to read ones the user gives you.",
-    input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+      "Look at a file that isn't plain text: an image (png, jpg, gif, webp, bmp, tiff, heic, svg; large ones are shrunk for you), a PDF, or a Word, Excel or PowerPoint file. " +
+      "You see it as it really looks (layout, tables, charts, slides). Use it to check documents you made or to read ones the user gives you. " +
+      "To look at several images, pass paths (up to 12) in one call instead of one call each; for many, or to compare, use image_board.",
+    input_schema: { type: "object", properties: { path: { type: "string" }, paths: { type: "array", items: { type: "string" }, description: "Several images at once" } } },
   },
   {
     name: "browser",
@@ -89,6 +91,7 @@ export const STUDIO_TOOLS = [
       required: ["action"],
     },
   },
+  ...IMAGE_TOOLS,
 ];
 
 // ---------- artifact storage

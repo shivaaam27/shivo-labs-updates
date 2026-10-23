@@ -22,7 +22,8 @@ import { makeConnectors } from "./mcp.mjs";
 import { makeMcpAuth } from "./mcpauth.mjs";
 import { gitInfo, prStatus, fileDiff, addWorktree, removeWorktree } from "./git.mjs";
 import { PROVIDERS, isClaude, splitModel, listModels, chatStep, makeGeminiLimits, geminiWithFallback, geminiRank, freeLimits, trimHistory } from "./providers.mjs";
-import { STUDIO_TOOLS, makeArtifacts, renderArtifact, exportPdf, exportDocx, exportPptx, exportXlsx, makeBrowser, OFFICE, officeToPdf } from "./studio.mjs";
+import { makeImageTools } from "./imagetools.mjs";
+import { STUDIO_TOOLS, EDGE, makeArtifacts, renderArtifact, exportPdf, exportDocx, exportPptx, exportXlsx, makeBrowser, OFFICE, officeToPdf } from "./studio.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The development copy runs on its own port with its own data (FABRA_PORT / FABRA_DATA).
@@ -944,6 +945,7 @@ const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"];
 const FAST_MODELS = new Set(["claude-opus-5-5"]); // fast mode: same model, quicker replies, 2x price
 const READ_ONLY_TOOLS = TOOLS.filter((t) => !WRITE_TOOLS.has(t.name));
+const IMAGE_FILES = /\.(png|jpe?g|gif|webp|bmp|tiff?|ico|heic|heif|avif|svg)$/i;
 const STUDIO_NAMES = new Set(STUDIO_TOOLS.map((t) => t.name));
 const STUDIO_READ_TOOLS = STUDIO_TOOLS.filter((t) => ["read_artifact", "browser", "view_file"].includes(t.name));
 // Tools that only look, so several in one reply can run at the same time (view_file stays out: it may
@@ -1245,6 +1247,7 @@ app.post("/api/chat", async (req, res) => {
 
   // Artifacts and the hidden browser.
   let browser = takeBrowser(chatId); // the browser and its tabs are kept between this chat's replies
+  const imageTools = makeImageTools({ dataDir, chatId, workDir, isAllowed, previewTo, edge: EDGE });
   async function runStudioTool(name, input) {
     try {
       if (name === "create_artifact") {
@@ -1261,16 +1264,14 @@ app.post("/api/chat", async (req, res) => {
         const { meta, version, content } = artifacts.read(input.id);
         return { text: `"${meta.title}" (${meta.type}), version ${version}:\n\n${content}`, isError: false };
       }
+      if (name === "image_board") return await imageTools.board(input);
+      if (name === "upscale_image") return await imageTools.upscale(input);
       if (name === "view_file") {
-        const p = resolve(workDir, String(input.path || ""));
+        const list = (Array.isArray(input.paths) && input.paths.length ? input.paths : [input.path]).map((x) => resolve(workDir, String(x || "")));
+        if (list.length > 1 || IMAGE_FILES.test(list[0])) return await imageTools.viewImages(list);
+        const p = list[0];
         if (!existsSync(p)) return { text: `File not found: ${p}`, isError: true };
         const size = statSync(p).size;
-        const img = /\.(png|jpe?g|gif|webp)$/i.exec(p);
-        if (img) {
-          if (size > 5e6) return { text: "That image is over 5 MB; resize it first (e.g. with Python's PIL).", isError: true };
-          const type = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[img[1].toLowerCase()];
-          return { text: `Image ${p}`, content: [{ type: "text", text: `Image ${p}` }, { type: "image", source: { type: "base64", media_type: type, data: readFileSync(p).toString("base64") } }], isError: false };
-        }
         let pdf = null;
         if (/\.pdf$/i.test(p)) pdf = p;
         else if (OFFICE.test(p)) { send({ type: "status", text: "Opening it with Microsoft Office…" }); pdf = await officePreview(p); }

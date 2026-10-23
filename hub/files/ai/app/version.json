@@ -1,11 +1,8 @@
 {
-    "version": "2.0.25",
+    "version": "2.0.27",
     "notes": [
-        "Presentations: ask for slides and edit them in the panel (add, copy, delete, drag to reorder, present full screen), then export to PDF or PowerPoint.",
-        "Spreadsheets: a sheet you can edit with formulas, several tabs, export to Excel or PDF.",
-        "Documents and slides get a formatting bar while you edit: bold, headings, size, colours, lists, alignment, links, pictures, tables, page breaks.",
-        "Each chat has its own preview tabs and its own dev servers, so two chats on one project no longer share a server.",
-        "The AI can open links, files and artifacts in the preview itself, and links in replies open in the panel. Sites that refuse to be shown there open in your browser.",
-        "The AI's browser has tabs (new tab, switch, back, find on page, list links) and keeps them between replies, for research."
+        "Images: look at several at once, in more formats (bmp, tiff, heic, svg) and big ones are shrunk for you, so it is faster and cheaper.",
+        "Mood boards and side-by-side comparisons: put many images on one sheet, or compare two versions with a map of what changed. They open in the preview panel.",
+        "Upscaler: make images 2x or 4x bigger. It can download the free Real-ESRGAN AI upscaler once (it asks you first); otherwise it does a plain high-quality resize."
     ]
 }
