@@ -71,6 +71,17 @@ export function launchCommand(cfg, root, port) {
 }
 
 export const PREVIEW_TOOLS = [{
+  name: "open_preview",
+  description:
+    "Show something in the app's preview panel (a tab beside the chat) without starting a server: a web address such as http://localhost:3000 or a page you found, " +
+    "a file on this PC (html, pdf, image, Word, Excel, PowerPoint) or an artifact (artifact:<id>). Use it whenever you mention a link or file the user should look at, " +
+    "instead of asking them to open it. Some websites refuse to be shown inside the panel; local servers and files always work.",
+  input_schema: {
+    type: "object",
+    properties: { target: { type: "string", description: "http(s) address, file path, or artifact:<id>" } },
+    required: ["target"],
+  },
+}, {
   name: "preview_start",
   description:
     "Start one of the project's dev servers and open it in the app's preview panel. Servers are described in .claude/launch.json in the project folder " +
@@ -88,8 +99,36 @@ export const PREVIEW_TOOLS = [{
 
 const started = new Map(); // launch.json + name -> { pid, port, url }
 
-export function previewHandlers({ abs, background, startBackground, onPreview }) {
+// Why a web page can't be shown inside the panel ("" when it can): sites that forbid being framed.
+async function frameBlock(url) {
+  try {
+    const r = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(7000), headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0" } });
+    r.body?.cancel().catch(() => {});
+    const xfo = (r.headers.get("x-frame-options") || "").toLowerCase();
+    if (xfo.includes("deny") || xfo.includes("sameorigin")) return "it sends X-Frame-Options " + xfo;
+    const m = /frame-ancestors([^;]*)/i.exec(r.headers.get("content-security-policy") || "");
+    if (m && !m[1].includes("*")) return "it limits where it can be framed";
+  } catch {}
+  return "";
+}
+
+export function previewHandlers({ abs, background, startBackground, onPreview, scope = "", openExternal = null }) {
   return {
+    // Show something in the panel without starting anything: a web address, a file on this PC or an artifact.
+    async open_preview({ target }) {
+      let t = String(target || "").trim();
+      if (!t) throw new Error("Say what to open: a web address (http://localhost:3000), a file path or artifact:<id>.");
+      if (/^https?:\/\//i.test(t)) {
+        const local = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[\/?#]|$)/i.test(t);
+        const why = local ? "" : await frameBlock(t);
+        if (why && openExternal) { openExternal(t); return `${new URL(t).host} can't be shown inside the panel (${why}), so it was opened in the user's own browser instead.`; }
+      } else if (!/^artifact:/i.test(t)) {
+        t = abs(t);
+        if (!existsSync(t)) throw new Error(`${t} doesn't exist.`);
+      }
+      try { onPreview?.(t); } catch {}
+      return `Opened ${t} in the preview panel.`;
+    },
     async preview_start({ name, folder }, signal) {
       const root = abs(folder || ".");
       const file = join(root, ".claude", "launch.json");
@@ -99,7 +138,7 @@ export function previewHandlers({ abs, background, startBackground, onPreview })
       if (!list.length) throw new Error(`${file} has no "configurations". Example:\n${EXAMPLE}`);
       const cfg = name ? list.find((c) => String(c.name).toLowerCase() === String(name).toLowerCase()) : list[0];
       if (!cfg) throw new Error(`No configuration named "${name}" in ${file}. There are: ${list.map((c) => c.name).join(", ")}.`);
-      const label = cfg.name || "server", key = file.toLowerCase() + "#" + label;
+      const label = cfg.name || "server", key = scope + "|" + file.toLowerCase() + "#" + label; // per chat: a second chat on the same project starts its own server
       const open = (url) => { try { onPreview?.(url); } catch {} };
 
       // Already running from this app: open it again.

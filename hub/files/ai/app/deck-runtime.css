@@ -1,0 +1,41 @@
+/* Slides artifact: layout only. Authors' own CSS wins (defaults use :where). Removed again when the deck is saved. */
+#deck .slide, .fd-thin > .slide { width: 1280px !important; height: 720px !important; box-sizing: border-box; position: relative; overflow: hidden; }
+:where(.slide) { background: #fff; color: #111; font: 28px/1.4 "Segoe UI", Arial, sans-serif; padding: 64px 80px; }
+:where(.slide h1) { font-size: 60px; margin: 0 0 24px; line-height: 1.1; }
+:where(.slide h2) { font-size: 44px; margin: 0 0 20px; line-height: 1.15; }
+:where(.slide h3) { font-size: 34px; margin: 0 0 14px; }
+:where(.slide p, .slide li) { margin: 0 0 14px; }
+:where(.slide ul, .slide ol) { margin: 0 0 14px; padding-left: 1.2em; }
+:where(.slide img) { max-width: 100%; max-height: 100%; }
+
+@media screen {
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #26262a; }
+  #deck .slide:not(.fd-cur) { display: none !important; }
+  #deck .slide.fd-cur { position: fixed !important; transform-origin: 0 0; box-shadow: 0 6px 30px rgba(0, 0, 0, .45); }
+  .fd-bar { position: fixed; left: 176px; right: 0; top: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: #1c1c1f; color: #ddd; font: 13px "Segoe UI", Arial, sans-serif; z-index: 20; }
+  .fd-bar b { font-weight: 600; margin-right: auto; }
+  .fd-rail { position: fixed; left: 0; top: 0; bottom: 0; width: 176px; background: #f1f1ef; border-right: 1px solid #d8d8d4; z-index: 20; display: flex; flex-direction: column; font: 12px "Segoe UI", Arial, sans-serif; color: #222; }
+  .fd-list { flex: 1; overflow-x: hidden; overflow-y: auto; padding: 10px 12px; }
+  .fd-th { position: relative; width: 150px; height: 84.4px; margin: 0 0 10px; border: 2px solid transparent; border-radius: 6px; overflow: hidden; cursor: pointer; background: #fff; box-sizing: content-box; }
+  .fd-th.sel { border-color: #111; }
+  .fd-th.over { border-color: #888; border-style: dashed; }
+  .fd-thin { transform: scale(.1172); transform-origin: 0 0; pointer-events: none; width: 1280px; height: 720px; }
+  .fd-thin > .slide { display: block !important; position: relative !important; }
+  .fd-th i { position: absolute; left: 4px; bottom: 2px; font: 600 11px "Segoe UI", sans-serif; font-style: normal; color: #fff; background: rgba(0, 0, 0, .55); padding: 0 5px; border-radius: 8px; z-index: 2; }
+  .fd-tools { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 10px; border-top: 1px solid #d8d8d4; }
+  .fd-btn { border: 1px solid #c9c9c4; background: #fff; color: #222; border-radius: 6px; padding: 4px 8px; font: 12px "Segoe UI", Arial, sans-serif; cursor: pointer; }
+  .fd-btn:hover { background: #ebebe8; }
+  .fd-bar .fd-btn { background: #333; color: #eee; border-color: #444; }
+  .fd-bar .fd-btn:hover { background: #444; }
+  @media (max-width: 560px) { .fd-rail { display: none; } .fd-bar { left: 0; } }
+  .fd-present .fd-rail, .fd-present .fd-bar { display: none !important; }
+  .fd-present body, .fd-present html { background: #000; cursor: none; }
+  .fd-present #deck .slide.fd-cur { box-shadow: none; }
+}
+@media print {
+  @page { size: 1280px 720px; margin: 0; }
+  html, body { margin: 0 !important; background: #fff !important; }
+  [data-fabra-ui] { display: none !important; }
+  #deck .slide { display: block; position: relative !important; transform: none !important; left: auto !important; top: auto !important; break-after: page; page-break-after: always; }
+  #deck .slide:last-child { break-after: auto; page-break-after: auto; }
+}

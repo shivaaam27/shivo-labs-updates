@@ -539,7 +539,7 @@ function wrapForState(command, shellFile) {
   ].join("\n");
 }
 
-export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch = null, onPreview = null, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s }) {
+export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch = null, onPreview = null, onBeforeWrite = () => {}, onOutput = () => {}, searchKey = () => "", viaClaude = null, secretEnv = () => ({}), scrub = (s) => s, chatId = "", openExternal = null }) {
   const abs = (p) => resolve(workDir, String(p || "."));
   const insideAllowed = (p) =>
     allowedDirs.some((d) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); });
@@ -763,7 +763,7 @@ export function makeToolRunner({ workDir, allowedDirs, shellFile = null, onWatch
       onRaw: (d) => onOutput(scrub(d)),
     }) : {}),
     // preview_start: dev servers from .claude/launch.json (preview.mjs), started like run_command's background ones.
-    ...previewHandlers({ abs, background, onPreview,
+    ...previewHandlers({ abs, background, onPreview, scope: chatId, openExternal,
       startBackground: (command, signal) => handlers.run_command({ command, background: true }, signal, { noPreview: true }) }),
     update_plan({ todos }) {
       return `Plan updated (${todos.filter((t) => t.status === "completed").length}/${todos.length} done).`;
@@ -813,6 +813,10 @@ export function systemPrompt({ workDir, extraDirs, scratch, memory = [], skills 
       "its 📱 button switches to a phone-sized view (390px) for checking mobile layouts; it has reload, back, and open-in-browser buttons. Point the user to these instead of browser developer tools. " +
       "The address bar follows the page shown, and reload stays on the current page. Don't invent other panel behaviour (it never dims pages); if a preview looks wrong, check the page yourself with the browser tool and say what you find.",
     "For anything the user should look at (a mockup, page, dashboard, small app, diagram) or a document they'll edit and send (CV, letter, proposal, report, invoice), use create_artifact; it opens in the side panel, the user can edit documents by hand and export them to PDF or Word. Use update_artifact for changes (it keeps versions). Write files to the project only when the work belongs in the project's code.",
+    "When you mention a link, page or file the user should look at (a localhost address, a PDF, a site you found while researching), open it with open_preview instead of asking them to open it. Each chat has its own preview tabs and its own dev servers, so two chats on one project never share a server.",
+    "To research: search_web first, then read the 2-3 best pages (fetch_url for text; the browser tool when a page needs clicking, with new_tab to keep several open and compare), and open the pages worth the user's attention with open_preview so they can follow along. Say which sources you used.",
+    "For a presentation or deck, use create_artifact with type slides (not a Python script): the user edits it live in the panel, reorders slides, presents full screen and exports to PDF or PowerPoint. Use python-pptx only when they ask for a .pptx file you save yourself.",
+    "For a table of numbers, budget, tracker or anything with formulas, use create_artifact with type sheet (JSON): the user edits cells live and exports to Excel or PDF. Use openpyxl only when they ask for an .xlsx file you save yourself.",
     "When the user asks for a Word, Excel or PowerPoint file, make a real one: write a Python script and run it with `python` (python-docx, openpyxl and python-pptx are installed; Microsoft Office is too). " +
       "Make them look professional (styles, headings, table formatting, number formats, real Excel formulas, consistent slide layouts). Then check the result with view_file and fix problems. Save it where the user can find it and give the full path; the app previews Office files.",
     "For PDFs: read or check them with view_file; create them from HTML (an artifact exported to PDF) or with reportlab; merge, split, rotate, extract pages or fill forms with pypdf or PyMuPDF (fitz), both installed.",

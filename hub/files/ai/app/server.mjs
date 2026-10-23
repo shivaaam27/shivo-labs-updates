@@ -22,7 +22,7 @@ import { makeConnectors } from "./mcp.mjs";
 import { makeMcpAuth } from "./mcpauth.mjs";
 import { gitInfo, prStatus, fileDiff, addWorktree, removeWorktree } from "./git.mjs";
 import { PROVIDERS, isClaude, splitModel, listModels, chatStep, makeGeminiLimits, geminiWithFallback, geminiRank, freeLimits, trimHistory } from "./providers.mjs";
-import { STUDIO_TOOLS, makeArtifacts, renderArtifact, exportPdf, exportDocx, makeBrowser, OFFICE, officeToPdf } from "./studio.mjs";
+import { STUDIO_TOOLS, makeArtifacts, renderArtifact, exportPdf, exportDocx, exportPptx, exportXlsx, makeBrowser, OFFICE, officeToPdf } from "./studio.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The development copy runs on its own port with its own data (FABRA_PORT / FABRA_DATA).
@@ -200,16 +200,40 @@ const EDIT_HELPER = `(() => {
       document.designMode = d.on ? "on" : "off";
       if (d.on) document.addEventListener("input", () => parent.postMessage({ fabra: "dirty" }, e.origin), { once: true });
     }
+    if (d.fabra === "cmd") {
+      window.focus();
+      try { document.execCommand("styleWithCSS", false, true); document.execCommand(d.cmd, false, d.value == null ? null : d.value); } catch (x) {}
+      parent.postMessage({ fabra: "dirty" }, e.origin);
+    }
     if (d.fabra === "html") {
       const was = document.designMode; document.designMode = "off";
       const clone = document.documentElement.cloneNode(true);
       clone.querySelectorAll("script[data-fabra-helper]").forEach((s) => s.remove());
+      clone.querySelectorAll("[data-fabra-ui],[data-fabra-deck]").forEach((s) => s.remove());
+      clone.querySelectorAll("[class]").forEach((x) => { const k = x.getAttribute("class").split(" ").filter((c) => c && c.indexOf("fd-") !== 0).join(" "); if (k) x.setAttribute("class", k); else x.removeAttribute("class"); });
       document.designMode = was;
       parent.postMessage({ fabra: "html", id: d.id, html: "<!doctype html>\\n" + clone.outerHTML }, e.origin);
     }
   });
 })();`;
 contentApp.get("/__fabra_helper.js", (_req, res) => res.type("js").send(EDIT_HELPER));
+// A page that can't be shown inside the panel opens in the user's own browser (web addresses only).
+const openExternal = (u) => { if (/^https?:\/\//i.test(u)) spawn("explorer.exe", [u], { detached: true, stdio: "ignore" }).unref(); };
+// The AI's hidden browser stays open between replies of a chat (its tabs survive), and closes after 10 idle minutes.
+const keptBrowsers = new Map(); // chatId -> { b, timer }
+function takeBrowser(chatId) {
+  const k = keptBrowsers.get(chatId);
+  if (!k) return null;
+  clearTimeout(k.timer);
+  return k.b;
+}
+function keepBrowser(chatId, b) {
+  const old = keptBrowsers.get(chatId);
+  if (old) clearTimeout(old.timer);
+  const timer = setTimeout(() => { keptBrowsers.delete(chatId); b.close(); }, 10 * 60 * 1000);
+  timer.unref?.();
+  keptBrowsers.set(chatId, { b, timer });
+}
 const withHelper = (html) => {
   const tag = `<script data-fabra-helper src="/__fabra_helper.js"></script>`;
   // First thing in the page, so the preview console also catches errors from scripts that run while it loads.
@@ -773,7 +797,7 @@ app.post("/api/save-edit", (req, res) => {
   try {
     if (artifactId) {
       const cur = artifacts.get(artifactId);
-      const m = artifacts.update(artifactId, html, { by: "user", note: "Edited by hand", type: cur?.type === "html" ? "html" : "document" });
+      const m = artifacts.update(artifactId, html, { by: "user", note: "Edited by hand", type: ["html", "slides", "sheet"].includes(cur?.type) ? cur.type : "document" });
       // Let the AI know on the next message.
       if (m.chatId) { const s = loadSession(m.chatId); if (s) { s.note = `(Note: the user edited the artifact "${m.title}" (id ${m.id}) by hand; it is now version ${m.versions.length}. Use read_artifact before changing it.)`; saveSession(m.chatId, s); } }
       return res.json({ ok: true, version: m.versions.length });
@@ -788,12 +812,12 @@ app.post("/api/save-edit", (req, res) => {
 // Export to PDF or Word into the user's Downloads folder, then show it.
 app.post("/api/export", async (req, res) => {
   const { artifactId, version, path, format } = req.body;
-  if (!["pdf", "docx"].includes(format)) return res.status(400).json({ error: "Format must be pdf or docx." });
+  if (!["pdf", "docx", "pptx", "xlsx"].includes(format)) return res.status(400).json({ error: "Format must be pdf, docx, pptx or xlsx." });
   try {
-    let url, html, title;
+    let url, html, title, raw;
     if (artifactId) {
       const { meta, content } = artifacts.read(artifactId, version);
-      title = meta.title; url = `${contentBase}/artifact/${meta.id}${version ? "/" + version : ""}`; html = renderArtifact(meta, content);
+      title = meta.title; url = `${contentBase}/artifact/${meta.id}${version ? "/" + version : ""}`; html = renderArtifact(meta, content); raw = content;
     } else {
       const p = resolve(String(path || ""));
       if (!existsSync(p)) return res.status(400).json({ error: "File not found." });
@@ -806,7 +830,10 @@ app.post("/api/export", async (req, res) => {
     const base = title.replace(/[<>:"/\\|?*]+/g, "").trim().slice(0, 80) || "Document";
     let out = join(downloads, `${base}.${format}`);
     for (let i = 2; existsSync(out); i++) out = join(downloads, `${base} (${i}).${format}`);
-    if (format === "pdf") await exportPdf(url, out); else await exportDocx(html, out, title);
+    if (format === "pdf") await exportPdf(url, out);
+    else if (format === "pptx") await exportPptx(raw ?? html, out);
+    else if (format === "xlsx") await exportXlsx(raw ?? html, out);
+    else await exportDocx(html, out, title);
     spawn("explorer.exe", ["/select,", out], { detached: true });
     res.json({ ok: true, file: out });
   } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
@@ -1144,14 +1171,15 @@ app.post("/api/chat", async (req, res) => {
   };
   let activeToolId = null; // which step the live terminal output belongs to
   // A dev server this reply (or one of its helpers) started is answering: open it in the preview (not this app's own address).
-  const previewTo = (url) => { try { if (!live.done && Number(new URL(url).port) !== Number(PORT)) send({ type: "preview", url }); } catch {} };
+  // A web address (not this app's own), a file path or artifact:<id> goes to the preview panel.
+  const previewTo = (url) => { try { if (live.done) return; if (/^https?:/i.test(url) && Number(new URL(url).port) === Number(PORT)) return; send({ type: "preview", url }); } catch {} };
   // Folders this reply may change. It grows when the user allows a new folder mid-chat.
   const inside = (d, p) => { const r = relative(d, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
   // skillsDir: so it can create skills; the auto memory folder: so it can keep its notes.
   const allowedDirs = [workDir, ...extraDirs, skillsDir, ...(autoMem ? [autoMem.dir] : [])];
   const isAllowed = (p) => allowedDirs.some((d) => inside(d, p));
   const runTool = makeToolRunner({
-    workDir, allowedDirs, shellFile: join(dataDir, "shells", safeId(chatId)), onBeforeWrite,
+    workDir, allowedDirs, chatId, openExternal, shellFile: join(dataDir, "shells", safeId(chatId)), onBeforeWrite,
     // watch_process: when the job needs attention later, start a new turn in this chat by itself.
     onWatch: req.body.unattended ? null : (ev) => autoTurn(chatId, { cwd, extraDirs, model: req.body.model, effort, mode: mode === "plan" ? "ask" : mode, fast: req.body.fast }, ev.text), searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
     onOutput: (chunk) => send({ type: "term", id: activeToolId, text: chunk }),
@@ -1216,7 +1244,7 @@ app.post("/api/chat", async (req, res) => {
   }
 
   // Artifacts and the hidden browser.
-  let browser = null;
+  let browser = takeBrowser(chatId); // the browser and its tabs are kept between this chat's replies
   async function runStudioTool(name, input) {
     try {
       if (name === "create_artifact") {
@@ -1327,7 +1355,7 @@ app.post("/api/chat", async (req, res) => {
     const shellFile = write ? join(dataDir, "shells", `${safeId(chatId)}~h${n}`) : null;
     const via = { label, prefix: `h${n}_`, allowed: new Set(names), show: write, activeId: null, signal: helperStop.signal, loaded: new Set() };
     if (names.some((x) => x.startsWith("mcp__"))) via.allowed.add("find_tools"); // offered only when its connector tools are many
-    via.runTool = write ? makeToolRunner({ workDir, allowedDirs, shellFile, onBeforeWrite, searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
+    via.runTool = write ? makeToolRunner({ workDir, allowedDirs, chatId, openExternal, shellFile, onBeforeWrite, searchKey: () => researchCfg().braveKey || "", viaClaude: claudeSearch, secretEnv: envFor, scrub,
       onOutput: (chunk) => send({ type: "term", id: via.activeId, text: chunk }), onPreview: previewTo }) : helperRunner;
     const want = (found.def?.skills || []).map((s) => s.toLowerCase());
     const skillTexts = skills.filter((s) => want.includes(s.name.toLowerCase())).map((s) => { try { return `\n## ${s.name} (folder: ${s.dir})\n${readFileSync(s.file, "utf8")}`; } catch { return ""; } }).filter(Boolean);
@@ -1787,7 +1815,7 @@ app.post("/api/chat", async (req, res) => {
     // afterStop: the user stopped it with a follow-up waiting, so the app sends that follow-up next.
     if (late?.length) send({ type: "unsent", texts: late, afterStop: abort.signal.aborted });
     inbox.delete(chatId);
-    browser?.close();
+    if (browser) keepBrowser(chatId, browser);
     finish();
   }
 });

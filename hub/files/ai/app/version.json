@@ -1,6 +1,11 @@
 {
-    "version": "2.0.24",
+    "version": "2.0.25",
     "notes": [
-        "Updates: nothing about updates shows here any more. Shivo Labs updates everything by itself in one go, Shivo Labs AI included, as soon as no chat is working."
+        "Presentations: ask for slides and edit them in the panel (add, copy, delete, drag to reorder, present full screen), then export to PDF or PowerPoint.",
+        "Spreadsheets: a sheet you can edit with formulas, several tabs, export to Excel or PDF.",
+        "Documents and slides get a formatting bar while you edit: bold, headings, size, colours, lists, alignment, links, pictures, tables, page breaks.",
+        "Each chat has its own preview tabs and its own dev servers, so two chats on one project no longer share a server.",
+        "The AI can open links, files and artifacts in the preview itself, and links in replies open in the panel. Sites that refuse to be shown there open in your browser.",
+        "The AI's browser has tabs (new tab, switch, back, find on page, list links) and keeps them between replies, for research."
     ]
 }

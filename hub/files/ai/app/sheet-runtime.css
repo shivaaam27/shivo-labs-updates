@@ -1,0 +1,27 @@
+/* Sheet artifact: layout only. Removed again when the sheet is saved. */
+html, body { margin: 0; height: 100%; background: #fff; font: 13px "Segoe UI", Arial, sans-serif; color: #111; }
+.fs-root { position: fixed; inset: 0; display: flex; flex-direction: column; }
+.fs-bar { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #f3f3f1; border-bottom: 1px solid #d8d8d4; flex-wrap: wrap; }
+.fs-tabs { display: flex; gap: 4px; }
+.fs-tab, .fs-btn { border: 1px solid #c9c9c4; background: #fff; color: #222; border-radius: 6px; padding: 4px 10px; font: 12px "Segoe UI", Arial, sans-serif; cursor: pointer; }
+.fs-tab.on { background: #111; color: #fff; border-color: #111; }
+.fs-btn:hover, .fs-tab:hover { background: #ebebe8; } .fs-tab.on:hover { background: #111; }
+.fs-label { font-weight: 600; min-width: 34px; color: #555; }
+.fs-tools { display: flex; gap: 4px; margin-left: auto; }
+.fs-grid { flex: 1; overflow: auto; }
+.fs-table { border-collapse: collapse; }
+.fs-table th { position: sticky; background: #f3f3f1; color: #666; font-weight: 500; font-size: 11px; border: 1px solid #d8d8d4; padding: 2px 6px; z-index: 1; }
+.fs-table th.fs-col, .fs-table th.fs-corner { top: 0; text-align: center; }
+.fs-table th.fs-row { left: 0; text-align: right; min-width: 28px; }
+.fs-table th.fs-corner { left: 0; z-index: 2; }
+.fs-table td { border: 1px solid #e3e3df; padding: 0; }
+.fs-table input { width: 110px; box-sizing: border-box; border: 0; padding: 4px 6px; font: inherit; background: transparent; outline: none; text-align: left; }
+.fs-table td.fs-head input { font-weight: 600; background: #fafaf8; }
+.fs-table input:focus { outline: 2px solid #2f6feb; outline-offset: -2px; background: #fff; }
+@media print {
+  .fs-bar { display: none; }
+  .fs-root { position: static; }
+  .fs-grid { overflow: visible; }
+  .fs-table th { position: static; }
+  @page { size: landscape; margin: 12mm; }
+}

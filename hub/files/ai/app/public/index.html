@@ -417,7 +417,15 @@ body.pv-open #pv{display:flex}
 body.pv-max aside,body.pv-max main{display:none}
 body.pv-max #pv,body.pv-open.pv-max #pv{width:auto!important;max-width:none!important;flex:1;border-left:0;inset:0!important;box-shadow:none}
 .pvmenu button:disabled{opacity:.45;cursor:default}.pvmenu button:disabled:hover{background:none}
-.pvbar #pvPdf,.pvbar #pvDocx{display:none!important}
+.pvbar #pvPdf,.pvbar #pvDocx,.pvbar #pvPptx,.pvbar #pvXlsx{display:none!important}
+.pvfmt{display:flex;align-items:center;gap:2px;padding:5px 8px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none;background:var(--side)}
+.pvfmt::-webkit-scrollbar{display:none}
+.pvfmt[hidden]{display:none}
+.pvfmt button,.pvfmt select{flex-shrink:0;height:26px;min-width:26px;padding:0 6px;border-radius:6px;border:1px solid transparent;background:transparent;color:var(--text);font:12px inherit;cursor:pointer}
+.pvfmt button:hover,.pvfmt select:hover{background:var(--hover,rgba(128,128,128,.15))}
+.pvfmt select{border-color:var(--line);background:var(--bg)}
+.pvfmt .sep{width:1px;height:16px;background:var(--line);margin:0 4px;flex-shrink:0}
+.pvfmt input[type=color]{width:26px;height:24px;padding:1px;border:1px solid var(--line);border-radius:6px;background:transparent;flex-shrink:0}
 .pvbar{display:flex;align-items:center;gap:2px;padding:7px 8px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
 .pvbar::-webkit-scrollbar{display:none}
 .pvbar .ib,.pvbar .pvb{flex-shrink:0}
@@ -1008,13 +1016,16 @@ body.focus #scroll{padding-top:40px}
     <button class="pvb pri" id="pvSave" hidden>Save</button>
     <button class="pvb" id="pvPdf" hidden title="Export to PDF (saved in Downloads)">PDF</button>
     <button class="pvb" id="pvDocx" hidden title="Export to Word (saved in Downloads)">Word</button>
+    <button class="pvb" id="pvPptx" hidden title="Export to PowerPoint (saved in Downloads)">PowerPoint</button>
+    <button class="pvb" id="pvXlsx" hidden title="Export to Excel (saved in Downloads)">Excel</button>
     <button class="ib" id="pvLogBtn" data-tip="Console: messages and errors from the page"><svg class="i"><use href="#i-bug"/></svg><b class="badge" id="pvLogN" hidden></b></button>
     <button class="ib" id="pvPick" data-tip="Point at part of the page to ask the AI about it"><svg class="i"><use href="#i-pointer"/></svg></button>
     <button class="ib" id="pvSize" hidden></button><button class="ib" id="pvExt" hidden></button>
   </div>
+  <div class="pvfmt" id="pvFmt" hidden></div>
   <div class="pvmenu" id="pvMenu"></div>
   <div class="pvload" id="pvLoad"></div>
-  <div class="pvbody" id="pvBody"><iframe id="pvFrame" title="Preview"></iframe></div>
+  <div class="pvbody" id="pvBody"><iframe id="pvFrame" title="Preview" allow="fullscreen"></iframe></div>
   <div class="pvlog" id="pvLog"><div class="pvlh"><b>Console</b><span id="pvLogSum"></span><span class="sp"></span><button class="pvb" id="pvLogAsk" title="Ask the AI to fix these errors">Ask AI to fix</button><button class="pvb" id="pvLogClear">Clear</button><button class="ib" id="pvLogClose" data-tip="Hide console"><svg class="i"><use href="#i-x"/></svg></button></div><div class="pvlb" id="pvLogBody"></div></div>
 </section>
 
@@ -1344,18 +1355,30 @@ function renderSide() {
 }
 
 const md = (t) => DOMPurify.sanitize(marked.parse(t || ""));
+// Links in a reply: local addresses and files open in the preview panel; other sites open in the browser.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest("#thread a[href]");
+  if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+  const h = a.getAttribute("href") || "";
+  if (/^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[\/?#]|$)/i.test(h)) {
+    e.preventDefault();
+    if (Number(new URL(h).port || 80) === Number(location.port)) return;
+    preview(h);
+  } else if (/^https?:/i.test(h)) { e.preventDefault(); window.open(h, "_blank", "noopener"); }
+  else if (/^file:\/\/\//i.test(h)) { e.preventDefault(); try { preview(decodeURI(h.slice(8))); } catch {} }
+});
 function nearBottom() { const s = $("scroll"); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
 function scrollDown(force) { const s = $("scroll"); if (force || nearBottom()) s.scrollTop = s.scrollHeight; }
 
-const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", notebook_edit: "Edited notebook", schedule_task: "Scheduled tasks:", notify: "Sent a notification:", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", preview_start: "Started the preview of", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched", find_tools: "Loaded connector tools" };
-const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", notebook_edit: "Editing the notebook…", schedule_task: "Scheduling…", notify: "Notifying…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", preview_start: "Starting the dev server…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "A helper is working…", find_tools: "Finding connector tools…" };
+const VERBS = { read_file: "Read", write_file: "Created", edit_file: "Edited", notebook_edit: "Edited notebook", schedule_task: "Scheduled tasks:", notify: "Sent a notification:", run_command: "Ran", wait_for_process: "Waited for", watch_process: "Watching", preview_start: "Started the preview of", open_preview: "Opened in the preview:", terminal_open: "Opened a terminal", terminal_send: "Typed", terminal_read: "Read the terminal", terminal_close: "Closed terminal", list_files: "Found files", search_files: "Searched", web_fetch: "Fetched", web_search: "Searched web", search_web: "Searched web", fetch_url: "Read page", update_plan: "Updated plan", check_process: "Checked process", stop_process: "Stopped process", delegate_task: "Helper researched", find_tools: "Loaded connector tools" };
+const DOING = { read_file: "Reading…", write_file: "Writing…", edit_file: "Editing…", notebook_edit: "Editing the notebook…", schedule_task: "Scheduling…", notify: "Notifying…", run_command: "Running…", wait_for_process: "Watching…", watch_process: "Setting a watch…", preview_start: "Starting the dev server…", open_preview: "Opening in the preview…", terminal_open: "Opening a terminal…", terminal_send: "Typing…", terminal_read: "Reading the terminal…", list_files: "Looking around…", search_files: "Searching…", web_fetch: "Fetching…", web_search: "Searching the web…", search_web: "Searching the web…", fetch_url: "Reading the page…", update_plan: "Planning…", check_process: "Checking the server…", stop_process: "Stopping…", delegate_task: "A helper is working…", find_tools: "Finding connector tools…" };
 // A helper's step title: its type (explore, plan, general, or a custom helper's name).
 function helperTitle(i = {}) {
   const a = String(i.agent || "explore").toLowerCase();
   return (a === "explore" ? "Helper researched" : a === "plan" ? "Helper planned" : /^general/.test(a) ? "Helper worked on" : `Helper "${i.agent}"`) + (i.background ? " (background)" : "");
 }
 function detail(name, i = {}) {
-  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, notebook_edit: i.path, schedule_task: [i.action, i.name].filter(Boolean).join(" "), notify: i.title, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, preview_start: i.name || "the project", terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task, find_tools: i.query })[name] || "";
+  return ({ read_file: i.path, write_file: i.path, edit_file: i.path, notebook_edit: i.path, schedule_task: [i.action, i.name].filter(Boolean).join(" "), notify: i.title, run_command: i.description || i.command, wait_for_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, watch_process: i.pattern ? "process " + i.pid + ": " + i.pattern : "process " + i.pid, preview_start: i.name || "the project", open_preview: i.target, terminal_open: i.command || "", terminal_send: [i.text, ...(i.keys || [])].filter(Boolean).join(" + "), terminal_read: "terminal " + i.id, terminal_close: "terminal " + i.id, list_files: i.pattern, search_files: i.pattern, web_fetch: i.url, web_search: i.query, search_web: i.query, fetch_url: i.url, check_process: "process " + i.pid, stop_process: "process " + i.pid, delegate_task: i.task, find_tools: i.query })[name] || "";
 }
 // Line count; a final line break doesn't count as an extra line.
 function lines(s) { return s ? String(s).replace(/\r?\n$/, "").split("\n").length : 0; }
@@ -1384,8 +1407,8 @@ function addQueued(body, q) {
   const d = document.createElement("div"); d.className = "u queued" + (q.seen ? " seen" : ""); d.style.alignSelf = "flex-end"; d.textContent = q.text; queuedEls.set(q, d);
   body.appendChild(d); return d;
 }
-const ART_ICON = { html: "globe", document: "file", markdown: "file", svg: "img", mermaid: "plan" };
-const ART_KIND = { html: "Page", document: "Document · editable", markdown: "Notes", svg: "Graphic", mermaid: "Diagram" };
+const ART_ICON = { html: "globe", slides: "side", sheet: "file", document: "file", markdown: "file", svg: "img", mermaid: "plan" };
+const ART_KIND = { html: "Page", slides: "Slides · editable", sheet: "Sheet · editable", document: "Document · editable", markdown: "Notes", svg: "Graphic", mermaid: "Diagram" };
 function addArtifact(body, a) {
   const b = document.createElement("button"); b.className = "art";
   b.innerHTML = `<span class="ai">${ic(ART_ICON[a.type] || "file")}</span><span><b></b><small></small></span>`;
@@ -1422,7 +1445,7 @@ function fkLoader(k) {
 function fkKind(name, input = {}) {
   if (name === "run_command") return /^\s*(git|gh)\b/i.test(input.command || "") ? "git" : "run";
   return ({ read_file: "read", use_skill: "read", view_file: "read", read_artifact: "read", write_file: "write", create_artifact: "write", update_artifact: "write",
-    edit_file: "edit", notebook_edit: "edit", schedule_task: "run", notify: "run", list_files: "search", search_files: "search", find_tools: "search", check_process: "run", wait_for_process: "run", watch_process: "run", preview_start: "run", terminal_open: "run", terminal_send: "run", terminal_read: "run", terminal_close: "run", stop_process: "run",
+    edit_file: "edit", notebook_edit: "edit", schedule_task: "run", notify: "run", list_files: "search", search_files: "search", find_tools: "search", check_process: "run", wait_for_process: "run", watch_process: "run", preview_start: "run", open_preview: "run", terminal_open: "run", terminal_send: "run", terminal_read: "run", terminal_close: "run", stop_process: "run",
     web_search: "web", web_fetch: "web", search_web: "web", fetch_url: "web", update_plan: "plan", delegate_task: "agent", browser: "look", ask_user: "wait" })[name] || "think";
 }
 // Swap the loader's animation, only when the kind actually changes (so it doesn't restart).
@@ -1503,7 +1526,7 @@ const STEP_WORDS = {
   read_file: ["read", "file"], view_file: ["looked at", "file"], write_file: ["edited", "file"], edit_file: ["edited", "file"], notebook_edit: ["edited", "file"],
   run_command: ["ran", "command"], list_files: ["searched", "time"], search_files: ["searched", "time"],
   web_search: ["searched the web", ""], web_fetch: ["read", "web page"], search_web: ["searched the web", ""], fetch_url: ["read", "web page"], browser: ["checked in the browser", ""],
-  delegate_task: ["asked a helper", ""], check_process: ["checked a server", ""], wait_for_process: ["waited for a process", ""], watch_process: ["set a watch on", "process"], preview_start: ["started", "preview"], terminal_open: ["opened", "terminal"], terminal_send: ["typed in a terminal", ""], terminal_read: ["read a terminal", ""], terminal_close: ["closed", "terminal"], stop_process: ["stopped", "process"],
+  delegate_task: ["asked a helper", ""], check_process: ["checked a server", ""], wait_for_process: ["waited for a process", ""], watch_process: ["set a watch on", "process"], preview_start: ["started", "preview"], open_preview: ["opened", "in the preview"], terminal_open: ["opened", "terminal"], terminal_send: ["typed in a terminal", ""], terminal_read: ["read a terminal", ""], terminal_close: ["closed", "terminal"], stop_process: ["stopped", "process"],
   create_artifact: ["made", "artifact"], update_artifact: ["updated", "artifact"], read_artifact: ["read", "artifact"],
   use_skill: ["used", "skill"], find_tools: ["loaded connector tools", ""],
 };
@@ -1748,6 +1771,7 @@ const SUGG = [
   ["img", "Make a mockup first", "Design the new page as an HTML file"],
 ];
 function renderThread() {
+  try { pvUseChat(current?.id); } catch {} // before the preview code has loaded this does nothing
   const t = $("thread"); t.innerHTML = ""; lastPreview = null;
   refreshGitChip();
   if (!current.items.length) {
@@ -2697,8 +2721,8 @@ async function preview(target, opts = {}) {
   const editable = !!pvArt || /\.html?$/i.test(target) && !/^https?:/.test(target);
   const exportable = editable || /\.(svg|md)$/i.test(target);
   show("pvVer", !!pvArt && pvArt.versions.length > 1); if (pvArt) $("pvVer").textContent = `v${pvArt.shown}`;
-  show("pvEdit", editable); show("pvSave", false);
-  show("pvPdf", exportable); show("pvDocx", editable && (!pvArt || pvArt.type !== "html"));
+  show("pvEdit", editable && pvArt?.type !== "sheet"); show("pvSave", false); $("pvFmt").hidden = true;
+  show("pvPdf", exportable); show("pvDocx", editable && (!pvArt || !["html", "slides", "sheet"].includes(pvArt.type))); show("pvPptx", !!pvArt && pvArt.type === "slides"); show("pvXlsx", !!pvArt && pvArt.type === "sheet");
   document.body.classList.add("pv-open"); pvLoading(true); clearLog();
 }
 // A thin moving line while the page loads (like a browser), and a gentle fade.
@@ -2719,8 +2743,52 @@ function setEditing(on) {
   editing = on;
   $("pvEdit").classList.toggle("on", on); $("pvEdit").textContent = on ? "Done" : "Edit";
   tellFrame({ fabra: "edit", on });
+  $("pvFmt").hidden = !on || $("pvEdit").hidden;
   if (!on && !dirty) show("pvSave", false);
 }
+// Formatting bar shown while editing a document or slides: sends editing commands to the page.
+(function buildFmt() {
+  const bar = $("pvFmt");
+  const cmd = (c, v) => tellFrame({ fabra: "cmd", cmd: c, value: v == null ? null : v });
+  const btn = (label, tip, fn, style) => {
+    const b = document.createElement("button"); b.type = "button"; b.innerHTML = label; b.dataset.tip = tip; b.title = tip;
+    if (style) b.style.cssText = style;
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.addEventListener("click", fn); bar.appendChild(b); return b;
+  };
+  const sep = () => { const d = document.createElement("span"); d.className = "sep"; bar.appendChild(d); };
+  const pick = (opts, fn, tip) => {
+    const sl = document.createElement("select"); sl.title = tip;
+    for (const [v, l] of opts) sl.add(new Option(l, v));
+    sl.addEventListener("change", () => { fn(sl.value); sl.selectedIndex = 0; });
+    bar.appendChild(sl);
+  };
+  btn("&#8630;", "Undo", () => cmd("undo")); btn("&#8631;", "Redo", () => cmd("redo")); sep();
+  pick([["", "Style"], ["<p>", "Paragraph"], ["<h1>", "Heading 1"], ["<h2>", "Heading 2"], ["<h3>", "Heading 3"], ["<blockquote>", "Quote"]], (v) => v && cmd("formatBlock", v), "Paragraph style");
+  pick([["", "Size"], ["2", "Small"], ["3", "Normal"], ["5", "Large"], ["6", "Huge"]], (v) => v && cmd("fontSize", v), "Text size"); sep();
+  btn("B", "Bold", () => cmd("bold"), "font-weight:700"); btn("I", "Italic", () => cmd("italic"), "font-style:italic");
+  btn("U", "Underline", () => cmd("underline"), "text-decoration:underline"); btn("S", "Strikethrough", () => cmd("strikeThrough"), "text-decoration:line-through"); sep();
+  const col = (tip, c, init) => { const i = document.createElement("input"); i.type = "color"; i.value = init; i.title = tip; i.addEventListener("input", () => cmd(c, i.value)); bar.appendChild(i); };
+  col("Text colour", "foreColor", "#111111"); col("Highlight", "hiliteColor", "#ffe66d"); sep();
+  btn("&#8226;&#8801;", "Bullet list", () => cmd("insertUnorderedList")); btn("1.&#8801;", "Numbered list", () => cmd("insertOrderedList"));
+  btn("&#8676;", "Less indent", () => cmd("outdent")); btn("&#8677;", "More indent", () => cmd("indent")); sep();
+  btn("&#8676;&#8801;", "Align left", () => cmd("justifyLeft")); btn("&#8801;", "Centre", () => cmd("justifyCenter")); btn("&#8801;&#8677;", "Align right", () => cmd("justifyRight")); sep();
+  btn("Link", "Add a link to the selected text", () => { const u = prompt("Link address", "https://"); if (u && u.trim()) cmd("createLink", u.trim()); });
+  const file = document.createElement("input"); file.type = "file"; file.accept = "image/*"; file.hidden = true; bar.appendChild(file);
+  file.addEventListener("change", () => {
+    const f = file.files[0]; file.value = ""; if (!f) return;
+    const r = new FileReader(); r.onload = () => cmd("insertImage", r.result); r.readAsDataURL(f);
+  });
+  btn("Image", "Insert a picture", () => file.click());
+  btn("Table", "Insert a table", () => {
+    const n = parseInt(prompt("Columns", "3"), 10), m = parseInt(prompt("Rows", "3"), 10);
+    if (!(n > 0 && m > 0)) return;
+    const td = '<td style="border:1px solid #999;padding:6px;min-width:60px">&nbsp;</td>';
+    cmd("insertHTML", '<table style="border-collapse:collapse;width:100%">' + ('<tr>' + td.repeat(Math.min(n, 12)) + '</tr>').repeat(Math.min(m, 50)) + '</table><p></p>');
+  });
+  btn("Page break", "Start a new page here when printed or exported", () => cmd("insertHTML", '<div style="break-after:page;page-break-after:always"></div><p></p>'));
+  sep(); btn("Clear", "Remove formatting from the selection", () => cmd("removeFormat"));
+})();
 $("pvEdit").onclick = () => setEditing(!editing);
 let htmlWaiter = null;
 addEventListener("message", (e) => {
@@ -2747,16 +2815,18 @@ $("pvSave").onclick = async () => {
 };
 async function exportAs(format) {
   if (dirty) { toast("Save your edits first, then export"); return; }
-  const btn = format === "pdf" ? $("pvPdf") : $("pvDocx"); btn.disabled = true; btn.textContent = "…";
+  const btn = format === "pdf" ? $("pvPdf") : format === "pptx" ? $("pvPptx") : format === "xlsx" ? $("pvXlsx") : $("pvDocx"); btn.disabled = true; btn.textContent = "…";
   const body = pvArt ? { artifactId: pvArt.id, version: pvArt.shown, format } : { path: pvTarget, format };
   try {
     const r = await post("/api/export", body); const j = await r.json();
     if (!r.ok) toast(j.error || "Export failed"); else toast("Saved to Downloads: " + j.file.split(/[\\/]/).pop());
   } catch { toast("Export failed"); }
-  btn.disabled = false; btn.textContent = format === "pdf" ? "PDF" : "Word";
+  btn.disabled = false; btn.textContent = format === "pdf" ? "PDF" : format === "pptx" ? "PowerPoint" : format === "xlsx" ? "Excel" : "Word";
 }
 $("pvPdf").onclick = () => exportAs("pdf");
 $("pvDocx").onclick = () => exportAs("docx");
+$("pvPptx").onclick = () => exportAs("pptx");
+$("pvXlsx").onclick = () => exportAs("xlsx");
 // Version picker for artifacts.
 $("pvVer").onclick = (e) => {
   e.stopPropagation();
@@ -3361,10 +3431,24 @@ $("pvGrip").addEventListener("mousedown", (e) => {
 });
 
 // ---------- preview tabs (like a browser): each page the AI opens gets its own tab
-let pvTabs = store.get("fl.pvTabs", []), pvCur = store.get("fl.pvCur", null);
+let pvTabs = [], pvCur = null, pvKey = null; // the preview tabs belong to the chat that is shown
 const tabKey = (t) => { const a = parseArt(t); return a ? "artifact:" + a.id : String(t || ""); };
 const pvActive = () => pvTabs.find((t) => t.id === pvCur) || null;
-const saveTabs = () => { store.set("fl.pvTabs", pvTabs); store.set("fl.pvCur", pvCur); };
+const saveTabs = () => { if (pvKey) { store.set(pvKey, pvTabs); store.set(pvKey + ".cur", pvCur); } };
+// Each chat has its own preview tabs: switching chats swaps them (and the panel) instead of mixing them.
+function pvUseChat(id) {
+  const key = "fl.pvTabs." + (id || "none");
+  if (key === pvKey) return;
+  if (dirty && !confirm("You have unsaved edits in the preview. Discard them?")) return;
+  const open = document.body.classList.contains("pv-open");
+  saveTabs(); pvKey = key;
+  pvTabs = store.get(key, []); pvCur = store.get(key + ".cur", null);
+  if (!pvTabs.some((t) => t.id === pvCur)) pvCur = pvTabs[0]?.id || null;
+  dirty = false; setEditing(false); renderTabs();
+  if (!open) return;
+  const t = pvActive();
+  if (t?.target) preview(t.target, { sameTab: true }); else closePreview();
+}
 function tabTitle(t) {
   if (!t) return "New tab";
   if (parseArt(t)) return "Artifact";
@@ -3400,7 +3484,7 @@ function blankTab() {
   const t = pvActive();
   if (!t || t.target) { const n = { id: crypto.randomUUID(), target: null, title: "New tab" }; pvTabs.push(n); pvCur = n.id; }
   pvTarget = null; pvArt = null; pvRelay = null; $("pvFrame").src = "about:blank"; $("pvUrl").value = "";
-  for (const id of ["pvVer", "pvEdit", "pvSave", "pvPdf", "pvDocx"]) show(id, false);
+  for (const id of ["pvVer", "pvEdit", "pvSave", "pvPdf", "pvDocx", "pvPptx", "pvXlsx"]) show(id, false);
   saveTabs(); renderTabs(); clearLog(); pvLoading(false);
   document.body.classList.add("pv-open"); $("pvUrl").focus(); // shows what's running on this PC
 }
@@ -3422,7 +3506,7 @@ function closeTab(id) {
   if (next) switchTab(next.id); else { renderTabs(); closePreview(); }
 }
 $("pvNewTab").onclick = blankTab;
-renderTabs();
+renderTabs(); pvUseChat(current?.id);
 // Expand: the preview fills the whole window (click again to go back).
 $("pvMax").onclick = () => {
   const on = document.body.classList.toggle("pv-max");
@@ -3448,6 +3532,8 @@ $("pvMore").onclick = (e) => {
   add(OFFICE_RE.test(pvTarget || "") ? "Open in Office" : "Open in browser", "", () => $("pvExt").click(), !pvTarget);
   if (!$("pvPdf").hidden) add("Export to PDF", "Saved in Downloads", () => $("pvPdf").click());
   if (!$("pvDocx").hidden) add("Export to Word", "Saved in Downloads", () => $("pvDocx").click());
+  if (!$("pvPptx").hidden) add("Export to PowerPoint", "Saved in Downloads", () => $("pvPptx").click());
+  if (!$("pvXlsx").hidden) add("Export to Excel", "Saved in Downloads", () => $("pvXlsx").click());
   add($("pvLog").classList.contains("show") ? "Hide console" : "Show console", "Messages and errors from the page", () => $("pvLogBtn").click());
   m.appendChild(document.createElement("hr"));
   add("Close all tabs", "", () => { if (dirty && !confirm("You have unsaved edits in the preview. Discard them?")) return; dirty = false; pvTabs = []; pvCur = null; saveTabs(); renderTabs(); closePreview(); });
