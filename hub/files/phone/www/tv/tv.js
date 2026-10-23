@@ -471,7 +471,14 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
   // and the list of the TV's own features (the family ones are in the Family tab, each with its own settings)
   const FAMILY_MODS = ['reminders', 'messages', 'birthdays', 'announce', 'photos', 'board', 'room', 'ai'];
   let famTab = null;
-  const opts = () => ({ call, toast, buzz, pics, ai, nowPlaying: () => playing()[0] || null, appsOnTv: () => apps, tvName: () => cur?.name || 'the TV' });
+  // passwords for the TURN relay for a video call (the relay gives them only to a phone paired with this TV)
+  const ice = async () => {
+    if (!cur?.key && !cur?.kh) return [];
+    const kh = cur.kh || await sha(cur.key);
+    const r = await fetch(`${RELAY}/k/${kh}/turn`, { cache: 'no-store' });
+    return r.ok ? ((await r.json()).iceServers || []).map((s) => ({ ...s, urls: [].concat(s.urls).filter((u) => !/:53/.test(u)) })) : [];
+  };
+  const opts = () => ({ call, toast, buzz, pics, ai, ice, nowPlaying: () => playing()[0] || null, appsOnTv: () => apps, tvName: () => cur?.name || 'the TV' });
   function mountTab() {
     famTab?.stop(); famTab = null;
     const hl = root.querySelector('#tvHealth'); if (hl && !offline) mountHealth(hl, { call, toast, buzz });

@@ -1,8 +1,9 @@
 {
- "version": "1.0.433",
- "build": 433,
- "built": "2026-10-23T09:30:34.673Z",
+ "version": "1.0.434",
+ "build": 434,
+ "built": "2026-10-23T09:49:41.960Z",
  "notes": [
+  "Phase 4, second part: voice messages as text in Chat (Workers AI Whisper on the chat server, kept per message; an Aa button on voice messages, PC and phone; tested with a spoken WAV and a WebM recorded like the app's, chat/test/voice-text.mjs) and TURN for family-room video calls on mobile data (the TV relay gives a paired phone short-lived TURN passwords at /k/<key>/turn; call.js uses them; waits for a TURN key from the Cloudflare dashboard, calls work as before until then). Plan notes for the parts left out (Turnstile, Email Routing, Access, Browser Run, owner report, AI Gateway) and why",
   "Phase 4, first part: told, not asking, and a usage meter. Shivo Cloud tells PCs when something changed (files/worker Live Durable Object per account, /v1/live, hibernating websockets; poke on every change and key request); the PC syncs within ~2 s and keeps only a 10-minute backup round instead of asking every 20 s (~4,000 requests a day per PC). Your"
  ],
  "files": {
@@ -11434,11 +11435,11 @@
   "phone/www/insights/insights.js": "6067bd1d308a7fe7c4f3ef3b4af6cafea1b36a65d77bb92726a2c230df093707",
   "phone/www/kit/forge.min.js": "dc67fd132427ad96c9666c844b39565413c40ddb1f2d063c53512fbf6d387dfd",
   "phone/www/tv/atvremote.js": "6750d9aa158f1e7910a0c573ac461bdd14d75a80b2acaf98421b8d672865e620",
-  "phone/www/tv/call.js": "832a740a4a6e7cf48ee4b2f020a66ce167f6402f8a4d2ce264de121620410447",
-  "phone/www/tv/family.js": "26e89ffb1183109954db6febcf5105001a929a6717f64bf1c2713f9e5c4ef792",
+  "phone/www/tv/call.js": "bc5660c59c28a55e6701842168d59ab3bed5e613e164f6b874ab6ae362cc68ff",
+  "phone/www/tv/family.js": "f21a1c1edc93adb2552cecdf03792d53f929ac8d6113d3b387fbf19f3a56ffb0",
   "phone/www/tv/remote.js": "75b5897d4a01f4881dad0eebd99954fd116c0f2db205bb12f658fec8dac449db",
   "phone/www/tv/tv.css": "0f754115331eb60d4b8e6e1c7bbad9dacb51e7cce3cc3bb41c126b11c5b562e0",
-  "phone/www/tv/tv.js": "fb2239dba3556e72218ffd76c2f541cc649867ad494abe21985da0ae5e4fff95",
+  "phone/www/tv/tv.js": "eb433c0f7fe70bf471ff14e9bbdc819e584b786282a69d61bff241be5013af01",
   "shared/biz/api.js": "94aa1e1928d943c798ff50b3fc3e57f0fab972bcd4311a6f2ed84eeb489bb06a",
   "shared/biz/biz.css": "83ebb32e517aa24f0d9d80b165f4124388c0e91d848f08aa38136420a8f322ef",
   "shared/biz/buy.js": "e767b559bf6fcdc384f25d47ab7d5044feeeb5df2f209a41428888ae5b618942",
@@ -11453,8 +11454,8 @@
   "shared/biz/stock.js": "fb388a3a62c1cf3b7b9712e7159789231cada5d2ad1a5320b6f5dc95dc3fb38d",
   "shared/biz/till.js": "1538f577e789ccd8e86247dd9407f00cd6d00d109c0fe8f733d0f33f8acf1eb7",
   "shared/biz/ui.js": "ab9d0e3570ee448c6e128c25a8e44a02e400f672065c2272889c921fbb65aa3c",
-  "shared/chat/chat.css": "44422700bf06c0ab6b25445ff6c65d77ddfdd3439d0a7033fe5f2a609da44b02",
-  "shared/chat/chat.js": "9a344c5af5984ca8c1cfd5ff5873220bb14820c54e338157b91fd429eb353287",
+  "shared/chat/chat.css": "a0f37ed7abb4f6055dfe5fbccfbd16a447e82e666cd8b796ecde6ecc337ef7d9",
+  "shared/chat/chat.js": "092077cdb89c2905fa18a73e676b3684f2efad5517fa173dcc1fe499dda19f4c",
   "shared/chat/demo.js": "6bec00d380d5b9ac3be6485e9fec6a8131139fbf2ea5108c11dde1f25b3f4dd0",
   "shared/fabra-loader.css": "f392a4ccf93938b7de7682b2e604bc6fd87e6b72b80ab45faff29bf460e9fa91",
   "shared/fabra-loader.js": "a83a80e56e113929c85f8e25fa47d899fe0a58096b5c6b1fb1c7807478d7a8b6",

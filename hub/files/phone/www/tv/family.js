@@ -99,7 +99,7 @@ export function sheet(title, body, { onSave, onDelete, saveText = 'Save', done =
   return el;
 }
 
-export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowPlaying = () => null, appsOnTv = () => [], pics = () => {}, tvName = () => 'the TV' }) {
+export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, ice = null, nowPlaying = () => null, appsOnTv = () => [], pics = () => {}, tvName = () => 'the TV' }) {
   let answer = null, modsAt = 0, lastMods = null;
   let data = null, mods = {}, mode = ai ? 'ask' : 'msg', rec = null, clip = null, alive = true, timer = 0, lastSig = '', msgs = [];
   const api = async (path, q = {}, body) => {
@@ -195,8 +195,8 @@ export function mountFamily(box, { call, toast, buzz = () => {}, ai = null, nowP
     box.querySelector('#tvfPhAdd')?.addEventListener('click', addPhotos);
     box.querySelectorAll('[data-set]').forEach((b) => (b.onclick = () => { buzz(); featureSheet(b.dataset.set.split(','), { call, toast, buzz, title: b.getAttribute('aria-label').replace(/ settings$/, ''), onChange: () => { modsAt = 0; load(true); } }); }));
     const isOff = (id, name) => { if (!off(id)) return false; toast(`${name} is off on the TV`); featureSheet([id], { call, toast, buzz, onChange: () => { modsAt = 0; load(true); } }); return true; };
-    box.querySelector('#tvfCall')?.addEventListener('click', () => { buzz(); if (!isOff('room', 'Video call')) callTv({ call, tvName: tvName(), toast }); });
-    box.querySelector('#tvfCam')?.addEventListener('click', () => { buzz(); if (!isOff('room', 'Video call')) beCamera({ call, tvName: tvName(), toast }); });
+    box.querySelector('#tvfCall')?.addEventListener('click', () => { buzz(); if (!isOff('room', 'Video call')) callTv({ call, tvName: tvName(), toast, ice }); });
+    box.querySelector('#tvfCam')?.addEventListener('click', () => { buzz(); if (!isOff('room', 'Video call')) beCamera({ call, tvName: tvName(), toast, ice }); });
     wirePhotos();
     box.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { mode = b.dataset.mode; buzz(); paint(); }));
     box.querySelectorAll('[data-ans]').forEach((b) => (b.onclick = async () => { try { await api('/items/answer', { a: b.dataset.ans }); buzz('success'); toast(b.dataset.ans === 'ok' ? 'Marked done' : 'The TV asks again later'); setTimeout(() => load(true), 800); } catch (e) { toast(e.message); } }));

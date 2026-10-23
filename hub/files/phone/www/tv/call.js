@@ -4,8 +4,10 @@
 //  - Be the TV's camera: a phone left at home, facing the room. While this screen is open it waits; when the TV answers
 //    a call it sends the room's picture and sound to the caller, and plays the caller's voice (no echo from the TV).
 // Set-up messages go through the TV's mailboxes (/call/send, /call/recv; tv/home Call.java); the picture and sound go
-// straight between the devices (WebRTC, encrypted). Over mobile data some networks need a relay server (TURN): not set up yet.
+// straight between the devices (WebRTC, encrypted). Over mobile data some networks need a relay server: the TV relay gives
+// a paired phone short-lived passwords for Cloudflare's TURN server (tv/relay /k/<key>/turn; UNIFY-PLAN.md phase 4).
 const ICE = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+const iceFor = async (ice) => { try { const more = ice ? await Promise.race([ice(), nap(4000).then(() => [])]) : []; return [...ICE, ...(Array.isArray(more) ? more : [])]; } catch { return ICE; } };
 const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const gathered = (p) => new Promise((ok) => {
@@ -31,8 +33,9 @@ function css() {
 }
 
 /** Calls the TV from this phone. call(path, q, opts) talks to the current TV (tv.js). */
-export async function callTv({ call, tvName = 'the TV', toast = () => {} }) {
+export async function callTv({ call, tvName = 'the TV', toast = () => {}, ice = null }) {
   css();
+  const iceServers = iceFor(ice);
   const el = document.createElement('div'); el.className = 'tvc';
   el.innerHTML = `<div class="tvc-big"><video id="tvcRoom" autoplay playsinline></video><p class="tvc-msg" id="tvcMsg">Calling ${esc(tvName)}…</p>
       <div class="tvc-top"><b>${esc(tvName)}</b><small id="tvcState">Ringing</small></div><div class="tvc-me"><video id="tvcMe" autoplay playsinline muted></video></div></div>
@@ -60,7 +63,7 @@ export async function callTv({ call, tvName = 'the TV', toast = () => {} }) {
   // an offer to each side that says it is ready (the TV, and the camera phone if there is one)
   async function offerTo(who) {
     pcs[who]?.close();
-    const pc = pcs[who] = new RTCPeerConnection({ iceServers: ICE });
+    const pc = pcs[who] = new RTCPeerConnection({ iceServers: await iceServers });
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
     if (who === 'cam') pc.ontrack = (e) => { $('tvcRoom').srcObject = e.streams[0]; say(''); };
     pc.onconnectionstatechange = () => { if (who === 'tv') $('tvcState').textContent = { connected: 'On the TV', connecting: 'Connecting…', failed: 'Could not connect', disconnected: 'Connection lost…' }[pc.connectionState] || ''; };
@@ -85,8 +88,9 @@ export async function callTv({ call, tvName = 'the TV', toast = () => {} }) {
 }
 
 /** This phone is the TV's camera: waits for calls the TV answers, then shows the room to the caller. */
-export async function beCamera({ call, tvName = 'the TV', toast = () => {} }) {
+export async function beCamera({ call, tvName = 'the TV', toast = () => {}, ice = null }) {
   css();
+  const iceServers = iceFor(ice);
   const el = document.createElement('div'); el.className = 'tvc';
   el.innerHTML = `<div class="tvc-big"><video id="tvcCaller" autoplay playsinline></video><p class="tvc-msg" id="tvcMsg">Camera for ${esc(tvName)}. Keep this screen open.</p>
       <div class="tvc-top"><b>TV camera</b><small id="tvcState">Waiting for a call</small></div><div class="tvc-me"><video id="tvcMe" autoplay playsinline muted></video></div></div>
@@ -111,7 +115,7 @@ export async function beCamera({ call, tvName = 'the TV', toast = () => {} }) {
       for (const m of msgs || []) {
         if (m.kind === 'offer') {
           pc?.close();
-          pc = new RTCPeerConnection({ iceServers: ICE });
+          pc = new RTCPeerConnection({ iceServers: await iceServers });
           stream.getTracks().forEach((t) => pc.addTrack(t, stream));
           pc.ontrack = (e) => { const v = $('tvcCaller'); v.srcObject = e.streams[0]; v.muted = sound !== 'phone'; say(''); };
           pc.onconnectionstatechange = () => { $('tvcState').textContent = { connected: 'In a call', connecting: 'Connecting…', failed: 'Could not connect' }[pc.connectionState] || ''; };

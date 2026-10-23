@@ -57,7 +57,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   const buzz = (k = 'light') => { try { haptic(k); } catch {} };
   const cfg = store.get('shivoChat') || {};
   if (!cfg.server && DEFAULT_SERVER) cfg.server = DEFAULT_SERVER;
-  const S = { users: new Map(), chats: new Map(), msgs: new Map(), more: new Map(), detached: new Set(), typing: new Map(), open: null, filter: 'all', q: '', reply: null, edit: null, info: false, pending: new Map(), files: false, att: [], drawn: new Map() };
+  const S = { users: new Map(), chats: new Map(), msgs: new Map(), more: new Map(), detached: new Set(), typing: new Map(), open: null, filter: 'all', q: '', reply: null, edit: null, info: false, pending: new Map(), files: false, att: [], drawn: new Map(), tt: new Map() };
   let demo = null;  // "Look around first": a pretend server with a sample team (demo.js)
   let ws = null, wsTry = 0, wsTimer = 0, pingTimer = 0, alive = true, typingSent = 0, typingStop = 0, readTimer = 0, rec = null;
   const listeners = [];
@@ -475,7 +475,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   }
   function fileInner(f, local) {
     const src = local || fileUrl(f.key);
-    if (f.voice || /^audio\//.test(f.type)) return `<div class="ch-voice" data-src="${esc(src)}"><button class="ch-play">${svg('play')}</button><span class="ch-wave"><i></i></span><small>${f.dur ? dur(f.dur) : esc(f.name)}</small></div>`;
+    if (f.voice || /^audio\//.test(f.type)) return `<div class="ch-voice" data-src="${esc(src)}"><button class="ch-play">${svg('play')}</button><span class="ch-wave"><i></i></span><small>${f.dur ? dur(f.dur) : esc(f.name)}</small>${!local && f.key ? `<button class="ch-totext" data-tt="${esc(f.key)}" title="Show as text">Aa</button>` : ''}</div>${S.tt.has(f.key) ? `<p class="ch-tt">${esc(S.tt.get(f.key))}</p>` : ''}`;
     if (/^image\//.test(f.type)) {
       const r = f.w && f.h ? Math.max(Math.min(1, 280 / f.w, 320 / f.h), 80 / Math.min(f.w, f.h)) : 0;  // tiny pictures still get a tappable size
       return `<img class="ch-img" src="${esc(src)}" alt="${esc(f.name)}" loading="lazy" data-full="${esc(src)}" ${r ? `width="${Math.round(f.w * r)}" height="${Math.round(f.h * r)}"` : ''}>`;
@@ -625,6 +625,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     const jumpB = t.closest('[data-jump]'); if (jumpB) return jump(+jumpB.dataset.jump);
     const img = t.closest('.ch-img'); if (img) return lightbox(img.dataset.full, img.alt);
     const play = t.closest('.ch-play'); if (play) return playVoice(play.closest('.ch-voice'));
+    const tt = t.closest('[data-tt]'); if (tt) return toText(tt);
     const retry = t.closest('[data-retry]'); if (retry) return resend(retry.dataset.retry);
     const row = t.closest('.ch-m'); if (!row) return;
     const m = findMsg(+row.dataset.id); if (!m) return;
@@ -1144,6 +1145,19 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     $('#chBar').hidden = true; $('#chRec').hidden = false;
   }
   function stopRec(go) { if (!rec) return; rec.send = go; rec.mr.stop(); }
+  // a voice message as text (the chat server asks Cloudflare's speech model once, then keeps it)
+  async function toText(btn) {
+    const key = btn.dataset.tt, box = btn.closest('.ch-voice');
+    let p = box.nextElementSibling?.classList.contains('ch-tt') ? box.nextElementSibling : null;
+    if (p) { p.remove(); S.tt.delete(key); return; }
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const j = await api('transcribe?key=' + encodeURIComponent(key));
+      S.tt.set(key, j.text);
+      p = document.createElement('p'); p.className = 'ch-tt'; p.textContent = j.text; box.after(p);
+    } catch (e) { toast(e.message || "Couldn't turn it into text"); }
+    finally { btn.disabled = false; btn.textContent = 'Aa'; }
+  }
   let playing = null;
   function playVoice(box) {
     if (playing?.box === box) { playing.a.paused ? playing.a.play() : playing.a.pause(); return; }

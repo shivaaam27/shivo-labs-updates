@@ -200,6 +200,8 @@ html[data-theme=dark] .ch-quote b{color:color-mix(in srgb,var(--c) 55%,#fff)}
 .ch-wave{flex:1;height:4px;border-radius:9px;background:var(--tile);overflow:hidden}
 .ch-wave i{display:block;height:100%;width:0;background:var(--text);transition:width .2s linear}
 .ch-voice small{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ch-totext{margin-left:auto;padding:2px 7px;border-radius:7px;font:600 12px var(--body,system-ui);color:var(--muted);background:var(--hover,rgba(127,127,127,.12))}
+.ch-tt{margin:6px 0 2px;max-width:280px;font-size:14px;line-height:1.4;white-space:pre-wrap}
 .ch-rx{display:flex;flex-wrap:wrap;gap:4px;margin-top:-6px;padding:0 10px;z-index:1}
 .ch-rx button{display:flex;align-items:center;gap:4px;padding:3px 9px;border-radius:99px;background:var(--panel);border:1px solid var(--line);font-size:14px;box-shadow:var(--shadow-1)}
 .ch-rx button b{font-size:11.5px;color:var(--muted)}
