@@ -10,8 +10,10 @@
 //   both changed the same file since the last sync: both are kept ("name (from Shivo Cloud).ext").
 //   a new pair (or one whose PC folder was removed) first gets everything already in Shivo Cloud (fill); a removed
 //   PC folder never empties the cloud.
-// What was synced is remembered in sync.json next to cloud.json, so nothing goes twice. Runs in the main hub only:
-// every 20 s, sooner when a file changes on the PC (fs.watch), and only while Shivo Cloud is set up.
+// What was synced is remembered in sync.json next to cloud.json, so nothing goes twice. Runs in the main hub only, and
+// only while Shivo Cloud is set up: when Shivo Cloud says something changed (one open connection to the account's Live
+// object, files/worker; UNIFY-PLAN.md phase 4), soon after a file changes on the PC (fs.watch), and every 10 minutes
+// as a backup (every minute while that connection is down). It used to ask every 20 s: ~4,000 requests a day per PC.
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, statSync, readdirSync, createReadStream, createWriteStream, watch, rmSync, realpathSync } from "node:fs";
 import { join, dirname, basename, extname, relative, sep } from "node:path";
 import { homedir } from "node:os";
@@ -87,8 +89,12 @@ async function ensureRoot(pair) {
   if (pair.all) return "";   // (Shivo Cloud's top)
   const p = P(pair.name);
   if (p.root) {
-    try { const it = await F.apiJson("/v1/item/" + p.root); if (!it.deleted) return p.root; } catch {}
-    p.root = ""; p.entries = {};
+    // only a folder that is really gone starts the pair over: no internet or a server hiccup just waits for the next
+    // round (it used to start over, and every file went up again as a new copy: 815 duplicates on 20-22 Oct 2026)
+    let it = null;
+    try { it = await F.apiJson("/v1/item/" + p.root); } catch (e) { if (e.status !== 404) throw e; }
+    if (it && !it.deleted) return p.root;
+    p.root = ""; p.entries = {}; p.filled = false;   // (fill then takes over what is already there, instead of uploading it again)
   }
   const top = await F.list("");
   const found = top.find((x) => x.kind === "folder" && x.name.toLowerCase() === pair.name.toLowerCase());
@@ -233,6 +239,8 @@ async function round() {
   }
 
   // ---- up: what changed on the PC
+  const listed = new Map();   // cloud folders looked at this round
+  const inCloud = async (parent) => { if (!listed.has(parent)) listed.set(parent, await F.list(parent)); return listed.get(parent); };
   for (const pair of all) {
     const p = P(pair.name), here = scan(pair.local);
     if (pair.all) for (const k of [...here.keys()]) if (outOfAll(k.split("/")[0])) here.delete(k);
@@ -252,6 +260,9 @@ async function round() {
       // still being written (a Beam transfer, a copy): wait for the next round
       if (Date.now() - f.mtime < 3000) continue;
       const parent = await cloudFolder(pair, rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
+      // never a second copy: a new file that is already in that cloud folder (same name and size) is taken as synced
+      const same = !e && (await inCloud(parent)).find((x) => x.kind === "file" && x.name === rel.split("/").pop() && x.size === f.size);
+      if (same) { p.entries[rel] = { id: same.id, kind: "file", size: f.size, mtime: f.mtime, version: same.version }; saveState(); continue; }
       syncState.busy = "Uploading " + basename(full);
       const it = await F.upload(parent, rel.split("/").pop(), f.size, createReadStream(full), e?.id);
       p.entries[rel] = { id: it.id, kind: "file", size: f.size, mtime: f.mtime, version: it.version };
@@ -313,11 +324,29 @@ function rewatch() {
     try { mkdirSync(pair.local, { recursive: true }); watchers.push(watch(realpathSync.native(pair.local), { recursive: true }, (_, f) => { if (f && !SKIP.test(basename(String(f)))) { clearTimeout(timer); timer = setTimeout(tick, 4000); } })); } catch {}
   }
 }
+// told, not asking: Shivo Cloud says "changed" on this connection (files/worker /v1/live)
+export const liveState = { on: false, since: 0, told: 0 };
+let liveDelay = 5000;
+function live() {
+  const s = F.load();
+  if (!s || typeof WebSocket === "undefined") return setTimeout(live, 30000);
+  let ws, beat = 0;
+  try { ws = new WebSocket(s.api.replace(/^http/, "ws") + "/v1/live?t=" + encodeURIComponent(s.token)); }
+  catch { return setTimeout(live, liveDelay = Math.min(liveDelay * 2, 10 * 60000)); }
+  ws.onopen = () => {
+    Object.assign(liveState, { on: true, since: Date.now() }); liveDelay = 5000; F.live.on = true; F.forgetAsks();
+    tick();   // (anything missed while it was closed)
+    beat = setInterval(() => { try { ws.send("ping"); } catch {} }, 4 * 60000);   // (keeps routers from dropping it; answered without waking the object)
+  };
+  ws.onmessage = (m) => { if (m.data === "changed") { liveState.told++; F.forgetAsks(); clearTimeout(timer); timer = setTimeout(tick, 2000); } };
+  ws.onerror = () => {};
+  ws.onclose = () => { liveState.on = false; F.live.on = false; clearInterval(beat); setTimeout(live, liveDelay = Math.min(liveDelay * 2, 10 * 60000)); };
+}
 export function startFilesSync() {
   F.passLoop();   // a customer PC joins its company's Cloud with its pass, and gets the key
   const loop = () => { if (F.load()) tick(); };
-  setTimeout(() => { rewatch(); loop(); }, 5000);
-  setInterval(loop, 20000);
+  setTimeout(() => { rewatch(); loop(); live(); }, 5000);
+  setInterval(() => { if (F.load() && Date.now() - syncState.last > (liveState.on ? 10 * 60000 : 60000)) tick(); }, 20000);
   setInterval(rewatch, 5 * 60000);   // (folders added on the Beam page)
 }
 export const syncNow = () => { if (F.load()) tick(); };

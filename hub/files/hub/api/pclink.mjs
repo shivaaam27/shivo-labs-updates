@@ -3,14 +3,17 @@
 //   - reports this PC to the shelf: its name, the phones set up for Wi-Fi, and which of them answer on the Wi-Fi now
 //     (a quick knock on Apple's port 49152 at the phone's last address, every minute). It writes only when something
 //     changes, plus every 15 minutes (the free plan allows ~1000 writes a day);
-//   - looks for the phone app's requests every 20 seconds and carries them out (xtools.mjs renewPhoneApps); a phone
-//     that isn't near yet is renewed as soon as it is.
+//   - carries out the phone app's requests (xtools.mjs renewPhoneApps) as soon as the shelf says one came (on the
+//     updates connection, update.mjs signal; phase 4), plus a look every 10 minutes (every 20 s while that connection is
+//     down, as before); a phone that isn't near yet is renewed as soon as it is.
 // Only on a PC with the shelf set up (shelf/setup.mjs: ~\.fabra-labs-ai\shelf\config.json); otherwise it does nothing.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hostname } from "node:os";
 import net from "node:net";
 import { renewPhoneApps, work as xwork } from "./xtools.mjs";
+import { signal } from "./update.mjs";
+import { createHash } from "node:crypto";
 
 const CFG = join(process.env.USERPROFILE || "", ".fabra-labs-ai", "shelf", "config.json");
 const WIFI = join(process.env.LOCALAPPDATA || "", "Fabra Labs", "wifi.json");   // X Tools' phones set up for Wi-Fi
@@ -68,7 +71,12 @@ export function startPcLink() {
 
   report(true);
   setInterval(() => report(false), 60000);
-  setInterval(work, 20000); work();
+  // told, not asking: an ask for this PC (the shelf sends a hash of its id), or the connection (re)opened: look now
+  const me = createHash("sha256").update(id).digest("hex").slice(0, 16);
+  signal.ask = (pc) => { if (pc === null || pc === me) work(); };
+  let lastWork = 0;
+  const tick = () => { if (!signal.on || Date.now() - lastWork > 10 * 60000) { lastWork = Date.now(); work(); } };
+  setInterval(tick, 20000); work();
   const bye = () => { report(true, false); };
   process.once("SIGINT", bye); process.once("SIGTERM", bye);
 }

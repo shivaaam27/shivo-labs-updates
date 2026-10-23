@@ -362,9 +362,13 @@ async function ensureCheck() {
 }
 // the PCs that have the key: who is asking for it (shown as a question in the hub window)
 let asking = { at: 0, list: [] };
+// while Shivo Cloud's Live connection is open (files-sync.mjs) a new question arrives as "changed", so the list is only
+// asked for again then (and every 5 minutes as a backup) instead of every 8 seconds while the hub window is open
+export const live = { on: false };
+export const forgetAsks = () => { asking.at = 0; };
 async function keyRequests() {
   if (!load()) return [];
-  if (Date.now() - asking.at > 8000) asking = { at: Date.now(), list: (await apiJson("/v1/keyreqs").catch(() => ({ requests: [] }))).requests || [] };
+  if (Date.now() - asking.at > (live.on ? 5 * 60000 : 8000)) asking = { at: Date.now(), list: (await apiJson("/v1/keyreqs").catch(() => ({ requests: [] }))).requests || [] };
   return asking.list;
 }
 async function answerKey(id, ok) {
@@ -420,8 +424,8 @@ export async function filesApi(req, res, path, url) {
         return json(res, 200, { ready: false, operator: !!createKey(), pass: !!passWith("files"), waiting: !!p && !p.refused, refused: !!p?.refused, company: p?.name || "" }), true;
       }
       const me = await apiJson("/v1/me").catch((e) => ({ error: e.message }));
-      const { syncState, syncPairs } = await import("./files-sync.mjs");
-      return json(res, 200, { ready: true, operator: !!createKey(), ...me, sync: { ...syncState, pairs: syncPairs() } }), true;
+      const { syncState, syncPairs, liveState } = await import("./files-sync.mjs");
+      return json(res, 200, { ready: true, operator: !!createKey(), ...me, sync: { ...syncState, pairs: syncPairs(), live: liveState } }), true;
     }
     if (req.method === "GET" && what === "list") return json(res, 200, { items: await list(url.searchParams.get("parent") || "") }), true;
     if (req.method === "GET" && what === "path") {   // the folders above one, for the breadcrumb

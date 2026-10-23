@@ -25,11 +25,44 @@ export function mountOwner(root, { esc, toast }) {
     } catch (e) { $('#own').innerHTML = `<p class="set-note">${esc(e.message || "Couldn't reach shivo-id")}</p>`; return; }
     if (alive) paint();
   }
+  // ---------- what Shivo Labs uses on Cloudflare, against the free plan (hub/api/usage.mjs)
+  const num = (n) => n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'k' : n.toLocaleString();
+  const gb = (b) => b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB' : Math.round(b / 1048576) + ' MB';
+  const PER = { day: 'today', month: 'this month', total: 'in total' };
+  let cfHtml = '', cfAt = 0;
+  const cfOpen = new Set();   // (the page redraws itself: the card keeps what it showed and which parts are open)
+  const cfWire = () => {
+    const el = $('#cfUse'); if (!el) return;
+    el.querySelectorAll('details[data-k]').forEach((d) => { d.open = cfOpen.has(d.dataset.k); d.ontoggle = () => { d.open ? cfOpen.add(d.dataset.k) : cfOpen.delete(d.dataset.k); }; });
+    const b = $('#cfAgain'); if (b) b.onclick = () => usage(true);
+  };
+  async function usage(fresh) {
+    if (!fresh && cfHtml && Date.now() - cfAt < 5 * 60000) return cfWire();
+    const el = $('#cfUse'); if (!el) return;
+    let u;
+    try { const r = await fetch('/api/owner/usage' + (fresh ? '?fresh' : '')); u = await r.json(); if (u.error) throw new Error(u.error); }
+    catch (e) { el.innerHTML = `<h3>Cloudflare</h3><p class="set-note">${esc(e.message || "Couldn't read the usage")}</p>`; return; }
+    if (!alive || !$('#cfUse')) return;
+    const top = Math.max(...u.items.map((i) => i.pct));
+    const days = Object.entries(u.days).sort(), peak = Math.max(1, ...days.map(([, n]) => n));
+    cfAt = Date.now();
+    el.innerHTML = cfHtml = `<div class="own-uh"><h3>Cloudflare</h3><button class="tbtn" id="cfAgain">Refresh</button></div>
+      <p class="set-note">${top >= 70 ? 'Something is close to its free limit.' : 'Everything is well inside the free plan.'} Daily limits start again at 3 am (midnight UTC). Over a limit, that part pauses until then; the free plan never sends a bill.</p>
+      ${u.items.map((i) => `<div class="own-use"><div class="own-ul"><span>${esc(i.name)}</span><b>${i.bytes ? gb(i.used) : num(i.used)} of ${i.bytes ? gb(i.limit) : num(i.limit)} ${PER[i.per]}${i.id === 'storage' ? ' (updated hourly)' : ''}</b></div>
+        <div class="fl-bar${i.pct >= 90 ? ' bad' : i.pct >= 70 ? ' warn' : ''}"><i style="width:${Math.min(100, i.pct)}%"></i></div></div>`).join('')}
+      <details class="own-more" data-k="w"><summary>Requests by Worker today, and the last 7 days</summary>
+        ${Object.entries(u.workers).sort((a, b) => b[1] - a[1]).map(([w, n]) => `<div class="own-ul"><span>${esc(w)}</span><b>${num(n)}</b></div>`).join('')}
+        <div class="own-days">${days.map(([d, n]) => `<div title="${esc(d)}: ${n}"><i style="height:${Math.max(4, (n / peak) * 60)}px"></i><span>${esc(d.slice(8))}</span></div>`).join('')}</div>
+      </details>
+      ${u.customers.length ? `<details class="own-more" data-k="c"><summary>Cloud space per customer</summary>${u.customers.map((c) => `<div class="own-ul"><span>${esc(c.name)}</span><b>${gb(c.used)} of ${gb(c.quota)}</b></div>`).join('')}</details>` : ''}`;
+    cfWire();
+  }
   const chips = (sel, name, all = st.modules) => all.map((m) => `<label class="own-chip"><input type="checkbox" name="${name}" value="${m}" ${sel.includes(m) ? 'checked' : ''}><span>${esc(NAMES[m] || m)}</span></label>`).join('');
   const picked = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => i.value);
 
   function paint() {
     $('#own').innerHTML = `
+      <section class="card set-card" id="cfUse">${cfHtml || '<h3>Cloudflare</h3><p class="set-note">Loading…</p>'}</section>
       <section class="card set-card">
         <h3>New customer</h3>
         <form class="own-new" id="newC">
@@ -39,6 +72,7 @@ export function mountOwner(root, { esc, toast }) {
         </form>
       </section>
       ${st.customers.slice().reverse().map((c) => customer(c)).join('')}`;
+    usage();
     $('#newC').onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target, modules = picked(f, 'm');

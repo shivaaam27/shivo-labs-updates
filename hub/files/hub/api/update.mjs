@@ -303,14 +303,17 @@ async function checkAndApply() {
 // again after a drop (5 s, growing to 5 minutes while offline). Each message names the newest laptop update; when it is
 // newer than this copy (on this PC: whenever one is published), check now. GitHub's files can lag a few seconds behind
 // the signal, so a check that doesn't see the update yet tries again a few times.
+// the same connection also says when the phone asks a PC to renew its apps (pclink.mjs sets ask)
+export const signal = { on: false, ask: null };
 function listen() {
   if (typeof WebSocket !== "function" || !SIGNAL || SIGNAL === "off") return;
   let wait = 5000, ping = null, lastAt = null;
   const open = () => {
     let ws; try { ws = new WebSocket(SIGNAL); } catch { setTimeout(open, wait); return; }
-    ws.onopen = () => { wait = 5000; ping = setInterval(() => { try { ws.send("ping"); } catch {} }, 4 * 60 * 1000); };
+    ws.onopen = () => { wait = 5000; signal.on = true; signal.ask?.(null); ping = setInterval(() => { try { ws.send("ping"); } catch {} }, 4 * 60 * 1000); };
     ws.onmessage = async (e) => {
       let m; try { m = JSON.parse(String(e.data)); } catch { return; }   // "pong"
+      if (m.type === "ask") return signal.ask?.(m.pc);
       if (m.type !== "update") return;
       const first = lastAt === null; if (m.at === lastAt) return; lastAt = m.at;
       const wanted = MODE === "installed" ? m.hub && buildOf(m.hub) > buildOf(state.version) : !first;
@@ -321,7 +324,7 @@ function listen() {
         await new Promise((ok) => setTimeout(ok, 15000));
       }
     };
-    ws.onclose = () => { clearInterval(ping); setTimeout(open, wait); wait = Math.min(wait * 2, 5 * 60 * 1000); };
+    ws.onclose = () => { signal.on = false; clearInterval(ping); setTimeout(open, wait); wait = Math.min(wait * 2, 5 * 60 * 1000); };
     ws.onerror = () => {};   // onclose follows
   };
   open();

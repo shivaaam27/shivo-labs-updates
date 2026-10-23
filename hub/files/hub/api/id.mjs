@@ -314,6 +314,10 @@ export async function idApi(req, res, path) {
   }
   if (path.startsWith("/api/owner/")) {
     if (!isOwner()) return json(res, 403, { error: "Only on the owner's PC" }), true;
+    if (path === "/api/owner/usage") {   // Cloudflare use against the free plan (usage.mjs)
+      try { return json(res, 200, await (await import("./usage.mjs")).usage(new URL(req.url, "http://x").searchParams.has("fresh"))), true; }
+      catch (e) { return json(res, 502, { error: e.message }), true; }
+    }
     const a = JSON.parse(readFileSync(ADMIN_FILE, "utf8"));
     const body = req.method === "POST" ? JSON.stringify(await readJson(req)) : undefined;
     const r = await fetch((a.url || ID_API) + "/admin/" + path.slice(11), { method: req.method, headers: { authorization: "Bearer " + a.key, "content-type": "application/json" }, body, signal: AbortSignal.timeout(20000) });
