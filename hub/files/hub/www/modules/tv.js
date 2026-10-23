@@ -42,11 +42,52 @@ export function mountTv(root, ctx) {
       const m = await import('/phone/tv/tv.js');
       if (which !== 'your') return;
       const api = m.mountTv(body, { toast: ctx.toast, haptic: () => {}, setup: () => show('setup') });
-      api.start(); leaveInner = () => api.stop();
+      api.start();
+      const stopKeys = remoteKeys(body, ctx.toast);
+      leaveInner = () => { stopKeys(); api.stop(); };
     } catch (e) { body.innerHTML = `<p class="tv-none">The TV screen couldn't load (${ctx.esc(e.message)}).</p>`; }
   };
   show('your');
   return () => { leaveInner?.(); };
+}
+
+// The remote (phone/www/tv/remote.js, the same as the phone's) with the PC's keyboard: arrows and Enter press the touch
+// surface as a tap on that side or in the middle would, Backspace or Esc is Back, Home is the TV button, Space plays or
+// pauses, + and - (or the volume keys) change the volume, M mutes. Only while the remote is on screen and nothing is typed.
+const PADKEY = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], Enter: [0, 0] };
+function remoteKeys(body, toast) {
+  const q = (s) => body.querySelector(s);
+  const press = (el) => { if (!el) return false; el.click(); return true; };
+  const tap = (dx, dy) => {
+    const sf = q('#rcSurface'); if (!sf) return false;
+    const r = sf.getBoundingClientRect(), o = { bubbles: true, pointerId: 41, isPrimary: true,
+      clientX: r.left + r.width / 2 + dx * r.width * 0.38, clientY: r.top + r.height / 2 + dy * r.height * 0.38 };
+    sf.dispatchEvent(new PointerEvent('pointerdown', o)); sf.dispatchEvent(new PointerEvent('pointerup', o));
+    return true;
+  };
+  const vol = (v) => { const b = q(`[data-v="${v}"]`); if (!b) return false; b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); return true; };
+  const onKey = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !q('.tvr') || e.target.closest?.('input,textarea,select,[contenteditable]')) return;
+    if (document.querySelector('.tvf-sheet, .xt-veil:not([hidden]), .ask-veil') || q('#tvwSetup')) return;
+    const k = e.key;
+    const done = PADKEY[k] ? tap(...PADKEY[k])
+      : k === 'Backspace' || k === 'Escape' || k === 'BrowserBack' ? press(q('[data-k="back"]'))
+      : k === 'Home' ? press(q('[data-k="home"]'))
+      : k === ' ' || k === 'MediaPlayPause' ? press(q('[data-k="playPause"]'))
+      : k === '+' || k === '=' || k === 'AudioVolumeUp' ? vol(1)
+      : k === '-' || k === '_' || k === 'AudioVolumeDown' ? vol(-1)
+      : k === 'm' || k === 'M' || k === 'AudioVolumeMute' ? press(q('[data-x="mute"]')) : false;
+    if (done) e.preventDefault();
+  };
+  document.addEventListener('keydown', onKey);
+  // once: say so the first time the remote is on screen
+  const hint = setInterval(() => {
+    if (!q('.tvr')) return;
+    clearInterval(hint);
+    try { if (localStorage.getItem('tv.keysHint')) return; localStorage.setItem('tv.keysHint', '1'); } catch { return; }
+    toast('Your keyboard works too: arrows, Enter, Backspace, + and −');
+  }, 1000);
+  return () => { document.removeEventListener('keydown', onKey); clearInterval(hint); };
 }
 
 // Set up a TV: find Android / Google TVs, put the Shivo Labs home screen on them, manage their apps (adb over Wi-Fi)

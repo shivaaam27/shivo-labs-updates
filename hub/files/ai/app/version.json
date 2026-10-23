@@ -1,6 +1,6 @@
 {
-    "version": "2.0.21",
+    "version": "2.0.22",
     "notes": [
-        "Shivo Labs on this PC is now a built-in connector: the AI can search and share your Cloud files, read and send team Chat messages, control your TV, send files to your phone with Beam and renew your iPhone apps."
+        "Ask from the Shivo Labs home screen: type a question in \"Search or ask anything\" and press Enter, and it opens here as a new chat."
     ]
 }

@@ -286,17 +286,11 @@ html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 .tvf-roomb b{display:block;font:600 15px/1.3 var(--body)}.tvf-roomb small{display:block;color:var(--muted);font-size:12.5px;line-height:1.35;margin-top:2px}
 
 
-/* ---- the remote (remote.js): one card, like a real remote ---- */
-.tvr{border-radius:28px;background:var(--panel);box-shadow:var(--shadow-1),0 0 0 1px var(--line);padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px;
-  --pad:min(76vw,272px)}
-.tvr-head{display:flex;align-items:center;gap:10px}
-.tvr-mode{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px;border-radius:12px;background:var(--soft)}
-.tvr-mode button{padding:8px 6px;border-radius:9px;font:600 13.5px var(--body);color:var(--muted);transition:background .2s,color .2s}
-.tvr-mode button.on{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.06)}
-.tvr-mode button:disabled{opacity:.45}
-.tvr-mini{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--soft);color:var(--text)}
-.tvr-mini svg{width:20px;height:20px}
-.tvr-setup{display:flex;align-items:center;gap:10px;padding:9px 10px 9px 12px;border-radius:14px;background:var(--soft);font-size:13px;line-height:1.35;color:var(--muted)}
+/* ---- the remote (remote.js): like the Apple TV remote (Shivam, 23 Oct 2026) ----
+   One touch surface, Back / TV / Play / Mute beside a tall volume pill, then one row of extras. It has no card of its own:
+   it sits on the screen, and its height follows the screen so everything is in reach above the bar. */
+.tvr{display:flex;flex-direction:column;gap:12px;--pad:clamp(180px,29dvh,270px)}
+.tvr-setup{display:flex;align-items:center;gap:10px;padding:9px 10px 9px 12px;border-radius:18px;background:var(--soft);font-size:13px;line-height:1.35;color:var(--muted)}
 .tvr-setup span{flex:1}.tvr-setup .btn{width:auto;margin:0;flex:none}
 .tvr-setup.hi{background:var(--sage-soft);color:var(--text)}
 .tvr-setup.pair{flex-direction:column;align-items:stretch;text-align:center;gap:8px;color:var(--text)}
@@ -304,41 +298,54 @@ html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 .tvr-pairrow{display:flex;gap:8px}.tvr-pairrow .field{flex:1;min-width:0;margin:0;text-align:center;letter-spacing:.25em;font-weight:600;text-transform:uppercase}
 .tvr-pairrow .btn{width:auto;margin:0}
 .tvr-link{font:600 13px var(--body);color:var(--muted);padding:2px}
-.tvr-stage{display:grid;place-items:center}
-/* the round pad: four arrow arcs and OK, like a TV remote's ring */
-.tvr-dpad{position:relative;width:var(--pad);aspect-ratio:1;border-radius:50%;
-  background:radial-gradient(circle at 50% 50%,transparent 33%,color-mix(in srgb,var(--text) 6%,transparent) 33.5%);box-shadow:inset 0 0 0 1px var(--line)}
-.tvr-dk{position:absolute;width:34%;height:34%;display:grid;place-items:center;color:var(--text);border-radius:50%;transition:transform .14s var(--spring),background .14s;touch-action:manipulation}
-.tvr-dk svg{width:28px;height:28px;stroke-width:2.1}
-.tvr-dk:active{background:color-mix(in srgb,var(--text) 12%,transparent);transform:scale(.9)}
-.tvr-dk.up{left:33%;top:0}.tvr-dk.down{left:33%;bottom:0}.tvr-dk.left{left:0;top:33%}.tvr-dk.right{right:0;top:33%}
-.tvr-okk{position:absolute;left:32%;top:32%;width:36%;height:36%;border-radius:50%;background:var(--text);color:var(--bg);font:700 17px/1 var(--body);letter-spacing:.06em;
-  box-shadow:0 6px 16px rgba(0,0,0,.18);transition:transform .14s var(--spring);touch-action:manipulation}
-.tvr-okk:active{transform:scale(.92)}
-/* the touchpad, the same size as the pad */
-.tvr-pad{position:relative;width:100%;height:var(--pad);border-radius:22px;background:color-mix(in srgb,var(--text) 5%,transparent);box-shadow:inset 0 0 0 1px var(--line);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:16px;touch-action:none;user-select:none;-webkit-user-select:none;transition:background .15s}
-.tvr-pad.touch{background:color-mix(in srgb,var(--sage) 12%,transparent)}
+/* the touch surface (and the pointer pad, the same size) */
+.tvr-surface,.tvr-pad{position:relative;width:100%;height:var(--pad);border-radius:36px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;
+  background:color-mix(in srgb,var(--text) 7%,transparent);border:.5px solid var(--g-rim2);box-shadow:inset 0 1px 0 var(--g-rim);transition:background .2s}
+.tvr-surface.touch,.tvr-pad.touch{background:color-mix(in srgb,var(--text) 12%,transparent)}
+.tvr-ar{position:absolute;width:44px;height:44px;display:grid;place-items:center;color:var(--text);opacity:.38;pointer-events:none;transition:opacity .15s,transform .2s var(--spring)}
+.tvr-ar svg{width:24px;height:24px;stroke-width:2.2}
+.tvr-ar.up{left:calc(50% - 22px);top:8px}.tvr-ar.down{left:calc(50% - 22px);bottom:8px}.tvr-ar.left{left:8px;top:calc(50% - 22px)}.tvr-ar.right{right:8px;top:calc(50% - 22px)}
+.tvr-ring{position:absolute;left:50%;top:50%;width:calc(var(--pad) * .44);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;
+  border:1.5px solid color-mix(in srgb,var(--text) 15%,transparent);transition:background .15s,transform .2s var(--spring)}
+.tvr-surface[data-go=ok] .tvr-ring{background:color-mix(in srgb,var(--text) 14%,transparent);transform:translate(-50%,-50%) scale(.93)}
+.tvr-surface[data-go=up] .tvr-ar.up,.tvr-surface[data-go=down] .tvr-ar.down,.tvr-surface[data-go=left] .tvr-ar.left,.tvr-surface[data-go=right] .tvr-ar.right{opacity:1;transform:scale(1.18)}
+.tvr-pulse{position:absolute;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:50%;background:color-mix(in srgb,var(--text) 22%,transparent);opacity:0;pointer-events:none}
+.tvr-pulse.go{animation:tvrpulse .5s var(--ease)}
+@keyframes tvrpulse{from{opacity:.75;transform:scale(.4)}to{opacity:0;transform:scale(1.5)}}
+.tvr-ring{display:grid;place-items:center}.tvr-ring b{font:600 13px var(--body);letter-spacing:.08em;color:var(--muted)}
+/* the pointer pad */
+.tvr-pad{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:16px}
 .tvr-pad-ic svg{width:34px;height:34px;opacity:.45}
 .tvr-pad p{margin:0;font:600 14.5px var(--body)}.tvr-pad small{color:var(--muted);font-size:12.5px}
-.tvr-chip{position:absolute;right:10px;bottom:10px;display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:99px;background:var(--panel);
-  box-shadow:0 0 0 1px var(--line);font:600 12.5px var(--body);color:var(--text)}
-.tvr-chip svg{width:16px;height:16px}.tvr-chip.on{background:var(--sage);color:#fff;box-shadow:none}
-/* the buttons under it */
-.tvr-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.tvr-b{display:flex;flex-direction:column;align-items:center;gap:6px;padding:11px 4px 9px;border-radius:16px;background:color-mix(in srgb,var(--text) 5%,transparent);
-  font:600 12.5px/1 var(--body);color:var(--text);transition:transform .15s var(--spring),background .15s;touch-action:manipulation}
-.tvr-b svg{width:22px;height:22px}
-.tvr-b:active{transform:scale(.94);background:color-mix(in srgb,var(--text) 11%,transparent)}
-.tvr-b.on{background:var(--text);color:var(--bg)}
-.tvr-vol{display:flex;align-items:center;gap:10px}
-.tvr-volm{flex:1;min-width:0}
-.tvr-volt{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:var(--muted)}
-.tvr-volt svg{width:19px;height:19px}.tvr-volt b{font:600 14.5px/1 var(--body);color:var(--text);font-variant-numeric:tabular-nums}
-.tvr-round{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;flex:none;color:var(--text);background:color-mix(in srgb,var(--text) 7%,transparent);
+.tvr-chip{position:absolute;right:12px;bottom:12px;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:99px;background:color-mix(in srgb,var(--text) 9%,transparent);
+  font:600 12.5px var(--body);color:var(--text)}
+.tvr-chip svg{width:16px;height:16px}.tvr-chip.on{background:var(--sage);color:#fff}
+/* Back and TV, Play and Mute, with the volume pill at the right */
+.tvr-grid{display:grid;grid-template-columns:1fr 1fr 84px;grid-template-rows:60px 60px;gap:10px}
+.tvr-key{display:grid;place-items:center;border-radius:26px;color:var(--text);background:color-mix(in srgb,var(--text) 7%,transparent);border:.5px solid var(--g-rim2);
+  transition:transform .15s var(--spring),background .15s;touch-action:manipulation}
+.tvr-key svg{width:25px;height:25px;stroke-width:2}
+.tvr-key:active{transform:scale(.94);background:color-mix(in srgb,var(--text) 15%,transparent)}
+.tvr-key.on{background:var(--err);color:#fff;border-color:transparent}
+.tvr-volp{grid-column:3;grid-row:1 / 3;position:relative;display:flex;flex-direction:column;border-radius:36px;overflow:hidden;
+  background:color-mix(in srgb,var(--text) 7%,transparent);border:.5px solid var(--g-rim2)}
+.tvr-volp::before{content:"";position:absolute;left:0;right:0;bottom:0;height:var(--v,0%);background:color-mix(in srgb,var(--sage) 30%,transparent);transition:height .3s var(--ease);pointer-events:none}
+.tvr-volp button{position:relative;flex:1;display:grid;place-items:center;color:var(--text);touch-action:manipulation;transition:background .15s}
+.tvr-volp button:active{background:color-mix(in srgb,var(--text) 10%,transparent)}
+.tvr-volp button svg{width:24px;height:24px;stroke-width:2.2}
+.tvr-volm{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:2px 0;color:var(--muted);pointer-events:none}
+.tvr-volm svg{width:18px;height:18px}.tvr-volm b{font:600 14px/1 var(--body);color:var(--text);font-variant-numeric:tabular-nums}
+/* Type, Inputs, Apps, Pointer, Screen */
+.tvr-more{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.tvr-b{display:flex;flex-direction:column;align-items:center;gap:6px;padding:9px 2px 8px;border-radius:18px;font:600 11.5px/1 var(--body);color:var(--muted);
+  transition:transform .15s var(--spring),background .15s,color .15s;touch-action:manipulation}
+.tvr-b svg{width:22px;height:22px;color:var(--text)}
+.tvr-b:active{transform:scale(.94);background:var(--hover)}
+.tvr-b.on{background:var(--text);color:var(--bg)}.tvr-b.on svg{color:var(--bg)}
+.tvr-b:disabled{opacity:.4}
+.tvr-round{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;flex:none;color:var(--text);background:color-mix(in srgb,var(--text) 8%,transparent);
   transition:transform .15s var(--spring),background .15s;touch-action:manipulation}
 .tvr-round svg{width:21px;height:21px}.tvr-round:active{transform:scale(.88)}
-.tvr-round.on{background:var(--err);color:#fff}
 .tvr-type{display:flex;gap:8px;align-items:center}
 .tvr-type .field{flex:1;min-width:0;margin:0}.tvr-type .btn{width:auto;margin:0;flex:none}
 .tvr-type .tvr-round{width:42px;height:42px}
@@ -371,15 +378,6 @@ html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 }
 
 
-/* now playing above the remote: a slim strip, so the remote is in reach (all sizes) */
-.tvx-side .tvx-now-art{aspect-ratio:2.8/1}
-.tvx-side .tvx-now-t{bottom:10px}
-.tvx-side .tvx-now-t b{-webkit-line-clamp:1;font-size:15px}
-.tvx-side .tvx-now-b{padding:8px 12px 10px;gap:18px}
-.tvx-side .tvx-now .tvx-track{margin:8px 14px 0}
-.tvx-side .tvx-now-b .tvx-btn{width:42px;height:42px}.tvx-side .tvx-now-b .tvx-btn.big{width:50px;height:50px}
-.tvx-side .tvx-now.empty{padding:12px 14px}
-
 /* header: one compact line */
 .tvx > .tvx-tv{padding:0 2px;gap:10px;align-self:center}
 .tvx > .tvx-tv .tvx-tv-ic{width:38px;height:38px;border-radius:12px}
@@ -389,13 +387,6 @@ html[data-theme=dark] .tvf-roomb > svg{color:var(--glow)}
 .tvx > .tvx-tv small{font-size:12.5px;margin-top:1px}
 .tvx-setup{flex:none;padding:7px 12px;border-radius:99px;background:var(--soft);color:var(--text);font:600 12.5px var(--body)}
 @media (min-width:760px){ .tvx > .tvx-seg{justify-self:end} }
-
-/* OK as a joystick (remote.js): it follows the thumb, the arrow it points to lights up */
-.tvr-okk{touch-action:none;cursor:grab}
-.tvr-okk.held{transition:none;cursor:grabbing;box-shadow:0 10px 24px rgba(0,0,0,.28)}
-.tvr-dpad[data-go="up"] .tvr-dk.up,.tvr-dpad[data-go="down"] .tvr-dk.down,.tvr-dpad[data-go="left"] .tvr-dk.left,.tvr-dpad[data-go="right"] .tvr-dk.right{
-  background:color-mix(in srgb,var(--sage) 18%,transparent);color:var(--sage)}
-html[data-theme=dark] .tvr-dpad[data-go] .tvr-dk{color:var(--text)}
 
 /* ---- four tabs (Remote, Watch, Family, TV): grouped rows like iPhone Settings, sheets from the bottom ---- */
 /* the tab bar fills the width on a phone, every tab visible */
@@ -477,3 +468,43 @@ html.tvf-locked,html.tvf-locked body{overflow:hidden}
 .tvf-together{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 14px}
 .tvf-together .tvf-row{flex:1;min-width:180px}
 #tvTogether:not(:empty) + #tvSport .tvx-h,#tvTogether:not(:empty) + #tvSport:empty + .tvx-h{margin-top:18px}
+
+/* now playing: a slim strip above the remote (the remote must fit on the screen) */
+.tvx-now.strip{position:relative;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:26px;overflow:hidden;
+  background:color-mix(in srgb,var(--text) 7%,transparent);border:.5px solid var(--g-rim2);box-shadow:none}
+.tvx-np-art{position:relative;width:48px;height:48px;border-radius:14px;overflow:hidden;flex:none;background:var(--soft)}
+.tvx-np-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.tvx-np-art img.ic{object-fit:contain;padding:22%}
+.tvx-np-art.ic{display:grid;place-items:center;color:var(--muted)}.tvx-np-art.ic svg{width:22px;height:22px}
+.tvx-np-t{flex:1;min-width:0}
+.tvx-np-t small{display:block;font-size:11.5px;line-height:1.3;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvx-np-t b{display:block;font:600 14.5px/1.25 var(--body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tvx-now.strip.empty .tvx-np-t b{color:var(--muted);font-weight:500}
+.tvx-now.strip .tvx-btn{width:36px;height:36px;background:none}
+.tvx-now.strip .tvx-btn svg{width:18px;height:18px;fill:currentColor}
+.tvx-now.strip .tvx-btn.big{width:44px;height:44px;background:var(--text);color:var(--bg)}
+.tvx-now.strip .tvx-btn.big svg{width:20px;height:20px}
+.tvx-now.strip .tvx-track{position:absolute;left:0;right:0;bottom:0;height:3px;margin:0;border-radius:0;background:transparent}
+.tvx-now.strip .tvx-track i{border-radius:0}
+/* the TV's name is the screen's title (the shared header, app.css) */
+#shell .tvx>.tvx-tv .tvx-tv-ic{display:none}
+#shell .tvx>.tvx-tv b{font:500 26px/1.1 var(--display);letter-spacing:-.02em}
+#shell .tvx>.tvx-tv small{margin-top:3px}
+.tvx,.tvx-side{gap:12px}
+
+/* remote, finer (Shivam, 23 Oct): lighter icons, thinner arrows, roomier buttons and volume pill */
+.tvr-ar svg{width:22px;height:22px;stroke-width:1.6}
+.tvr-ar{opacity:.5}
+.tvr-ring{border-width:1px}
+.tvr-ring b{font-weight:500;letter-spacing:.14em;opacity:.8}
+.tvr-grid{grid-template-columns:1fr 1fr 92px;grid-template-rows:64px 64px;gap:10px}
+.tvr-key{border-radius:28px}
+.tvr-key svg{width:24px;height:24px;stroke-width:1.5}
+.tvr-volp{border-radius:38px}
+.tvr-volp button svg{width:22px;height:22px;stroke-width:1.6}
+.tvr-volm svg{width:17px;height:17px;stroke-width:1.5}
+.tvr-volm b{font-weight:500;font-size:15px}
+.tvr-more{gap:4px}
+.tvr-b{font-weight:500;font-size:11px}
+.tvr-b svg{width:21px;height:21px;stroke-width:1.5}
+.tvx-now.strip .tvx-btn svg{stroke-width:1.5}

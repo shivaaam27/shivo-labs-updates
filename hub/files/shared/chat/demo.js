@@ -1,3 +1,4 @@
+// ONE source: shared/chat/demo.js (the phone app has a copy made by `node shared/sync.mjs`).
 // "Look around first": a pretend chat server inside the page, with a sample team, so the Chat screens
 // can be explored before the real server is set up. Nothing leaves the device; it resets when you leave.
 // It answers the same requests as chat/worker and sends the same live events.

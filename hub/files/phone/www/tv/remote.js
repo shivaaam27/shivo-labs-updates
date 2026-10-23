@@ -1,6 +1,8 @@
-// The TV remote in the phone app (and the PC's TV page): one card, like a real remote.
-// Buttons: the round pad with OK, then Back, Home, Play; volume; Type, Inputs, Apps.
-// Touchpad: the round pad becomes a touch area (slide moves a pointer on the TV, tap presses, two fingers scroll; the
+// The TV remote in the phone app (and the PC's TV page), built like the Apple TV remote (Shivam, 23 Oct 2026):
+// one touch surface (swipe moves around the TV, a tap in the middle is OK, a tap on a side is that arrow, as on the Siri
+// Remote's clickpad), Back, TV (Home), Play/Pause and Mute beside a tall volume pill, and one row for Type, Inputs, Apps,
+// Pointer and the live view.
+// Pointer: the surface becomes a touch area (slide moves a pointer on the TV, tap presses, two fingers scroll; the
 // phone's motion can move it too); every other button stays where it is.
 // Where a button goes: Google's own TV remote link when it is set up on this phone (fastest, works in every app), else
 // our TV app presses it (Remote.java /key: works from anywhere, also through the relay; arrows in other apps need
@@ -24,6 +26,8 @@ const I = {
   pointer: svg('<path d="M5 3.5l13 6.2-5.6 1.7-1.7 5.6z"/><path d="M12.6 12.6l5.4 5.4"/>'),
   motion: svg('<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M3 9c-1 2-1 4 0 6M21 9c1 2 1 4 0 6"/>'),
   del: svg('<path d="M20 6H9l-5 6 5 6h11z"/><path d="M12 10l4 4M16 10l-4 4"/>'),
+  chev: svg('<path d="M15 5l-7 7 7 7"/>'),
+  tv: svg('<rect x="3" y="5" width="18" height="12" rx="2.5"/><path d="M8 21h8M12 17v4"/>'),
 };
 const GKEY = { recents: 'menu' };   // our names -> Google's remote names, where they differ
 
@@ -79,9 +83,9 @@ export function makeRemote(ctx) {
     try {
       const r = await call('/volume', { a: step }, { post: true });
       const d = ctx.dev(); d.vol = r.vol;
-      const n = box?.querySelector('#rvN'), bar = box?.querySelector('#rvBar');
+      const n = box?.querySelector('#rvN'), pill = box?.querySelector('.tvr-volp');
       if (n) n.textContent = r.vol;
-      if (bar) bar.style.width = `${d.volMax ? Math.round(100 * r.vol / d.volMax) : 0}%`;
+      if (pill) pill.style.setProperty('--v', `${d.volMax ? Math.round(100 * r.vol / d.volMax) : 0}%`);
     } catch (e) { toast(e.message); }
   }
 
@@ -147,34 +151,29 @@ export function makeRemote(ctx) {
       : !away && atv.available() && host() && !atv.isPaired(host()) ? `<div class="tvr-setup${needSetup ? ' hi' : ''}"><span>Full remote: arrows in every app</span><button class="btn sm${needSetup ? ' pri' : ''}" id="rcSetup">Set up</button></div>`
       : needSetup && !atv.available() ? '' : '';
     return `<section class="tvr" data-view="${pad ? 'pad' : 'keys'}">
-      <div class="tvr-head">
-        <div class="tvr-mode" role="tablist">${[['keys', 'Buttons'], ['pad', 'Touchpad']].map(([id, n]) => `<button data-mode="${id}" class="${(pad ? 'pad' : 'keys') === id ? 'on' : ''}" ${id === 'pad' && away ? 'disabled title="At home only"' : ''}>${n}</button>`).join('')}</div>
-        <button class="tvr-mini" data-x="live" aria-label="See the TV screen" title="See the TV screen">${I.screen}</button>
-      </div>
       ${setup}
-      <div class="tvr-stage">${pad ? `
+      ${pad ? `
         <div class="tvr-pad" id="rcPad"><span class="tvr-pad-ic">${I.pointer}</span><p>Slide to move · Tap to select</p><small>Two fingers to scroll</small>
           <button class="tvr-chip${motionOn ? ' on' : ''}" id="rcMotion">${I.motion}${motionOn ? 'Motion on' : 'Motion'}</button></div>` : `
-        <div class="tvr-dpad">
-          <button class="tvr-dk up" data-k="up" aria-label="Up">${I.up}</button><button class="tvr-dk left" data-k="left" aria-label="Left">${I.left}</button>
-          <button class="tvr-dk right" data-k="right" aria-label="Right">${I.right}</button><button class="tvr-dk down" data-k="down" aria-label="Down">${I.down}</button>
-          <button class="tvr-okk" id="rcJoy" aria-label="OK. Drag to move.">OK</button></div>`}
+        <div class="tvr-surface" id="rcSurface" role="group" aria-label="Touch surface. Swipe to move, tap the middle to select.">
+          <i class="tvr-ar up">${I.up}</i><i class="tvr-ar down">${I.down}</i><i class="tvr-ar left">${I.left}</i><i class="tvr-ar right">${I.right}</i>
+          <i class="tvr-ring"><b>OK</b></i><i class="tvr-pulse"></i></div>`}
+      <div class="tvr-grid">
+        <button class="tvr-key" data-k="back" aria-label="Back">${I.chev}</button>
+        <button class="tvr-key" data-k="home" aria-label="Home">${I.tv}</button>
+        <div class="tvr-volp" style="--v:${v}%">
+          <button data-v="1" aria-label="Louder">${I.plus}</button>
+          <span class="tvr-volm">${d.muted ? I.mute : I.vol}<b id="rvN">${d.vol ?? '–'}</b></span>
+          <button data-v="-1" aria-label="Quieter">${I.minus}</button></div>
+        <button class="tvr-key" data-k="playPause" aria-label="Play or pause">${I.play}</button>
+        <button class="tvr-key${d.muted ? ' on' : ''}" data-x="mute" aria-label="Mute">${I.mute}</button>
       </div>
-      <div class="tvr-row">
-        <button class="tvr-b" data-k="back">${I.back}<span>Back</span></button>
-        <button class="tvr-b" data-k="home">${I.home}<span>Home</span></button>
-        <button class="tvr-b" data-k="playPause">${I.play}<span>Play</span></button>
-      </div>
-      <div class="tvr-vol">
-        <button class="tvr-round" data-v="-1" aria-label="Quieter">${I.minus}</button>
-        <div class="tvr-volm"><div class="tvr-volt"><span>${d.muted ? I.mute : I.vol}</span><b id="rvN">${d.vol ?? '–'}</b></div><div class="tvx-track"><i id="rvBar" style="width:${v}%"></i></div></div>
-        <button class="tvr-round" data-v="1" aria-label="Louder">${I.plus}</button>
-        <button class="tvr-round${d.muted ? ' on' : ''}" data-x="mute" aria-label="Mute">${I.mute}</button>
-      </div>
-      <div class="tvr-row">
+      <div class="tvr-more">
         <button class="tvr-b${typing ? ' on' : ''}" data-x="type">${I.kbd}<span>Type</span></button>
         <button class="tvr-b" data-x="inputs">${I.input}<span>Inputs</span></button>
         <button class="tvr-b" data-k="recents">${I.apps}<span>Apps</span></button>
+        <button class="tvr-b${pad ? ' on' : ''}" data-x="mode" ${away ? 'disabled title="At home only"' : ''}>${I.pointer}<span>Pointer</span></button>
+        <button class="tvr-b" data-x="live">${I.screen}<span>Screen</span></button>
       </div>
       <form class="tvr-type" id="rcType" ${typing ? '' : 'hidden'}><input class="field" id="rcText" placeholder="Type on the TV" autocomplete="off" autocorrect="off" autocapitalize="off"><button class="tvr-round" type="button" id="rcDel" aria-label="Delete">${I.del}</button><button class="btn pri sm" type="submit">Enter</button></form>
     </section>`;
@@ -182,16 +181,21 @@ export function makeRemote(ctx) {
   function paint() { if (box) { box.innerHTML = html(); wire(); fit(); } }
   function wire() {
     const q = (s) => box.querySelector(s);
-    box.querySelectorAll('.tvr-mode [data-mode]').forEach((b) => (b.onclick = () => {
-      if (b.disabled) return;
-      mode = b.dataset.mode; try { localStorage.setItem('sl.tvRemoteMode', mode); } catch {}
-      buzz(); if (mode === 'pad') openWs(); else closeWs(); paint();
-    }));
     box.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => key(b.dataset.k)));
-    box.querySelectorAll('[data-v]').forEach((b) => (b.onclick = () => volume(b.dataset.v)));
+    // volume: a press is one step; held, it keeps going
+    box.querySelectorAll('[data-v]').forEach((b) => {
+      let t = 0, r = 0; const stop = () => { clearTimeout(t); clearInterval(r); };
+      b.addEventListener('pointerdown', () => { volume(b.dataset.v); t = setTimeout(() => { r = setInterval(() => volume(b.dataset.v), 170); }, 420); });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => b.addEventListener(ev, stop));
+    });
     box.querySelectorAll('[data-x]').forEach((b) => (b.onclick = async () => {
       const x = b.dataset.x;
       if (x === 'live') return ctx.openLive();
+      if (x === 'mode') {
+        if (b.disabled) return;
+        mode = mode === 'pad' ? 'keys' : 'pad'; try { localStorage.setItem('sl.tvRemoteMode', mode); } catch {}
+        buzz(); if (mode === 'pad') openWs(); else closeWs(); paint(); return;
+      }
       if (x === 'inputs') { buzz(); return ctx.setTab('inputs'); }
       if (x === 'type') { typing = !typing; buzz(); paint(); if (typing) setTimeout(() => q('#rcText')?.focus(), 50); return; }
       if (x === 'mute') { buzz(); try { const r = await call('/mute', {}, { post: true }); ctx.dev().muted = r.muted; paint(); } catch (e) { toast(e.message); } }
@@ -218,42 +222,38 @@ export function makeRemote(ctx) {
     });
     q('#rcDel')?.addEventListener('click', () => { buzz(); if (input) input.value = input.value.slice(0, -1); if (google()) remote().then((r) => r.key(atv.KEY.del)).catch(() => {}); else wsSend('t \b'); });
     q('#rcType')?.addEventListener('submit', (e) => { e.preventDefault(); key('ok'); });
-    // OK is also a joystick: drag it and the TV moves that way, again and again while it is held (faster further out);
-    // let go and it springs back. A tap without dragging is OK.
-    const joy = q('#rcJoy');
-    if (joy) {
-      const ring = joy.parentElement;
-      let start = null, dir = '', rep = 0, moved = false;
-      const stopRep = () => { clearTimeout(rep); rep = 0; };
-      const step = (d, dist, max) => {
-        key(d);
-        const t = 430 - 320 * Math.min(1, Math.max(0, (dist - 16) / Math.max(1, max - 16)));
-        rep = setTimeout(() => step(dir, lastDist, max), Math.round(t));
-      };
-      let lastDist = 0;
-      joy.addEventListener('pointerdown', (e) => { holding = true; start = [e.clientX, e.clientY]; moved = false; dir = ''; try { joy.setPointerCapture(e.pointerId); } catch {} joy.classList.add('held'); });
-      joy.addEventListener('pointermove', (e) => {
-        if (!start) return;
-        const max = ring.offsetWidth * 0.22;
-        let x = e.clientX - start[0], y = e.clientY - start[1];
-        const dist = Math.hypot(x, y);
-        if (dist > max) { x = x * max / dist; y = y * max / dist; }
-        joy.style.transform = `translate(${x}px, ${y}px)`;
-        lastDist = Math.min(dist, max);
-        if (dist < 16) return;
-        moved = true;
-        const d = Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : (y > 0 ? 'down' : 'up');
-        if (d !== dir) { dir = d; ring.dataset.go = d; stopRep(); step(d, lastDist, max); }
+    // the touch surface: a swipe moves around the TV (every ~38 px of travel is one step, so a quick swipe is several), a
+    // tap in the middle is OK and a tap on a side is that arrow, like the clickpad of the Siri Remote
+    const sf = q('#rcSurface');
+    if (sf) {
+      let st = null;
+      const STEP = 38;
+      const dirOf = (ox, oy) => (Math.abs(ox) > Math.abs(oy) ? (ox > 0 ? 'right' : 'left') : (oy > 0 ? 'down' : 'up'));
+      const light = (d) => { sf.dataset.go = d; clearTimeout(light.t); light.t = setTimeout(() => { delete sf.dataset.go; }, 230); };
+      const pulse = (x, y) => { const p = sf.querySelector('.tvr-pulse'); p.style.left = x + 'px'; p.style.top = y + 'px'; p.classList.remove('go'); void p.offsetWidth; p.classList.add('go'); };
+      sf.addEventListener('pointerdown', (e) => { holding = true; st = { x: e.clientX, y: e.clientY, ax: 0, ay: 0, t: Date.now(), far: 0 }; try { sf.setPointerCapture(e.pointerId); } catch {} sf.classList.add('touch'); });
+      sf.addEventListener('pointermove', (e) => {
+        if (!st) return;
+        const mx = e.clientX - st.x, my = e.clientY - st.y; st.x = e.clientX; st.y = e.clientY;
+        st.far += Math.abs(mx) + Math.abs(my); st.ax += mx; st.ay += my;
+        for (let i = 0; i < 4; i++) {
+          const d = dirOf(st.ax, st.ay), horiz = d === 'left' || d === 'right';
+          if ((horiz ? Math.abs(st.ax) : Math.abs(st.ay)) < STEP) break;
+          if (horiz) st.ax -= Math.sign(st.ax) * STEP; else st.ay -= Math.sign(st.ay) * STEP;
+          light(d); key(d);
+        }
       });
-      const end = () => {
-        if (!start) return;
-        stopRep(); start = null; joy.classList.remove('held'); joy.style.transform = ''; delete ring.dataset.go;
-        holding = false;
-        if (!moved) key('ok');
+      sf.addEventListener('pointerup', (e) => {
+        if (!st) return;
+        const s0 = st; st = null; holding = false; sf.classList.remove('touch');
+        if (s0.far < 14 && Date.now() - s0.t < 450) {
+          const r = sf.getBoundingClientRect(), ox = e.clientX - (r.left + r.width / 2), oy = e.clientY - (r.top + r.height / 2);
+          const k = Math.hypot(ox, oy) < Math.min(r.width, r.height) * 0.22 ? 'ok' : dirOf(ox, oy);
+          pulse(e.clientX - r.left, e.clientY - r.top); light(k); key(k);
+        }
         if (laterPaint) { laterPaint = false; paint(); }
-      };
-      joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
-      joy.addEventListener('click', (e) => { if (e.detail === 0) key('ok'); });   // Enter or Space on a keyboard
+      });
+      sf.addEventListener('pointercancel', () => { st = null; holding = false; sf.classList.remove('touch'); });
     }
     // the touchpad
     const pad = q('#rcPad');

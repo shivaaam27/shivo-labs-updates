@@ -358,27 +358,27 @@ export function mountTv(root, { toast = () => {}, haptic = () => {}, ai = null, 
   const playing = () => now.filter((p) => apps.some((a) => a.pkg === p.pkg));
 
   function nowHtml() {
+    // a slim strip (the remote below it must fit on the screen): a picture, what plays, and its buttons
     const p = playing()[0];
     if (!p) {
       const h = watched()[0];
-      if (!h) return `<section class="tvx-now empty"><span class="tvx-now-ic">${IC.remote}</span>
-        <div><b>Nothing playing</b></div></section>`;
-      return `<section class="tvx-now">
-        <div class="tvx-now-art">${histPic(h).replace('mqdefault', 'hq720').replace('loading="lazy"', `onerror="if(this.src.includes('hq720'))this.src=this.src.replace('hq720','mqdefault')"`)}<i></i>
-          <div class="tvx-now-t"><small>Continue watching · ${esc(label(h.pkg))}</small><b>${esc(h.title)}</b>${h.sub ? `<span>${esc(h.sub)}</span>` : ''}</div></div>
+      if (!h) return `<section class="tvx-now strip empty"><span class="tvx-np-art ic">${IC.remote}</span>
+        <div class="tvx-np-t"><b>Nothing playing</b></div></section>`;
+      return `<section class="tvx-now strip">
+        <span class="tvx-np-art">${histPic(h)}</span>
+        <div class="tvx-np-t"><small>Continue watching · ${esc(label(h.pkg))}</small><b>${esc(h.title)}</b></div>
+        <button class="tvx-btn big" data-resume="0" aria-label="Continue on the TV">${IC.play}</button>
         ${pct(h) ? `<div class="tvx-track"><i style="width:${pct(h)}%"></i></div>` : ''}
-        <div class="tvx-now-b"><button class="btn pri tvx-cont" data-resume="0">${IC.play}Continue on the TV</button></div>
       </section>`;
     }
     const done = pct(p);
-    return `<section class="tvx-now">
-      <div class="tvx-now-art">${p.art ? `<img data-tvpic="/${esc(p.art.split('?')[0])}" alt="">` : `<img class="ic" data-tvpic="/icon/${esc(p.pkg)}" alt="">`}<i></i>
-        <div class="tvx-now-t"><small>${p.playing ? 'Playing' : 'Paused'} on the TV · ${esc(label(p.pkg))}</small><b>${esc(p.title)}</b>${p.sub ? `<span>${esc(p.sub)}</span>` : ''}</div></div>
+    return `<section class="tvx-now strip">
+      <span class="tvx-np-art">${p.art ? `<img data-tvpic="/${esc(p.art.split('?')[0])}" alt="" onerror="this.remove()">` : `<img class="ic" data-tvpic="/icon/${esc(p.pkg)}" alt="" onerror="this.remove()">`}</span>
+      <div class="tvx-np-t"><small>${p.playing ? 'Playing' : 'Paused'} · ${esc(label(p.pkg))}</small><b>${esc(p.title)}</b></div>
+      <button class="tvx-btn" data-media="prev" aria-label="Previous">${IC.prev}</button>
+      <button class="tvx-btn big" data-media="${p.playing ? 'pause' : 'play'}" aria-label="${p.playing ? 'Pause' : 'Play'}">${p.playing ? IC.pause : IC.play}</button>
+      <button class="tvx-btn" data-media="next" aria-label="Next">${IC.next}</button>
       ${done ? `<div class="tvx-track"><i style="width:${done}%"></i></div>` : ''}
-      <div class="tvx-now-b">
-        <button class="tvx-btn" data-media="prev" aria-label="Previous">${IC.prev}</button>
-        <button class="tvx-btn big" data-media="${p.playing ? 'pause' : 'play'}" aria-label="${p.playing ? 'Pause' : 'Play'}">${p.playing ? IC.pause : IC.play}</button>
-        <button class="tvx-btn" data-media="next" aria-label="Next">${IC.next}</button></div>
     </section>`;
   }
   // a row in a grouped list (like iPhone Settings): an icon, a title and a line, an arrow when it opens something

@@ -47,7 +47,14 @@
       <button class="gbtn" id="setOpen" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><i class="set-dot" id="setDot" hidden></i></button>
     </header>
     <h1 class="home-hi" id="hi"></h1>
-    <div class="mods" id="mods"></div>
+    <!-- like the phone's Home: one search box (apps, chats, Cloud files; Enter asks Shivo Labs AI), the doors, then Continue -->
+    <div class="home-find" id="find">
+      <label class="home-ask"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+        <input id="hq" type="search" placeholder="Search or ask anything" autocomplete="off" spellcheck="false" aria-label="Search or ask anything" aria-controls="hres"></label>
+      <div class="home-res" id="hres" role="listbox" hidden></div>
+    </div>
+    <div class="doors" id="mods"></div>
+    <div id="cont"></div>
   </main>
 
   <!-- a module's own screen, inside the hub -->

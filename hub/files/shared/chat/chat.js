@@ -1,4 +1,5 @@
-// Shivo Labs Chat: the chat screen, shared by the laptop hub (and later the phone app).
+// Shivo Labs Chat: the chat screen. ONE source: this file in shared/chat/ (the laptop hub loads it from here). The phone app only gets files inside
+// phone/www, so it has a copy made by `node shared/sync.mjs` (a commit that changes one without the other is refused). Change it here, then run the sync.
 // mountChat(root, { toast, haptic, home }) draws everything inside root and returns a function that cleans up.
 // haptic(style) gives a light tap on phones; home(), when given, adds a button back to the app's home screen.
 // getPass(), when given (the hub), returns this PC's shivo-id pass, so it joins its company's own team without a code.
@@ -53,8 +54,19 @@ const onlyEmoji = (s) => s && s.length <= 12 && /^(\p{Extended_Pictographic}|\p{
 const mark0 = (cls) => (typeof window.shivoMark === 'function' ? window.shivoMark(cls) : '');
 const dur = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-export function mountChat(root, { toast = () => {}, haptic = () => {}, home = null, getPass = null, cover = null } = {}) {
+export function mountChat(root, { toast = () => {}, haptic = () => {}, home = null, getPass = null, cover = null, ai = null, joinLabel = 'Join without a code' } = {}) {
   const buzz = (k = 'light') => { try { haptic(k); } catch {} };
+  // The pinned "Labs AI" row (only the phone app gives `ai`: { info() -> { sub, at }, open() }). The assistant lives here, above
+  // every chat, like Meta AI in WhatsApp, and it is also there before a team is set up (it needs no team).
+  const aiHtml = () => { if (!ai) return ''; const i = ai.info(); return `<button class="ch-ai" id="chAi"><span class="ch-ai-av">${mark0('loop')}</span><span class="ch-ai-t"><b>Labs AI</b><small id="chAiSub">${esc(i.sub)}</small></span><span class="ch-ai-when" id="chAiWhen">${i.at ? when(i.at) : ''}</span></button>`; };
+  const wireAi = () => { const b = root.querySelector('#chAi'); if (b) b.onclick = () => { buzz(); ai.open(); }; };
+  // the Shivo Browser sends a page to a conversation: which ones there are, and a message into one of them
+  root._share = {
+    ready: () => !!S.me && alive,
+    list: () => sorted().filter((c) => !c.archived).slice(0, 12).map((c) => ({ id: c.id, name: chatName(c), kind: c.kind })),
+    send: (chat, text) => act('send', { chat, text, cid: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }),
+  };
+  root._paintAi = () => { if (!ai || !root.querySelector('#chAi')) return; const i = ai.info(); root.querySelector('#chAiSub').textContent = i.sub; root.querySelector('#chAiWhen').textContent = i.at ? when(i.at) : ''; };
   const cfg = store.get('shivoChat') || {};
   if (!cfg.server && DEFAULT_SERVER) cfg.server = DEFAULT_SERVER;
   const S = { users: new Map(), chats: new Map(), msgs: new Map(), more: new Map(), detached: new Set(), typing: new Map(), open: null, filter: 'all', q: '', reply: null, edit: null, info: false, pending: new Map(), files: false, att: [], drawn: new Map(), tt: new Map() };
@@ -134,8 +146,8 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   let signKeys = false;
   const signTop = (line) => `<div class="ch-sign-top"><div class="ch-hero">${mark0('play loop')}</div><div class="word">SHIVO<span>LABS</span></div>
         <h1 class="ch-h">Team chat.<span>${esc(line)}</span></h1></div>`;
-  // a PC whose Shivo Labs pass has Chat joins its own company's team with the pass (getPass, from the hub); everyone
-  // else (the phone, Shivam's PC) signs in with an invite code
+  // a PC or phone whose Shivo Labs pass has Chat joins its own company's team with the pass (getPass: the hub, or the
+  // phone's engine/id.js); without one (Shivam's PC from the repo, an old phone) it signs in with an invite code
   async function showSignIn(err) {
     if (!signKeys) { signKeys = true; on(root, 'keydown', (e) => { if (e.key === 'Enter' && e.target.closest('.ch-sign')) $('#chGo')?.click(); }); }
     const pass = getPass && !cfg.codeOnly ? await getPass().catch(() => null) : null;
@@ -146,6 +158,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     if (!alive) return;
     if (!info.ready || info.blocked) return codeSignIn(info.blocked ? 'You were removed from this chat. Ask the team owner for an invite code.' : err);
     root.innerHTML = `<div class="ch-sign">
+      ${aiHtml()}
       ${signTop(info.team || 'Your team')}
       <div class="ch-card glass-card">
         ${info.known ? '' : `<div class="ch-kh"><span class="ch-tile">${svg('user')}</span><label for="chName"><b>Your name</b><small>${info.owner ? 'You are the first one in, so you manage the team' : 'How the team sees you'}</small></label></div>
@@ -153,6 +166,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
         <p class="ch-err" id="chErr">${esc(err || '')}</p>
         <button class="btn pri" id="chGo">${info.known ? `Continue as ${esc(info.name)}` : 'Join the chat'}</button>
         <button class="ch-skip" id="chCodeIn">Use an invite code instead</button></div></div>`;
+    wireAi();
     $('#chCodeIn').onclick = () => { cfg.codeOnly = true; codeSignIn(); };
     $('#chGo').onclick = async () => {
       $('#chErr').textContent = ''; $('#chGo').disabled = true;
@@ -165,6 +179,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
   }
   async function codeSignIn(err) {
     root.innerHTML = `<div class="ch-sign">
+      ${aiHtml()}
       <div class="ch-sign-top"><div class="ch-hero">${mark0('play loop')}</div><div class="word">SHIVO<span>LABS</span></div>
         <h1 class="ch-h">Team chat.<span>Sign in with your invite.</span></h1></div>
       <div class="ch-card glass-card">
@@ -178,6 +193,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
         <p class="ch-err" id="chErr">${esc(err || '')}</p>
         <button class="btn pri" id="chGo">Continue</button>
         <button class="ch-skip" id="chDemo">Look around first</button></div></div>`;
+    wireAi();
     let mode = 'join';
     const check = async () => {
       if (!$('#chSrv').value.trim()) return;
@@ -208,7 +224,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
     };
     if (getPass) {
       // back to the pass, for a PC that has one
-      $('#chDemo').insertAdjacentHTML('beforebegin', '<button class="ch-skip" id="chPassIn" hidden>Join with this computer</button>');
+      $('#chDemo').insertAdjacentHTML('beforebegin', '<button class="ch-skip" id="chPassIn" hidden>' + esc(joinLabel) + '</button>');
       getPass().then((p) => { if (p && $('#chPassIn')) { $('#chPassIn').hidden = false; $('#chPassIn').onclick = () => { cfg.codeOnly = false; showSignIn(); }; } }).catch(() => {});
     }
     check();
@@ -235,6 +251,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
         ${demo ? `<button class="ch-demo" id="chDemoNote"><b>Demo</b><span>Sample team. Nothing is sent.</span><i>Set up</i></button>` : ''}
         <label class="ch-search">${svg('search')}<input id="chQ" placeholder="Search chats and messages" autocomplete="off"><button class="ch-x" id="chQx" hidden>${svg('x')}</button></label>
         <div class="ch-chips" id="chChips">${[['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups'], ['fav', 'Favourites'], ['archived', 'Archived']].map(([k, n]) => `<button data-f="${k}" class="${k === 'all' ? 'on' : ''}">${n}</button>`).join('')}</div>
+        ${aiHtml()}
         <div class="ch-list" id="chList"></div>
         <div class="ch-conn" id="chConn" hidden>Connecting…</div>
       </aside>
@@ -242,6 +259,7 @@ export function mountChat(root, { toast = () => {}, haptic = () => {}, home = nu
       <aside class="ch-info" id="chInfo" hidden></aside>
     </div><div class="ch-veil" id="chVeil" hidden></div>`;
     renderMain();
+    wireAi();
     $('#chMe').onclick = openSettings;
     $('#chHome')?.addEventListener('click', () => home());
     $('#chDemoNote')?.addEventListener('click', () => confirmBox('Leave the demo and set up the real chat?', 'Set up', signedOut));

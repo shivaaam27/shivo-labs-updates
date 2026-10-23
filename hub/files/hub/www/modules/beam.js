@@ -74,6 +74,7 @@ export function mountBeam(root, { esc, toast, openModule }, slots) {
     paint();
   }
   function paint() {
+    if (!$('#bmDevs')) return;   // the page was left while the status was on its way
     const pill = document.getElementById('pageState');
     // (the relay is what lets a phone find this PC from anywhere, and at home when beam.local doesn't answer)
     if (pill) pill.innerHTML = st.running ? `<i class="dot"></i>${esc(st.host)}${st.relay?.connected ? ' · reachable from anywhere' : ''}` : `<button class="tbtn" id="bmStart">Start sending</button>`;
@@ -112,17 +113,17 @@ export function mountBeam(root, { esc, toast, openModule }, slots) {
         <button class="bm-devmore" data-more="${esc(d.id)}" aria-label="Rename or remove">&#8943;</button>
         ${menuFor === d.id ? `<div class="bm-devmenu"><button class="tbtn" data-ren="${esc(d.id)}">Rename</button><button class="tbtn" data-forget="${esc(d.id)}">Remove</button></div>` : ''}
       </div>`).join('');
-    root.querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => {
+    $('#bmDevs').querySelectorAll('[data-pick]').forEach((b) => (b.onclick = () => {
       const id = b.dataset.pick; picked.has(id) ? picked.delete(id) : picked.add(id); savePicked(); menuFor = ''; paint();
     }));
-    root.querySelectorAll('[data-more]').forEach((b) => (b.onclick = () => { menuFor = menuFor === b.dataset.more ? '' : b.dataset.more; paint(); }));
-    root.querySelectorAll('[data-ren]').forEach((b) => (b.onclick = () => rename(b.dataset.ren)));
-    root.querySelectorAll('[data-forget]').forEach((b) => (b.onclick = async () => {
+    $('#bmDevs').querySelectorAll('[data-more]').forEach((b) => (b.onclick = () => { menuFor = menuFor === b.dataset.more ? '' : b.dataset.more; paint(); }));
+    $('#bmDevs').querySelectorAll('[data-ren]').forEach((b) => (b.onclick = () => rename(b.dataset.ren)));
+    $('#bmDevs').querySelectorAll('[data-forget]').forEach((b) => (b.onclick = async () => {
       await post('/api/beam/device', JSON.stringify({ id: b.dataset.forget, remove: true }));
       picked.delete(b.dataset.forget); savePicked(); menuFor = ''; toast('Removed. It comes back if it opens Shivo Labs again.'); load();
     }));
     // drop straight onto a device
-    root.querySelectorAll('.bm-dev').forEach((el) => {
+    $('#bmDevs').querySelectorAll('.bm-dev').forEach((el) => {
       el.ondragover = (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('drag'); };
       el.ondragleave = () => el.classList.remove('drag');
       el.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); el.classList.remove('drag'); sendFiles([...e.dataTransfer.files].filter((f) => f.size || f.type), [el.dataset.dev]); };

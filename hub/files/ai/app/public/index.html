@@ -4383,6 +4383,12 @@ if (window.parent !== window) {
       if (!update) await checkUpdate();
       if (update) installUpdate(); else toast("Shivo Labs AI is already up to date");
     });
+    // the hub's Home has "Search or ask anything": Enter there asks here, in a new chat
+    addEventListener("message", (e) => {
+      if (e.origin !== hub || e.source !== window.parent || e.data?.shivo !== "ask") return;
+      const q = String(e.data.text || "").trim().slice(0, 20000); if (!q) return;
+      newChat(); $("input").value = q; autosize(); send();
+    });
   }
 }
 </script>

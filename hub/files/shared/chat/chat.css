@@ -1,4 +1,5 @@
-/* Class names all start with ch- : the phone app has short global classes (.m, .file) that must not leak in.
+/* ONE source: shared/chat/chat.css. The phone app has a copy in phone/www/chat/ made by `node shared/sync.mjs`; change it here, then run the sync.
+   Class names all start with ch- : the phone app has short global classes (.m, .file) that must not leak in.
    Shivo Labs Chat: the phone app's look (phone/www/app.css) on shared/tokens.css.
    No framed window: content sits on the page, navigation is glass circles, Sora titles,
    cards with soft shadows, the floating message box, Settings as grouped cards with icon tiles. */
@@ -546,3 +547,16 @@ html[data-theme=dark] .ch-pop-veil{background:rgba(0,0,0,.5)}
 .ch-att-f b{color:var(--text)}
 /* phones: text boxes at 16px, or the iPhone zooms the whole page in when one is tapped */
 @media (hover:none){.ch-search input,.ch-field,.ch-row-l input,.ch-modal .ch-f input{font-size:16px}}
+
+/* the pinned Labs AI row (phone app): above the chats, and above the sign-in card before a team is set up */
+.ch-ai{display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px 10px 10px;margin:0 0 8px;border-radius:22px;text-align:left;
+  background:color-mix(in srgb,var(--text) 6%,transparent);border:.5px solid var(--g-rim2);transition:background .15s,transform .2s var(--spring)}
+.ch-ai:active{background:var(--hover);transform:scale(.985)}
+.ch-ai-av{width:48px;height:48px;border-radius:50%;flex:none;display:grid;place-items:center;padding:12px;background:var(--text)}
+.ch-ai-av .mk{width:100%;height:100%}
+.ch-ai-av .mk rect{--mark:var(--bg);fill:var(--bg)}.ch-ai-av .mk .lit{fill:var(--sage)}
+.ch-ai-t{flex:1;min-width:0}
+.ch-ai-t b{display:block;font:500 17px/1.2 var(--display);letter-spacing:-.01em}
+.ch-ai-t small{display:block;margin-top:2px;color:var(--muted);font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-ai-when{flex:none;color:var(--faint);font-size:12.5px;align-self:flex-start;margin-top:4px}
+.ch-sign .ch-ai{max-width:520px}
