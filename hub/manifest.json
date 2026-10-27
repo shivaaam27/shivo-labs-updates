@@ -1,14 +1,14 @@
 {
- "version": "1.0.494",
- "build": 494,
- "built": "2026-10-27T10:16:53.006Z",
+ "version": "1.0.495",
+ "build": 495,
+ "built": "2026-10-27T10:39:28.238Z",
  "notes": [
+  "X Tools Wi-Fi installs: put the iPhone back on the Apple ID's devices before signing",
   "Beam: each file once, in the order sent, on time",
   "Vehicle Studio: reframed photos, straight front from above, straight rear",
   "Vehicle Studio: photo set in 4:5, 9:16 and 16:9",
   "Vehicle Studio: steady windscreen edges, no floor glare in the film",
-  "Vehicle Studio: 34-second reveal film for the website",
-  "Vehicle Studio: five scene presets for marketing shots"
+  "Vehicle Studio: 34-second reveal film for the website"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11481,9 +11481,9 @@
   "shared/sync.mjs": "597b545f73144b1e353decee5f89b4b86b2338d552e807e54010ebf97d9ca962",
   "shared/tokens.css": "d7b3795c8214efee088c74497c7d7b9779e779bfe9cce859ac9275a8c2f622d3",
   "x-tools/installer/src/Engine/provision.sh": "cff00d9fabc7755ac3754045c6b55efee22d959df81593a63550e5617aa390ed",
-  "x-tools/installer/src/host/Engine.ps1": "95206b6117988ff4559b68b5d630bd8e0388e990d7da7f9dd39e8cba4b9fffa0",
+  "x-tools/installer/src/host/Engine.ps1": "3c75c57efb4770d51c3d51cd1a53f6257a516f2a37dfcdbdfbf68b326cb384eb",
   "x-tools/installer/src/host/update-key.xml": "ca38621b5cadbbaca3d748c766b0b706acadc2da00628cea574e7bd40afec7b7",
   "x-tools/installer/src/version.txt": "7fbd210ebec11f65a97190ef900795c4b8da3805af3f5a1b8d1d272556b292ca",
-  "x-tools/wifi/wifi.sh": "b181f32c3d46fe6b5e6be9ffecc8eca25b0e5d9a7322d952a061cb52834f8755"
+  "x-tools/wifi/wifi.sh": "6b222c1b05ad9302e37e79087dad244299eaeff3f454baa62a4d5b6c97577227"
  }
 }

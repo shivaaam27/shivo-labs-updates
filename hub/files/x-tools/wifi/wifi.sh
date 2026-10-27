@@ -59,7 +59,10 @@ install)
     # an already-signed X Tools build (XTL- bundle ID) goes as it is: signing it again would make a second app
     id=$(python3 -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb")).get("CFBundleIdentifier",""))' "$app/Info.plist")
     if [[ "$id" != XTL-* ]]; then
-        "$BIN/shivo-sign" "$app" || exit 1
+        # (with the phone's id: it is put back on the Apple ID's devices first, as a cable install does; an older
+        # shivo-sign takes only the app)
+        if "$BIN/shivo-sign" 2>/dev/null | grep -q 'udid'; then "$BIN/shivo-sign" "$app" "$2" "iPhone" || exit 1
+        else "$BIN/shivo-sign" "$app" || exit 1; fi
         (cd "$work/x" && python3 -c 'import os,zipfile
 with zipfile.ZipFile("../signed.ipa","w",zipfile.ZIP_DEFLATED) as z:
     for r,ds,fs in os.walk("Payload"):
