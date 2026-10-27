@@ -522,6 +522,68 @@ def unique(folder, name):
             n += 1
 
 
+# Each file once (27 Oct 2026). A phone can send a file again that the PC already has: the answer was lost after the
+# last byte, the phone's watchdog restarted it, the Share sheet tried another way. Every arrival is remembered for a
+# week (received.json: the phone's id for that file, its SHA-256 and size), and a repeat is read and dropped: the phone
+# hears "sent" and Downloads\Beam gets no "name (1).jpg". The Shortcut sends no id: the same content again within a
+# day, while the first copy is still there, counts as a repeat too.
+RECEIVED = HOME / "received.json"
+_recv_lock = threading.Lock()
+_received = None
+
+
+def _recv_list():
+    global _received
+    if _received is None:
+        try:
+            _received = json.loads(RECEIVED.read_text())
+        except (OSError, ValueError):
+            _received = []
+    cut = time.time() - 7 * 86400
+    _received = [r for r in _received if r.get("t", 0) > cut][-3000:]
+    return _received
+
+
+def already_received(uid="", sha="", size=-1):
+    """The record of an earlier arrival this upload repeats, or None. Call with _recv_lock held."""
+    now = time.time()
+    for r in reversed(_recv_list()):
+        by_id = bool(uid) and r.get("uid") == uid
+        by_content = bool(sha) and r.get("sha") == sha and r.get("size") == size and now - r["t"] < (120 if r.get("text") else 86400)
+        if not (by_id or by_content):
+            continue
+        if r.get("text"):
+            return r
+        p = INBOX / r.get("name", "")
+        try:
+            if r.get("name") and p.is_file() and p.stat().st_size == r.get("size"):
+                return r
+        except OSError:
+            pass
+    return None
+
+
+def remember_received(uid, sha, size, name="", text=False):
+    """Call with _recv_lock held."""
+    _recv_list().append({"uid": uid, "sha": sha, "size": size, "name": name, "t": time.time(), **({"text": True} if text else {})})
+    try:
+        tmp = RECEIVED.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_received))
+        os.replace(tmp, RECEIVED)
+    except OSError:
+        pass
+
+
+def send_order(bt, n):
+    """The time a file gets in Downloads\\Beam: when the phone started the send, plus its place in it (a millisecond
+    each), so Explorer lists a send in the order it was sent even when one file had to go again and came in late."""
+    try:
+        t, i = int(bt) / 1000, int(n or 0)
+    except (TypeError, ValueError):
+        return None
+    return t + i / 1000 if time.time() - 7 * 86400 < t < time.time() + 60 and 0 <= i < 100000 else None
+
+
 def header(h, key):
     v = h.get(key, "")
     try:
@@ -940,8 +1002,10 @@ class Handler(BaseHTTPRequestHandler):
             log(f"  saved {n} file(s)")
             return self.reply(200 if n else 400, "Sent to PC" if n else "No file in the upload")
         try:
+            uid = re.sub(r"[^A-Za-z0-9-]", "", self.param("uid") or self.headers.get("X-Beam-Uid", ""))[:80]
             self.receive(self.param("name") or header(self.headers, "X-Name"), self.param("ext") or header(self.headers, "X-Ext"),
-                         full_ctype.split(";")[0].strip().lower(), self.body_chunks())
+                         full_ctype.split(";")[0].strip().lower(), self.body_chunks(),
+                         uid=uid, order=send_order(self.param("bt"), self.param("n")))
         except CutShort as e:
             log(f"  cut short: {e}")
             return self.reply(400, "The upload stopped part-way. Send it again.")
@@ -992,7 +1056,15 @@ class Handler(BaseHTTPRequestHandler):
             spool.unlink(missing_ok=True)
         return n
 
-    def receive(self, name, ext, ctype, chunks, size=None):
+    def receive(self, name, ext, ctype, chunks, size=None, uid="", order=None):
+        if uid:
+            with _recv_lock:
+                seen = already_received(uid=uid)
+            if seen:   # sent again (the phone didn't hear "sent" last time): read it and drop it
+                for _ in chunks:
+                    pass
+                log(f"  already here: {seen.get('name') or 'text'}")
+                return
         chunks = iter(chunks)
         first = next(chunks, b"")
         chunks = itertools.chain([first], chunks)
@@ -1006,6 +1078,12 @@ class Handler(BaseHTTPRequestHandler):
         # Shared text / links go to the clipboard (links also open), like AirDrop on a Mac.
         if shared_text or (not ext and (ctype.startswith("text/") or ctype in ("", "application/x-www-form-urlencoded"))):
             data = b"".join(chunks)
+            sha = hashlib.sha256(data).hexdigest()
+            with _recv_lock:
+                if already_received(uid, sha, len(data)):   # (a link opened twice by one retry)
+                    log("  already here: text")
+                    return
+                remember_received(uid, sha, len(data), text=True)
             if len(data) < 2_000_000:
                 text = data.decode("utf-8", "replace").strip()
                 if re.fullmatch(r"https?://\S+", text):
@@ -1022,10 +1100,22 @@ class Handler(BaseHTTPRequestHandler):
             INBOX.mkdir(parents=True, exist_ok=True)
             part = stage_dir() / f"in-{secrets.token_hex(8)}.part"
             try:
+                h, n = hashlib.sha256(), 0
                 with open(part, "wb") as f:
                     for b in chunks:
                         f.write(b)
-                dest = publish(part, INBOX, safe_name(name, ext))
+                        h.update(b)
+                        n += len(b)
+                if order:
+                    os.utime(part, (time.time(), order))
+                with _recv_lock:   # (two copies of one file arriving at once: the second is dropped here)
+                    seen = already_received(uid, h.hexdigest(), n)
+                    if seen:
+                        part.unlink(missing_ok=True)
+                        log(f"  already here: {seen.get('name')}")
+                        return
+                    dest = publish(part, INBOX, safe_name(name, ext))
+                    remember_received(uid, h.hexdigest(), n, dest.name)
             except BaseException:
                 part.unlink(missing_ok=True)
                 raise

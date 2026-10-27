@@ -1,14 +1,14 @@
 {
- "version": "1.0.476",
- "build": 476,
- "built": "2026-10-23T21:43:01.477Z",
+ "version": "1.0.494",
+ "build": 494,
+ "built": "2026-10-27T10:16:53.006Z",
  "notes": [
-  "Shivo Labs AI 2.0.27: look at several images at once, mood boards and comparisons, upscaler",
-  "Shivo Labs AI 2.0.26: credits reset-day controls are real buttons; the Usage chat list no longer shifts",
-  "Shivo Labs AI 2.0.25: slides and sheets, formatting bar, per-chat preview, browser tabs",
-  "Docs: one update for the hub, Shivo Labs AI and the modules (STATE.md, hub/README.md, ai/CLAUDE.md)",
-  "Updates: AI errors keep their own words",
-  "Settings: shows Updating... while a pressed check installs"
+  "Beam: each file once, in the order sent, on time",
+  "Vehicle Studio: reframed photos, straight front from above, straight rear",
+  "Vehicle Studio: photo set in 4:5, 9:16 and 16:9",
+  "Vehicle Studio: steady windscreen edges, no floor glare in the film",
+  "Vehicle Studio: 34-second reveal film for the website",
+  "Vehicle Studio: five scene presets for marketing shots"
  ],
  "files": {
   "ai/app/Fabra Labs AI.vbs": "af7397a58ca9b15037e75308f77b3684712e6043913cbdf62b027b5cd4bf54e9",
@@ -11381,7 +11381,7 @@
   "beam/app/beam/assets/fonts/Sora-Light.ttf": "6db01b5e1c003287352417d26f068f0cafbde8f6b763e7717654fb0c051f9777",
   "beam/app/beam/assets/fonts/Sora-SemiBold.ttf": "614cc019d57fb8756d4862e666c7cbbd7ba20dbf98cc48a559184da666bd2a9a",
   "beam/app/beam/assets/logo.png": "b4ab600ad5e55dc13fd29b041afefcf82f844a2a9341cf3d4df8d1909693f958",
-  "beam/app/beam/beam.py": "0c5c1414f0da91d0b3593795b3eb49ceae44a4e5d099ad6c072918b6f1329f8d",
+  "beam/app/beam/beam.py": "94ea78cca0495ecbff3fbf9839167aa80653c8feea99a8ea41125855be23eda2",
   "beam/app/beam/beamfs.py": "6147e6fa16d311f3e7ac55600e0b76093c6988edf74dd48ad892bb12c9b7fcaa",
   "beam/app/beam/phone.html": "e1ce2581f60a8b27ba79890b983cc8a9cb9d0f3b5fd847adf681a069c74fd4b1",
   "hub/README.md": "44ba242690a185ed25c82ea51c3ee7320059719f319f9c3d6334e127cbc48cd1",
